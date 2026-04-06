@@ -571,12 +571,12 @@ const WALLET_TAGS = {
 };
 
 const CHAINS = {
-  ethereum:  { name:"ETH",  arkhamId:"ethereum",    color:"#4fa3ff", active:true  },
-  arbitrum:  { name:"ARB",  arkhamId:"arbitrum",    color:"#28a0f0", active:true  },
-  optimism:  { name:"OP",   arkhamId:"optimism",    color:"#ff5a57", active:false },
-  base:      { name:"BASE", arkhamId:"base",        color:"#3a7bff", active:false },
-  bsc:       { name:"BSC",  arkhamId:"bsc",         color:"#f0b90b", active:false },
-  avalanche: { name:"AVAX", arkhamId:"avalanche_c", color:"#e84142", active:false }
+  ethereum:  { name:"ETH",  arkhamId:"ethereum",      color:"#4fa3ff", active:true  },
+  arbitrum:  { name:"ARB",  arkhamId:"arbitrum_one",  color:"#28a0f0", active:true  },
+  optimism:  { name:"OP",   arkhamId:"optimism",      color:"#ff5a57", active:false },
+  base:      { name:"BASE", arkhamId:"base",          color:"#3a7bff", active:false },
+  bsc:       { name:"BSC",  arkhamId:"bsc",           color:"#f0b90b", active:false },
+  avalanche: { name:"AVAX", arkhamId:"avalanche",     color:"#e84142", active:false }
 };
 
 const STEPS = [
@@ -909,7 +909,7 @@ async function arkFetch(path, params, opts, sess){
   await sess.limiter.acquire(opts.rpm, sess.signal);
   sess.apiCalls++; updateStats();
 
-  const base = opts.proxyUrl || 'https://api.arkm.com';
+  const base = opts.proxyUrl || 'https://api.arkhamintelligence.com';
   const qs   = new URLSearchParams(params).toString();
   const url  = `${base}${path}${qs?'?'+qs:''}`;
 
@@ -944,7 +944,7 @@ async function fetchTransfers(address, flow, chainIds, opts, sess, onPage, extra
   while(true){
     if(sess.signal.aborted) break;
     const params={base:address,flow,limit:opts.pageSize,offset,sortKey:'time',sortDir:'desc',...extraParams};
-    if(chainIds&&chainIds.length) params.chains=chainIds.join(',');
+    if(chainIds&&chainIds.length) params.chain=chainIds.join(',');
     if(opts.timeLast) params.timeLast=opts.timeLast;
 
     let data;
@@ -981,7 +981,7 @@ async function analyzeAddress(address, chainIds, opts, sess){
   setStep(1);
   log(`[STEP 1] ${short(address)} 출금 TX 조회 (${chainIds.join(',')} · ${yrsLabel})`,'dim');
   const outTxs=await fetchTransfers(address,'out',chainIds,opts,sess,
-    (pg,cnt,tot)=>log(`  └ p${pg}: ${cnt}건 (누적 ${tot})`,'dim'),{to:'type:cex'});
+    (pg,cnt,tot)=>log(`  └ p${pg}: ${cnt}건 (누적 ${tot})`,'dim'));
   if(sig.aborted) return [];
   log(`[STEP 1] → 총 ${outTxs.length}건 수집`,'ok');
 
