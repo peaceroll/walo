@@ -586,7 +586,7 @@ const STEPS = [
   { id:4, label:"STEP 4 · 입금 주소 → 인바운드 TX 조회", desc:"Arkham /transfers?base={deposit}&flow=in · 해당 주소로 들어온 TX 전부" },
   { id:5, label:"STEP 5 · from_address 리스트화",        desc:"비거래소 fromAddress 추출 → 클러스터 연결" },
 
-  { id:7, label:"STEP 7 · 재귀 반복",                    desc:"STEP 5 결과를 다시 STEP 1부터 — 신규 개인 지갑이 없을 때까지 반복" }
+  { id:6, label:"STEP 6 · 재귀 반복",                    desc:"STEP 5 결과를 다시 STEP 1부터 — 신규 개인 지갑이 없을 때까지 반복" }
 ];
 
 const EXCH_TYPES = new Set(["exchange","cex","Exchange","CEX","exchange_deposit","exchange wallet","Exchange Deposit"]);
@@ -1119,10 +1119,10 @@ async function startAnalysis(){
       })()));
 
       if(sig.aborted) break;
-      setStep(7);
+      setStep(6);
       queue=[...nextSet].filter(w=>!session.visited.has(w));
-      if(!queue.length){ log('\n✓ STEP 7: 신규 개인 지갑 없음 — 재귀 완료','ok'); break; }
-      log(`[STEP 7] 신규 ${queue.length}개 → ROUND ${session.round+1}`,'info');
+      if(!queue.length){ log('\n✓ STEP 6: 신규 개인 지갑 없음 — 재귀 완료','ok'); break; }
+      log(`[STEP 6] 신규 ${queue.length}개 → ROUND ${session.round+1}`,'info');
     }
   }catch(e){
     if(e.name!=='AbortError') log('치명 오류: '+e.message,'err');
