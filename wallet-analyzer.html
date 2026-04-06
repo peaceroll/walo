@@ -585,7 +585,7 @@ const STEPS = [
   { id:3, label:"STEP 3 · 거래소 입금 주소 발견",        desc:"거래소 entity가 확인된 to_address를 입금 주소로 확정" },
   { id:4, label:"STEP 4 · 입금 주소 → 인바운드 TX 조회", desc:"Arkham /transfers?base={deposit}&flow=in · 해당 주소로 들어온 TX 전부" },
   { id:5, label:"STEP 5 · from_address 리스트화",        desc:"비거래소 fromAddress 추출 → 클러스터 연결" },
-  { id:6, label:"STEP 6 · Arkham 링크 생성",             desc:"https://intel.arkm.com/explorer/address/{address}" },
+
   { id:7, label:"STEP 7 · 재귀 반복",                    desc:"STEP 5 결과를 다시 STEP 1부터 — 신규 개인 지갑이 없을 때까지 반복" }
 ];
 
@@ -807,7 +807,7 @@ class AnalysisSession {
   get unnamedStats(){ if(!this._uCache) this._uCache=[...this._stats.values()].filter(s=>!s.isNamed); return this._uCache; }
 
   addResult(r){
-    const key = r.wallet+'::'+r.deposit+'::'+r.chain;
+    const key = r.wallet+'::'+r.deposit; // 체인 무관 중복 제거
     if(this._results.has(key)) return false;
     this._results.set(key, r);
     this._rCache = this._nCache = this._uCache = null; // 캐시 무효화
@@ -1008,7 +1008,7 @@ async function analyzeAddress(address, chainIds, opts, sess){
     const toObj=tx.toAddress||tx.to; if(!toObj) continue;
     const dep=(toObj.address||'').toLowerCase(); if(!dep) continue;
     const chain=tx.chain||(chainIds[0]||'');
-    const k=dep+'::'+chain;
+    const k=dep; // 체인 무관 — 같은 입금주소는 1회만
     if(seenTo.has(k)) continue; seenTo.add(k);
     if(!isExch(toObj)) continue;
     exchDeps.set(k,{dep,name:entName(toObj),chain});
@@ -1038,13 +1038,13 @@ async function analyzeAddress(address, chainIds, opts, sess){
 
     // STEP 4: 입금 주소 인바운드 TX (캐시)
     setStep(4);
-    const ck=e.dep+'::'+e.chain;
+    const ck=e.dep; // 체인 무관 캐시
     let inTxs=sess.txCache.get(ck);
     if(inTxs){
       log(`[STEP 4] ${short(e.dep)} 캐시 (${inTxs.length}건)`,'dim');
     }else{
       log(`[STEP 4] ${short(e.dep)} (${e.name} · ${e.chain}) 인바운드 조회`,'info');
-      inTxs=await fetchTransfers(e.dep,'in',[e.chain],opts,sess,
+      inTxs=await fetchTransfers(e.dep,'in',[],opts,sess,
         (pg,cnt,tot)=>log(`  └ p${pg}: ${cnt}건 (누적 ${tot})`,'dim'));
       sess.txCache.set(ck,inTxs);
       log(`[STEP 4] → ${inTxs.length}건 수집`,'ok');
@@ -1067,9 +1067,6 @@ async function analyzeAddress(address, chainIds, opts, sess){
     recordWallet(low,e.dep,e.name,e.chain,0,sess);
   }
 
-  // STEP 6: Arkham 링크 (renderResults에서 생성)
-  setStep(6);
-  log(`[STEP 6] 완료 — ${short(address)}`,'ok');
   return newWallets;
 }
 
