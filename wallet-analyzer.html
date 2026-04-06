@@ -96,10 +96,11 @@ a:hover{text-decoration:underline}
     <div style="display:flex;align-items:center;gap:6px">
       <span style="font-size:10px;color:#7a9ab8">조회 기간</span>
       <select id="lookback-years" style="background:#07101a;border:1px solid var(--border);border-radius:3px;color:#c8d3e0;font-family:'Courier New',monospace;font-size:11px;padding:5px 6px;outline:none">
-        <option value="1">1년</option>
+        <option value="0.25">3개월 (권장)</option>
+        <option value="0.5">6개월</option>
+        <option value="1" selected>1년</option>
         <option value="2">2년</option>
-        <option value="3" selected>3년</option>
-        <option value="5">5년</option>
+        <option value="3">3년</option>
         <option value="0">전체 (무제한)</option>
       </select>
     </div>
@@ -615,7 +616,7 @@ const fmtUsd = v  => v&&v>0 ? '$'+Number(v).toLocaleString('en',{maximumFraction
 
 /** UI 옵션을 한 번에 읽어 반환 — 모든 API 함수에 주입, DOM 직접 읽기 없음 */
 function readOpts(){
-  const yrs = parseInt($('lookback-years').value, 10);
+  const yrs = parseFloat($('lookback-years').value);
   return {
     apiKey:   $('key-arkham').value.trim(),
     proxyUrl: ($('proxy-url').value||'').trim().replace(/\/+$/, ''),
