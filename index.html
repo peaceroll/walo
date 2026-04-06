@@ -885,9 +885,13 @@ async function arkFetch(path, params, opts, sess){
   const url = `https://api.arkhamintelligence.com${path}${qs?'?'+qs:''}`;
 
   while(true){
+    // signal을 fetch에 직접 전달하지 않음:
+    // 일부 브라우저에서 AbortSignal이 structured clone 불가 오류 발생
+    // 대신 fetch 완료 후 aborted 상태를 수동 체크
     let resp;
-    try{ resp=await fetch(url,{headers:{'API-Key':opts.apiKey},signal:sess.signal}); }
-    catch(e){ if(e.name==='AbortError') throw e; throw new Error('네트워크: '+e.message); }
+    try{ resp=await fetch(url,{headers:{'API-Key':opts.apiKey}}); }
+    catch(e){ throw new Error('네트워크: '+e.message); }
+    if(sess.signal.aborted) throw new DOMException('Aborted','AbortError');
 
     if(resp.status===429){
       log('⚠ 429 Rate limit — 61초 대기','warn');
