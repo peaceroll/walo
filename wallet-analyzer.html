@@ -588,7 +588,7 @@ const STEPS = [
   { id:7, label:"STEP 7 · 재귀 반복",                    desc:"STEP 5 결과를 다시 STEP 1부터 — 신규 개인 지갑이 없을 때까지 반복" }
 ];
 
-const EXCH_TYPES = new Set(["exchange","cex","Exchange","CEX"]);
+const EXCH_TYPES = new Set(["exchange","cex","Exchange","CEX","exchange_deposit","exchange wallet","Exchange Deposit"]);
 
 const TAG_PRIORITY = {"노드":0,"예치":1,"사커넥":2,"이건가?":3,"":4};
 const TAG_STYLE = {
@@ -975,7 +975,15 @@ async function analyzeAddress(address, chainIds, opts, sess){
     exchDeps.set(k,{dep,name:entName(toObj),chain});
     log(`[STEP 2] 거래소: ${short(dep)} = ${entName(toObj)} (${chain})`,'ok');
   }
-  if(!exchDeps.size){ log(`[STEP 2] ${short(address)}: 거래소 출금 없음`,'dim'); return []; }
+  // 디버그: 발견된 entity type 목록 출력
+  const entityTypes = new Set();
+  for(const tx of outTxs){
+    const toObj = tx.toAddress||tx.to;
+    if(toObj && toObj.arkhamEntity) entityTypes.add(toObj.arkhamEntity.type||'(없음)');
+  }
+  if(entityTypes.size) log(`[STEP 2] 발견된 entity types: ${[...entityTypes].slice(0,10).join(', ')}`,'dim');
+
+  if(!exchDeps.size){ log(`[STEP 2] ${short(address)}: 거래소 출금 없음 (총 ${outTxs.length}건 중 entity있는 TX: ${[...entityTypes].join(', ')||'없음'})`,'dim'); return []; }
 
   // STEP 3: 입금 주소 확정
   setStep(3);
