@@ -86,7 +86,7 @@ a:hover{text-decoration:underline}
     </div>
     <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
       <span style="font-size:11px;color:#7a9ab8;width:80px;flex-shrink:0">프록시 URL</span>
-      <input type="text" id="proxy-url" placeholder="CORS 오류 시: http://[IP]:[포트] 입력 · 비워두면 직접 연결" style="font-size:11px">
+      <input type="text" id="proxy-url" placeholder="프록시 URL" style="font-size:11px">
     </div>
     <div style="margin-top:4px;font-size:10px;color:#2a4a6a">
       vast.ai 프록시 서버 주소 · 비워두면 Arkham API 직접 호출 (CORS 오류 발생할 수 있음)
@@ -617,12 +617,15 @@ const fmtUsd = v  => v&&v>0 ? '$'+Number(v).toLocaleString('en',{maximumFraction
 /** UI 옵션을 한 번에 읽어 반환 — 모든 API 함수에 주입, DOM 직접 읽기 없음 */
 function readOpts(){
   const yrs = parseFloat($('lookback-years').value);
+  // timeLast: Arkham API 네이티브 파라미터 (30d, 90d, 1y 등)
+  const timeLastMap = {0.25:'90d', 0.5:'180d', 1:'1y', 2:'2y', 3:'3y', 0:null};
   return {
     apiKey:   $('key-arkham').value.trim(),
     proxyUrl: ($('proxy-url').value||'').trim().replace(/\/+$/, ''),
     rpm:      parseInt($('rpm-limit').value)||60,
     pageSize: Math.min(100, parseInt($('page-size').value)||100),
-    timeGte:  (!yrs||isNaN(yrs)) ? null : Math.floor(Date.now()/1000)-yrs*365*24*3600,
+    timeLast: (!yrs||isNaN(yrs)) ? null : (timeLastMap[yrs]||Math.round(yrs*365)+'d'),
+    timeGte:  null, // timeLast 사용 시 불필요
     workerN:  parseInt($('worker-count').value)||3,
   };
 }
@@ -875,19 +878,29 @@ function activeChainIds(){ return Object.values(CHAINS).filter(c=>c.active).map(
 // ══════════════════════════════════════════════════════════════════
 //  PURE API — opts 주입, DOM 읽기 없음
 // ══════════════════════════════════════════════════════════════════
-const EXCH_KEYWORDS = ['deposit','withdraw','binance','okx','gate','bybit','upbit','bithumb','kraken','coinbase','kucoin','huobi','bitget','mexc'];
+const EXCH_KEYWORDS = ['deposit','binance','okx','gate','bybit','upbit','bithumb','kraken','coinbase','kucoin','huobi','bitget','mexc','bitmex','crypto.com'];
 function isExch(obj){
   if(!obj) return false;
+  // 1. depositServiceID — Arkham이 직접 입금주소로 분류
+  if(obj.depositServiceID) return true;
+  // 2. entity type (exchange, cex)
   if(obj.arkhamEntity && EXCH_TYPES.has(obj.arkhamEntity.type)) return true;
-  const ename=((obj.arkhamEntity&&(obj.arkhamEntity.name||obj.arkhamEntity.id))||'').toLowerCase();
+  // 3. predictedEntity (확률적 귀속)
+  if(obj.predictedEntity && EXCH_TYPES.has(obj.predictedEntity.type)) return true;
+  // 4. entity name/id 키워드
+  const ename=((obj.arkhamEntity&&(obj.arkhamEntity.name||obj.arkhamEntity.id))||(obj.predictedEntity&&(obj.predictedEntity.name||obj.predictedEntity.id))||'').toLowerCase();
   if(ename && EXCH_KEYWORDS.some(k=>ename.includes(k))) return true;
+  // 5. label name 키워드
   const lname=((obj.arkhamLabel&&obj.arkhamLabel.name)||'').toLowerCase();
   if(lname && EXCH_KEYWORDS.some(k=>lname.includes(k))) return true;
   return false;
 }
 function entName(obj){
   if(!obj) return '';
-  return (obj.arkhamLabel&&obj.arkhamLabel.name)||(obj.arkhamEntity&&obj.arkhamEntity.name)||(obj.arkhamEntity&&obj.arkhamEntity.id)||'';
+  return (obj.arkhamLabel&&obj.arkhamLabel.name)
+    ||(obj.arkhamEntity&&(obj.arkhamEntity.name||obj.arkhamEntity.id))
+    ||(obj.predictedEntity&&(obj.predictedEntity.name||obj.predictedEntity.id))
+    ||'';
 }
 
 /** 완전 순수 함수: opts.apiKey 사용, DOM 읽기 없음 */
@@ -896,7 +909,7 @@ async function arkFetch(path, params, opts, sess){
   await sess.limiter.acquire(opts.rpm, sess.signal);
   sess.apiCalls++; updateStats();
 
-  const base = opts.proxyUrl || 'https://api.arkhamintelligence.com';
+  const base = opts.proxyUrl || 'https://api.arkm.com';
   const qs   = new URLSearchParams(params).toString();
   const url  = `${base}${path}${qs?'?'+qs:''}`;
 
@@ -926,13 +939,13 @@ async function arkFetch(path, params, opts, sess){
 }
 
 /** 완전 순수: opts 주입, DOM 없음, onPage 콜백으로 로깅 분리 */
-async function fetchTransfers(address, flow, chainIds, opts, sess, onPage){
+async function fetchTransfers(address, flow, chainIds, opts, sess, onPage, extraParams={}){
   const txs=[]; let offset=0, page=0;
   while(true){
     if(sess.signal.aborted) break;
-    const params={base:address,flow,limit:opts.pageSize,offset};
-    if(chainIds&&chainIds.length) params.chain=chainIds.join(',');
-    if(opts.timeGte) params.timeGte=opts.timeGte;
+    const params={base:address,flow,limit:opts.pageSize,offset,sortKey:'time',sortDir:'desc',...extraParams};
+    if(chainIds&&chainIds.length) params.chains=chainIds.join(',');
+    if(opts.timeLast) params.timeLast=opts.timeLast;
 
     let data;
     try{ data=await arkFetch('/transfers',params,opts,sess); }
@@ -962,13 +975,13 @@ function recordWallet(wallet, deposit, exchange, chain, usd, sess){
 
 async function analyzeAddress(address, chainIds, opts, sess){
   const low=address.toLowerCase(), sig=sess.signal;
-  const yrsLabel=opts.timeGte?(()=>{const m=Math.round((Date.now()/1000-opts.timeGte)/2592000);return m<12?m+'개월':Math.round(m/12)+'년';})():'전체';
+  const yrsLabel=opts.timeLast?opts.timeLast:'전체';
 
   // STEP 1: 아웃바운드 TX 전체 수집
   setStep(1);
   log(`[STEP 1] ${short(address)} 출금 TX 조회 (${chainIds.join(',')} · ${yrsLabel})`,'dim');
   const outTxs=await fetchTransfers(address,'out',chainIds,opts,sess,
-    (pg,cnt,tot)=>log(`  └ p${pg}: ${cnt}건 (누적 ${tot})`,'dim'));
+    (pg,cnt,tot)=>log(`  └ p${pg}: ${cnt}건 (누적 ${tot})`,'dim'),{to:'type:cex'});
   if(sig.aborted) return [];
   log(`[STEP 1] → 총 ${outTxs.length}건 수집`,'ok');
 
@@ -1030,7 +1043,7 @@ async function analyzeAddress(address, chainIds, opts, sess){
       const from=(fromObj.address||'').toLowerCase();
       if(!from||from===e.dep||isExch(fromObj)||fromSeen.has(from)) continue;
       fromSeen.add(from);
-      const usd=tx.usdValue||0;
+      const usd=tx.historicalUSD||tx.usdValue||0;
       log(`[STEP 5] from: ${short(from)} → ${e.name}${usd>0?' $'+Math.round(usd).toLocaleString():''}`);
       recordWallet(from,e.dep,e.name,e.chain,usd,sess);
       if(!sess.visited.has(from)&&!newSeen.has(from)){ newSeen.add(from); newWallets.push(from); }
@@ -1064,7 +1077,7 @@ async function startAnalysis(){
   $('res-body').innerHTML=''; $('no-res').style.display=''; $('res-count').textContent='0';
   setStep(0); updateStats();
 
-  const yrsLabel=opts.timeGte?(()=>{const m=Math.round((Date.now()/1000-opts.timeGte)/2592000);return m<12?m+'개월':Math.round(m/12)+'년';})()+'이내':'전체 기간';
+  const yrsLabel=opts.timeLast?opts.timeLast+' 이내':'전체 기간';
   log('=== 분석 시작 — Arkham Intelligence API ===','info');
   log(`선택: ${toAnalyze.length}개 / ${seedMgr.seeds.length}개 · 체인: ${chains.join(',')} · 기간: ${yrsLabel} · 워커: ${opts.workerN}개 · RPM: ${opts.rpm}`,'info');
 
@@ -1317,6 +1330,19 @@ function renderSteps(){
 // ══════════════════════════════════════════════════════════════════
 //  초기화
 // ══════════════════════════════════════════════════════════════════
+// localStorage에서 설정 복원 + 기본값
+(function(){
+  const saved = {
+    key:   localStorage.getItem('arkham_key')   || '',
+    proxy: localStorage.getItem('arkham_proxy') || 'https://walo.onrender.com',
+  };
+  if(saved.key)   $('key-arkham').value  = saved.key;
+  if(saved.proxy) $('proxy-url').value   = saved.proxy;
+  // 변경 시 localStorage 저장
+  $('key-arkham').addEventListener('input', ()=>localStorage.setItem('arkham_key',   $('key-arkham').value));
+  $('proxy-url').addEventListener('input',  ()=>localStorage.setItem('arkham_proxy', $('proxy-url').value));
+})();
+
 renderChains();
 renderSteps();
 renderAddrList();

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Arkham API 프록시 서버 — Cloudflare 우회 + gzip 압축 해제 버전
+Arkham API 프록시 서버 — Cloudflare 우회 + gzip 압축 해제
+Base URL: https://api.arkm.com
 """
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import urllib.request, urllib.error, ssl, sys, gzip, zlib
 
 PORT   = 8080
-ARKHAM = 'https://api.arkhamintelligence.com'
+ARKHAM = 'https://api.arkm.com'
 CORS   = {
     'Access-Control-Allow-Origin':  '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
@@ -31,12 +32,6 @@ def decompress(data, encoding):
         return gzip.decompress(data)
     if encoding == 'deflate':
         return zlib.decompress(data)
-    if encoding == 'br':
-        try:
-            import brotli
-            return brotli.decompress(data)
-        except ImportError:
-            return data
     return data
 
 class Proxy(BaseHTTPRequestHandler):
@@ -49,7 +44,6 @@ class Proxy(BaseHTTPRequestHandler):
         url = ARKHAM + self.path
         req = urllib.request.Request(url)
         for k, v in BROWSER_HEADERS.items(): req.add_header(k, v)
-        # gzip만 요청 (br 제외 — brotli 라이브러리 없을 수 있음)
         req.add_header('Accept-Encoding', 'gzip, deflate')
         api_key = self.headers.get('API-Key', '')
         if api_key: req.add_header('API-Key', api_key)
@@ -57,18 +51,16 @@ class Proxy(BaseHTTPRequestHandler):
         ctx = ssl.create_default_context()
         try:
             with urllib.request.urlopen(req, context=ctx) as r:
-                encoding = r.headers.get('Content-Encoding', '')
-                raw = r.read()
-                body = decompress(raw, encoding)
+                enc  = r.headers.get('Content-Encoding', '')
+                body = decompress(r.read(), enc)
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             for k, v in CORS.items(): self.send_header(k, v)
             self.end_headers()
             self.wfile.write(body)
         except urllib.error.HTTPError as e:
-            encoding = e.headers.get('Content-Encoding', '')
-            raw  = e.read()
-            body = decompress(raw, encoding)
+            enc  = e.headers.get('Content-Encoding', '')
+            body = decompress(e.read(), enc)
             self.send_response(e.code)
             self.send_header('Content-Type', 'application/json')
             for k, v in CORS.items(): self.send_header(k, v)
@@ -85,5 +77,5 @@ class Proxy(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
-    print(f'프록시 서버 시작: 0.0.0.0:{port}')
+    print(f'프록시 시작: 0.0.0.0:{port} → {ARKHAM}')
     HTTPServer(('0.0.0.0', port), Proxy).serve_forever()
