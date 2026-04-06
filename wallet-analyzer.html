@@ -875,7 +875,16 @@ function activeChainIds(){ return Object.values(CHAINS).filter(c=>c.active).map(
 // ══════════════════════════════════════════════════════════════════
 //  PURE API — opts 주입, DOM 읽기 없음
 // ══════════════════════════════════════════════════════════════════
-function isExch(obj){ return !!(obj&&obj.arkhamEntity&&EXCH_TYPES.has(obj.arkhamEntity.type)); }
+const EXCH_KEYWORDS = ['deposit','withdraw','binance','okx','gate','bybit','upbit','bithumb','kraken','coinbase','kucoin','huobi','bitget','mexc'];
+function isExch(obj){
+  if(!obj) return false;
+  if(obj.arkhamEntity && EXCH_TYPES.has(obj.arkhamEntity.type)) return true;
+  const ename=((obj.arkhamEntity&&(obj.arkhamEntity.name||obj.arkhamEntity.id))||'').toLowerCase();
+  if(ename && EXCH_KEYWORDS.some(k=>ename.includes(k))) return true;
+  const lname=((obj.arkhamLabel&&obj.arkhamLabel.name)||'').toLowerCase();
+  if(lname && EXCH_KEYWORDS.some(k=>lname.includes(k))) return true;
+  return false;
+}
 function entName(obj){
   if(!obj) return '';
   return (obj.arkhamLabel&&obj.arkhamLabel.name)||(obj.arkhamEntity&&obj.arkhamEntity.name)||(obj.arkhamEntity&&obj.arkhamEntity.id)||'';
@@ -953,7 +962,7 @@ function recordWallet(wallet, deposit, exchange, chain, usd, sess){
 
 async function analyzeAddress(address, chainIds, opts, sess){
   const low=address.toLowerCase(), sig=sess.signal;
-  const yrsLabel=opts.timeGte?Math.round((Date.now()/1000-opts.timeGte)/31536000)+'년':'전체';
+  const yrsLabel=opts.timeGte?(()=>{const m=Math.round((Date.now()/1000-opts.timeGte)/2592000);return m<12?m+'개월':Math.round(m/12)+'년';})():'전체';
 
   // STEP 1: 아웃바운드 TX 전체 수집
   setStep(1);
@@ -978,11 +987,14 @@ async function analyzeAddress(address, chainIds, opts, sess){
   }
   // 디버그: 발견된 entity type 목록 출력
   const entityTypes = new Set();
+  const labelSamples = new Set();
   for(const tx of outTxs){
     const toObj = tx.toAddress||tx.to;
     if(toObj && toObj.arkhamEntity) entityTypes.add(toObj.arkhamEntity.type||'(없음)');
+    if(toObj && toObj.arkhamLabel && toObj.arkhamLabel.name) labelSamples.add(toObj.arkhamLabel.name);
   }
-  if(entityTypes.size) log(`[STEP 2] 발견된 entity types: ${[...entityTypes].slice(0,10).join(', ')}`,'dim');
+  if(entityTypes.size) log(`[STEP 2] entity types: ${[...entityTypes].slice(0,8).join(', ')}`,'dim');
+  if(labelSamples.size) log(`[STEP 2] labels 샘플: ${[...labelSamples].slice(0,6).join(', ')}`,'dim');
 
   if(!exchDeps.size){ log(`[STEP 2] ${short(address)}: 거래소 출금 없음 (총 ${outTxs.length}건 중 entity있는 TX: ${[...entityTypes].join(', ')||'없음'})`,'dim'); return []; }
 
@@ -1052,7 +1064,7 @@ async function startAnalysis(){
   $('res-body').innerHTML=''; $('no-res').style.display=''; $('res-count').textContent='0';
   setStep(0); updateStats();
 
-  const yrsLabel=opts.timeGte?Math.round((Date.now()/1000-opts.timeGte)/31536000)+'년 이내':'전체 기간';
+  const yrsLabel=opts.timeGte?(()=>{const m=Math.round((Date.now()/1000-opts.timeGte)/2592000);return m<12?m+'개월':Math.round(m/12)+'년';})()+'이내':'전체 기간';
   log('=== 분석 시작 — Arkham Intelligence API ===','info');
   log(`선택: ${toAnalyze.length}개 / ${seedMgr.seeds.length}개 · 체인: ${chains.join(',')} · 기간: ${yrsLabel} · 워커: ${opts.workerN}개 · RPM: ${opts.rpm}`,'info');
 
