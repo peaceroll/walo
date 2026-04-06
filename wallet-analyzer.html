@@ -878,21 +878,37 @@ function activeChainIds(){ return Object.values(CHAINS).filter(c=>c.active).map(
 // ══════════════════════════════════════════════════════════════════
 //  PURE API — opts 주입, DOM 읽기 없음
 // ══════════════════════════════════════════════════════════════════
-const EXCH_KEYWORDS = ['deposit','binance','okx','gate','bybit','upbit','bithumb','kraken','coinbase','kucoin','huobi','bitget','mexc','bitmex','crypto.com'];
+// 감지할 거래소 이름 화이트리스트 (정확한 이름만)
+const EXCH_NAMES = ['okx','gate','bybit','bithumb','binance','upbit','kucoin',
+  'kraken','coinbase','huobi','bitget','mexc','bitmex','crypto.com','gateio',
+  'bitfinex','bitstamp','htx','bitmart','phemex'];
+
 function isExch(obj){
   if(!obj) return false;
-  // 1. depositServiceID — Arkham이 직접 입금주소로 분류
-  if(obj.depositServiceID) return true;
+
+  // 1. depositServiceID — Arkham이 직접 거래소 입금주소로 분류
+  //    단, 알려진 거래소 이름과 매칭될 때만 인정
+  if(obj.depositServiceID){
+    const svc = obj.depositServiceID.toLowerCase();
+    if(EXCH_NAMES.some(k => svc.includes(k))) return true;
+  }
+
   // 2. entity type (exchange, cex)
   if(obj.arkhamEntity && EXCH_TYPES.has(obj.arkhamEntity.type)) return true;
-  // 3. predictedEntity (확률적 귀속)
   if(obj.predictedEntity && EXCH_TYPES.has(obj.predictedEntity.type)) return true;
-  // 4. entity name/id 키워드
-  const ename=((obj.arkhamEntity&&(obj.arkhamEntity.name||obj.arkhamEntity.id))||(obj.predictedEntity&&(obj.predictedEntity.name||obj.predictedEntity.id))||'').toLowerCase();
-  if(ename && EXCH_KEYWORDS.some(k=>ename.includes(k))) return true;
-  // 5. label name 키워드
-  const lname=((obj.arkhamLabel&&obj.arkhamLabel.name)||'').toLowerCase();
-  if(lname && EXCH_KEYWORDS.some(k=>lname.includes(k))) return true;
+
+  // 3. label name: 반드시 "Deposit" + 거래소 이름 동시 포함
+  //    → "OKX Deposit" ✅  "RingAdapter" ❌  "PancakeSwapHook" ❌
+  const lname = ((obj.arkhamLabel&&obj.arkhamLabel.name)||'').toLowerCase();
+  if(lname.includes('deposit') && EXCH_NAMES.some(k => lname.includes(k))) return true;
+
+  // 4. entity name/id: 거래소 이름 포함 + (exchange/cex 타입이거나 deposit 포함)
+  const ename = ((obj.arkhamEntity&&(obj.arkhamEntity.name||obj.arkhamEntity.id))
+    ||(obj.predictedEntity&&(obj.predictedEntity.name||obj.predictedEntity.id))||'').toLowerCase();
+  if(ename && EXCH_NAMES.some(k => ename.includes(k))
+     && (ename.includes('deposit') || EXCH_TYPES.has(obj.arkhamEntity?.type) || EXCH_TYPES.has(obj.predictedEntity?.type)))
+    return true;
+
   return false;
 }
 function entName(obj){
