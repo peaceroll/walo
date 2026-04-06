@@ -7,7 +7,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import urllib.request, urllib.error, ssl, sys, gzip, zlib
 
 PORT   = 8080
-ARKHAM = 'https://api.arkm.com'
+ARKHAM = 'https://api.arkhamintelligence.com'
 CORS   = {
     'Access-Control-Allow-Origin':  '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
