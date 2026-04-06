@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Arkham API 프록시 서버 — Cloudflare 우회 버전
-브라우저처럼 보이는 헤더를 추가해 차단을 방지합니다.
+Arkham API 프록시 서버 — Cloudflare 우회 + gzip 압축 해제 버전
 """
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import urllib.request, urllib.error, ssl, sys
+import urllib.request, urllib.error, ssl, sys, gzip, zlib
 
 PORT   = 8080
 ARKHAM = 'https://api.arkhamintelligence.com'
@@ -14,19 +13,31 @@ CORS   = {
     'Access-Control-Allow-Headers': 'API-Key, Content-Type',
 }
 BROWSER_HEADERS = {
-    'User-Agent':       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept':           'application/json, text/plain, */*',
-    'Accept-Language':  'en-US,en;q=0.9',
-    'Accept-Encoding':  'gzip, deflate, br',
-    'Origin':           'https://intel.arkm.com',
-    'Referer':          'https://intel.arkm.com/',
-    'sec-ch-ua':        '"Chromium";v="124", "Google Chrome";v="124"',
-    'sec-ch-ua-mobile': '?0',
+    'User-Agent':         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept':             'application/json, text/plain, */*',
+    'Accept-Language':    'en-US,en;q=0.9',
+    'Origin':             'https://intel.arkm.com',
+    'Referer':            'https://intel.arkm.com/',
+    'sec-ch-ua':          '"Chromium";v="124", "Google Chrome";v="124"',
+    'sec-ch-ua-mobile':   '?0',
     'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest':   'empty',
-    'sec-fetch-mode':   'cors',
-    'sec-fetch-site':   'same-site',
+    'sec-fetch-dest':     'empty',
+    'sec-fetch-mode':     'cors',
+    'sec-fetch-site':     'same-site',
 }
+
+def decompress(data, encoding):
+    if encoding == 'gzip':
+        return gzip.decompress(data)
+    if encoding == 'deflate':
+        return zlib.decompress(data)
+    if encoding == 'br':
+        try:
+            import brotli
+            return brotli.decompress(data)
+        except ImportError:
+            return data
+    return data
 
 class Proxy(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
@@ -38,20 +49,26 @@ class Proxy(BaseHTTPRequestHandler):
         url = ARKHAM + self.path
         req = urllib.request.Request(url)
         for k, v in BROWSER_HEADERS.items(): req.add_header(k, v)
+        # gzip만 요청 (br 제외 — brotli 라이브러리 없을 수 있음)
+        req.add_header('Accept-Encoding', 'gzip, deflate')
         api_key = self.headers.get('API-Key', '')
         if api_key: req.add_header('API-Key', api_key)
 
         ctx = ssl.create_default_context()
         try:
             with urllib.request.urlopen(req, context=ctx) as r:
-                body = r.read()
+                encoding = r.headers.get('Content-Encoding', '')
+                raw = r.read()
+                body = decompress(raw, encoding)
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             for k, v in CORS.items(): self.send_header(k, v)
             self.end_headers()
             self.wfile.write(body)
         except urllib.error.HTTPError as e:
-            body = e.read()
+            encoding = e.headers.get('Content-Encoding', '')
+            raw  = e.read()
+            body = decompress(raw, encoding)
             self.send_response(e.code)
             self.send_header('Content-Type', 'application/json')
             for k, v in CORS.items(): self.send_header(k, v)
