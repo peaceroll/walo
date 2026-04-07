@@ -1051,7 +1051,7 @@ async function analyzeAddress(address, chainIds, opts, sess){
       log(`[STEP 4] ${short(e.dep)} 캐시 (${inTxs.length}건)`,'dim');
     }else{
       log(`[STEP 4] ${short(e.dep)} (${e.name} · ${e.chain}) 인바운드 조회`,'info');
-      inTxs=await fetchTransfers(e.dep,'in',[],{...opts,usdGte:1,fromFilter:'type:individual'},sess,
+      inTxs=await fetchTransfers(e.dep,'in',[],{...opts,usdGte:1,fromExclude:'!type:exchange'},sess,
         (pg,cnt,tot)=>log(`  └ p${pg}: ${cnt}건 (누적 ${tot})`,'dim'));
       sess.txCache.set(ck,inTxs);
       log(`[STEP 4] → ${inTxs.length}건 수집`,'ok');
@@ -1073,11 +1073,13 @@ async function analyzeAddress(address, chainIds, opts, sess){
          _fn.includes('hot wallet')||_fn.includes('cold wallet')||
          (fromObj.arkhamEntity&&fromObj.arkhamEntity.type==='exchange')||
          (fromObj.predictedEntity&&fromObj.predictedEntity.type==='exchange')) continue;
-      // Arkham이 이미 식별한 known entity (whale, fund, protocol 등) 제외
-      // 단, 시드 주소는 entity가 있어도 유지
+      // Arkham이 이미 식별한 known entity 제외 (시드는 예외)
       const _hasEntity = fromObj.arkhamEntity && fromObj.arkhamEntity.id;
       const _isSeed = seedMgr.set.has(from);
       if(_hasEntity && !_isSeed) continue;
+      // label에 deployer, multisig, treasury, team 등 프로토콜 주소 제외
+      const _SKIP = ['deployer','multisig','treasury','team wallet','gnosis safe','timelock','vesting','foundation','operator'];
+      if(_SKIP.some(k=>_fl.includes(k)||_fn.includes(k))) continue;
       fromSeen.add(from);
       const usd=tx.historicalUSD||tx.usdValue||0;
       log(`[STEP 5] from: ${short(from)} → ${e.name}${usd>0?' $'+Math.round(usd).toLocaleString():''}`);
