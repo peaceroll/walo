@@ -1067,7 +1067,11 @@ async function analyzeAddress(address, chainIds, opts, sess){
       if(fromObj.contract||fromObj.isContract) continue;
       // 보내는 주소 label에 hot/cold wallet 포함 시 제외 (거래소 자체 지갑)
       const _fl=((fromObj.arkhamLabel&&fromObj.arkhamLabel.name)||'').toLowerCase();
-      if(_fl.includes('hot wallet')||_fl.includes('cold wallet')||_fl.includes('hot_wallet')) continue;
+      const _fn=((fromObj.arkhamEntity&&(fromObj.arkhamEntity.name||fromObj.arkhamEntity.id))||(fromObj.predictedEntity&&fromObj.predictedEntity.name)||'').toLowerCase();
+      if(_fl.includes('hot wallet')||_fl.includes('cold wallet')||_fl.includes('hot_wallet')||
+         _fn.includes('hot wallet')||_fn.includes('cold wallet')||
+         (fromObj.arkhamEntity&&fromObj.arkhamEntity.type==='exchange')||
+         (fromObj.predictedEntity&&fromObj.predictedEntity.type==='exchange')) continue;
       fromSeen.add(from);
       const usd=tx.historicalUSD||tx.usdValue||0;
       log(`[STEP 5] from: ${short(from)} → ${e.name}${usd>0?' $'+Math.round(usd).toLocaleString():''}`);
