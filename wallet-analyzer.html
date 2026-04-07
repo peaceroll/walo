@@ -903,8 +903,13 @@ function isExch(obj){
   if(lname.includes('deposit') && EXCH_NAMES.some(k => lname.includes(k))) return true;
   // Hot/Cold Wallet — 거래소 자체 지갑도 제외
   if((lname.includes('hot wallet')||lname.includes('cold wallet')) && EXCH_NAMES.some(k => lname.includes(k))) return true;
-  // entity type이 exchange인 경우 label 무관 제외
-  if(obj.arkhamEntity && obj.arkhamEntity.type === 'exchange') return true;
+  // DEX/aggregator/bridge 등은 거래소 아님 — 먼저 걸러냄
+  const _t = (obj.arkhamEntity?.type||obj.predictedEntity?.type||'').toLowerCase();
+  const _NON_CEX=['dex','dex-aggregator','bridge','defi','lending-decentralized','derivatives',
+    'crosschain-interoperability','smart-contract-platform','stablecoin','cdp','oracle','yield'];
+  if(_NON_CEX.includes(_t)) return false;
+  // entity type이 exchange인 경우
+  if(_t==='exchange'||_t==='cex') return true;
 
   // 4. entity name/id: 거래소 이름 포함 + (exchange/cex 타입이거나 deposit 포함)
   const ename = ((obj.arkhamEntity&&(obj.arkhamEntity.name||obj.arkhamEntity.id))
@@ -1055,6 +1060,9 @@ async function analyzeAddress(address, chainIds, opts, sess){
         (pg,cnt,tot)=>log(`  └ p${pg}: ${cnt}건 (누적 ${tot})`,'dim'));
       sess.txCache.set(ck,inTxs);
       log(`[STEP 4] → ${inTxs.length}건 수집`,'ok');
+      // 유니크 발신자 수 체크 — 30명 초과 시 공용 주소 스킵
+      const _sndrs=new Set(inTxs.map(t=>(t.fromAddress||t.from)?.address?.toLowerCase()).filter(Boolean));
+      if(_sndrs.size>30){log(`[STEP 4] ⚠ 발신자 ${_sndrs.size}명 초과 — 공용 입금주소 스킵`,'warn');continue;}
     }
 
     // STEP 5: from_address 추출
@@ -1084,7 +1092,7 @@ async function analyzeAddress(address, chainIds, opts, sess){
       const usd=tx.historicalUSD||tx.usdValue||0;
       log(`[STEP 5] from: ${short(from)} → ${e.name}${usd>0?' $'+Math.round(usd).toLocaleString():''}`);
       recordWallet(from,e.dep,e.name,e.chain,usd,sess);
-      if(!sess.visited.has(from)&&!newSeen.has(from)){ newSeen.add(from); newWallets.push(from); }
+      if(!sess.visited.has(from)&&!newSeen.has(from)&&seedMgr.set.has(from)){ newSeen.add(from); newWallets.push(from); }
     }
     recordWallet(low,e.dep,e.name,e.chain,0,sess);
   }
@@ -1264,15 +1272,77 @@ function showReport(){
   });
 
   if(unnamed.length){
-    L.push(d,`■ 신규 발견 지갑 (시드 외) — ${unnamed.length}개`,d);
-    unnamed.forEach((s,i)=>{
-      const addr=s.addrs.values().next().value;
-      L.push(`${(i+1).toString().padStart(3)}위.  ${addr}${WALLET_TAGS[addr]?' ['+WALLET_TAGS[addr]+']':''}`);
-      L.push(`       거래소 입금 주소 (${s.deposits.size}개):`);
+    // 각 신규 지갑마다 연결된 시드 찾기
+    const walletToSeeds = new Map(); // wallet → Set<seedName>
+    for(const s of unnamed){
+      const addr = s.addrs.values().next().value;
+      const seeds = new Set();
       for(const dv of s.deposits.values())
-        L.push(`         ${dv.deposit}  [${dv.exchange} · ${dv.chain}]`);
-      L.push(`       클러스터: ${[...s.clusters].join(', ')}  |  USD: ${s.usdTotal>0?'$'+Math.round(s.usdTotal).toLocaleString():'—'}`,'');
-    });
+        for(const r of sess.results)
+          if(r.deposit===dv.deposit && seedMgr.set.has(r.wallet))
+            seeds.add(PERSON_ADDRESSES[r.wallet]||r.wallet.slice(0,8)+'…');
+      walletToSeeds.set(addr, seeds);
+    }
+
+    // 시드별 그룹핑
+    const seedGroups = new Map(); // seedName → [walletStats]
+    const multiSeedWallets = []; // 복수 시드 연결
+    const noSeedWallets = [];   // 시드 연결 없음
+
+    for(const s of unnamed){
+      const addr = s.addrs.values().next().value;
+      const seeds = walletToSeeds.get(addr);
+      if(seeds.size === 0){
+        noSeedWallets.push(s);
+      } else if(seeds.size === 1){
+        const sn = [...seeds][0];
+        if(!seedGroups.has(sn)) seedGroups.set(sn,[]);
+        seedGroups.get(sn).push(s);
+      } else {
+        multiSeedWallets.push({s, seeds});
+      }
+    }
+
+    // 시드별 출력
+    L.push(d,`■ 신규 발견 지갑 — 시드별 연결`,d);
+    for(const [seedName, wallets] of seedGroups){
+      L.push(`◆ ${seedName}  관련 지갑 (${wallets.length}개)`,'─'.repeat(60));
+      wallets.sort((a,b)=>b.deposits.size-a.deposits.size).forEach((s,i)=>{
+        const addr=s.addrs.values().next().value;
+        L.push(`  ${(i+1).toString().padStart(3)}위.  ${addr}${WALLET_TAGS[addr]?' ['+WALLET_TAGS[addr]+']':''}`);
+        L.push(`         거래소 입금 주소 (${s.deposits.size}개):`);
+        for(const dv of s.deposits.values())
+          L.push(`           ${dv.deposit}  [${dv.exchange} · ${dv.chain}]`);
+        L.push(`         클러스터: ${[...s.clusters].join(', ')}  |  USD: ${s.usdTotal>0?'$'+Math.round(s.usdTotal).toLocaleString():'—'}`,'');
+      });
+    }
+
+    // 복수 시드 연결
+    if(multiSeedWallets.length){
+      L.push(d,'◆ 복수 시드 공통 연결 지갑','─'.repeat(60));
+      multiSeedWallets.sort((a,b)=>b.s.deposits.size-a.s.deposits.size).forEach(({s,seeds},i)=>{
+        const addr=s.addrs.values().next().value;
+        L.push(`  ${(i+1).toString().padStart(3)}위.  ${addr}${WALLET_TAGS[addr]?' ['+WALLET_TAGS[addr]+']':''}`);
+        L.push(`         연결 시드: ${[...seeds].join(', ')}`);
+        L.push(`         거래소 입금 주소 (${s.deposits.size}개):`);
+        for(const dv of s.deposits.values())
+          L.push(`           ${dv.deposit}  [${dv.exchange} · ${dv.chain}]`);
+        L.push(`         클러스터: ${[...s.clusters].join(', ')}  |  USD: ${s.usdTotal>0?'$'+Math.round(s.usdTotal).toLocaleString():'—'}`,'');
+      });
+    }
+
+    // 시드 연결 없는 지갑
+    if(noSeedWallets.length){
+      L.push(d,`◆ 시드와 직접 연결 없는 지갑 (${noSeedWallets.length}개)`,'─'.repeat(60));
+      noSeedWallets.sort((a,b)=>b.deposits.size-a.deposits.size).forEach((s,i)=>{
+        const addr=s.addrs.values().next().value;
+        L.push(`  ${(i+1).toString().padStart(3)}위.  ${addr}`);
+        L.push(`         거래소 입금 주소 (${s.deposits.size}개):`);
+        for(const dv of s.deposits.values())
+          L.push(`           ${dv.deposit}  [${dv.exchange} · ${dv.chain}]`);
+        L.push(`         클러스터: ${[...s.clusters].join(', ')}  |  USD: ${s.usdTotal>0?'$'+Math.round(s.usdTotal).toLocaleString():'—'}`,'');
+      });
+    }
   }
 
   L.push(d,'■ 클러스터별 구성',d);
