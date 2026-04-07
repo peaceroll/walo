@@ -968,6 +968,7 @@ async function fetchTransfers(address, flow, chainIds, opts, sess, onPage, extra
     if(opts.timeLast) params.timeLast=opts.timeLast;
     if(opts.usdGte!=null) params.usdGte=opts.usdGte;
     if(opts.fromExclude) params.from=opts.fromExclude;
+    if(opts.fromFilter) params.from=opts.fromFilter;
 
     let data;
     try{ data=await arkFetch('/transfers',params,opts,sess); }
@@ -1050,7 +1051,7 @@ async function analyzeAddress(address, chainIds, opts, sess){
       log(`[STEP 4] ${short(e.dep)} 캐시 (${inTxs.length}건)`,'dim');
     }else{
       log(`[STEP 4] ${short(e.dep)} (${e.name} · ${e.chain}) 인바운드 조회`,'info');
-      inTxs=await fetchTransfers(e.dep,'in',[],{...opts,usdGte:1,fromExclude:'!type:exchange'},sess,
+      inTxs=await fetchTransfers(e.dep,'in',[],{...opts,usdGte:1,fromFilter:'type:individual'},sess,
         (pg,cnt,tot)=>log(`  └ p${pg}: ${cnt}건 (누적 ${tot})`,'dim'));
       sess.txCache.set(ck,inTxs);
       log(`[STEP 4] → ${inTxs.length}건 수집`,'ok');
@@ -1072,6 +1073,11 @@ async function analyzeAddress(address, chainIds, opts, sess){
          _fn.includes('hot wallet')||_fn.includes('cold wallet')||
          (fromObj.arkhamEntity&&fromObj.arkhamEntity.type==='exchange')||
          (fromObj.predictedEntity&&fromObj.predictedEntity.type==='exchange')) continue;
+      // Arkham이 이미 식별한 known entity (whale, fund, protocol 등) 제외
+      // 단, 시드 주소는 entity가 있어도 유지
+      const _hasEntity = fromObj.arkhamEntity && fromObj.arkhamEntity.id;
+      const _isSeed = seedMgr.set.has(from);
+      if(_hasEntity && !_isSeed) continue;
       fromSeen.add(from);
       const usd=tx.historicalUSD||tx.usdValue||0;
       log(`[STEP 5] from: ${short(from)} → ${e.name}${usd>0?' $'+Math.round(usd).toLocaleString():''}`);
