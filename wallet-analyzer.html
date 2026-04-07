@@ -901,6 +901,10 @@ function isExch(obj){
   //    → "OKX Deposit" ✅  "RingAdapter" ❌  "PancakeSwapHook" ❌
   const lname = ((obj.arkhamLabel&&obj.arkhamLabel.name)||'').toLowerCase();
   if(lname.includes('deposit') && EXCH_NAMES.some(k => lname.includes(k))) return true;
+  // Hot/Cold Wallet — 거래소 자체 지갑도 제외
+  if((lname.includes('hot wallet')||lname.includes('cold wallet')) && EXCH_NAMES.some(k => lname.includes(k))) return true;
+  // entity type이 exchange인 경우 label 무관 제외
+  if(obj.arkhamEntity && obj.arkhamEntity.type === 'exchange') return true;
 
   // 4. entity name/id: 거래소 이름 포함 + (exchange/cex 타입이거나 deposit 포함)
   const ename = ((obj.arkhamEntity&&(obj.arkhamEntity.name||obj.arkhamEntity.id))
@@ -1060,6 +1064,9 @@ async function analyzeAddress(address, chainIds, opts, sess){
       const from=(fromObj.address||'').toLowerCase();
       if(!from||from===e.dep||isExch(fromObj)||fromSeen.has(from)) continue;
       if(fromObj.contract||fromObj.isContract) continue;
+      // 보내는 주소 label에 hot/cold wallet 포함 시 제외 (거래소 자체 지갑)
+      const _fl=((fromObj.arkhamLabel&&fromObj.arkhamLabel.name)||'').toLowerCase();
+      if(_fl.includes('hot wallet')||_fl.includes('cold wallet')||_fl.includes('hot_wallet')) continue;
       fromSeen.add(from);
       const usd=tx.historicalUSD||tx.usdValue||0;
       log(`[STEP 5] from: ${short(from)} → ${e.name}${usd>0?' $'+Math.round(usd).toLocaleString():''}`);
