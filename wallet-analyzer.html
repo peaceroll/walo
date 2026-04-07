@@ -967,6 +967,7 @@ async function fetchTransfers(address, flow, chainIds, opts, sess, onPage, extra
     if(chainIds&&chainIds.length) params.chain=chainIds.join(',');
     if(opts.timeLast) params.timeLast=opts.timeLast;
     if(opts.usdGte!=null) params.usdGte=opts.usdGte;
+    if(opts.fromExclude) params.from=opts.fromExclude;
 
     let data;
     try{ data=await arkFetch('/transfers',params,opts,sess); }
@@ -1049,7 +1050,7 @@ async function analyzeAddress(address, chainIds, opts, sess){
       log(`[STEP 4] ${short(e.dep)} 캐시 (${inTxs.length}건)`,'dim');
     }else{
       log(`[STEP 4] ${short(e.dep)} (${e.name} · ${e.chain}) 인바운드 조회`,'info');
-      inTxs=await fetchTransfers(e.dep,'in',[],{...opts,usdGte:1},sess,
+      inTxs=await fetchTransfers(e.dep,'in',[],{...opts,usdGte:1,fromExclude:'!type:exchange'},sess,
         (pg,cnt,tot)=>log(`  └ p${pg}: ${cnt}건 (누적 ${tot})`,'dim'));
       sess.txCache.set(ck,inTxs);
       log(`[STEP 4] → ${inTxs.length}건 수집`,'ok');
