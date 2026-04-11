@@ -62,14 +62,22 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
 <div class="panel">
   <div style="background:#060e18;border:1px solid rgba(255,179,71,.28);border-radius:4px;padding:12px 14px">
     <div style="font-size:11px;font-weight:700;color:var(--a);margin-bottom:10px">⬡ ALCHEMY API 설정</div>
-    <div style="display:grid;grid-template-columns:80px 1fr;gap:6px;align-items:center">
-      <span style="font-size:11px;color:#7a9ab8">ETH</span>
+    <div style="display:grid;grid-template-columns:auto 70px 1fr;gap:6px 8px;align-items:center">
+      <!-- ETH -->
+      <input type="checkbox" id="on-eth" checked style="accent-color:var(--g);width:14px;height:14px;cursor:pointer">
+      <span style="font-size:11px;color:#4fa3ff;font-weight:700">ETH</span>
       <input type="text" id="rpc-eth" placeholder="https://eth-mainnet.g.alchemy.com/v2/...">
-      <span style="font-size:11px;color:#7a9ab8">ARB</span>
+      <!-- ARB -->
+      <input type="checkbox" id="on-arb" checked style="accent-color:var(--g);width:14px;height:14px;cursor:pointer">
+      <span style="font-size:11px;color:#28a0f0;font-weight:700">ARB</span>
       <input type="text" id="rpc-arb" placeholder="https://arb-mainnet.g.alchemy.com/v2/...">
-      <span style="font-size:11px;color:#7a9ab8">OP</span>
+      <!-- OP -->
+      <input type="checkbox" id="on-op" style="accent-color:var(--g);width:14px;height:14px;cursor:pointer">
+      <span style="font-size:11px;color:#ff5a57;font-weight:700">OP</span>
       <input type="text" id="rpc-op" placeholder="https://opt-mainnet.g.alchemy.com/v2/...">
-      <span style="font-size:11px;color:#7a9ab8">Base</span>
+      <!-- Base -->
+      <input type="checkbox" id="on-base" style="accent-color:var(--g);width:14px;height:14px;cursor:pointer">
+      <span style="font-size:11px;color:#3a7bff;font-weight:700">Base</span>
       <input type="text" id="rpc-base" placeholder="https://base-mainnet.g.alchemy.com/v2/...">
     </div>
     <div style="margin-top:8px;font-size:10px;color:#2a4a6a">Alchemy getAssetTransfers API 사용 · Intel Label 소비 없음 · 완전 무료</div>
@@ -617,8 +625,10 @@ function getActiveChains() {
   var active = [];
   Object.keys(CHAINS).forEach(function(key) {
     var c = CHAINS[key];
+    var chkEl = gel('on-' + key);
+    var checked = chkEl ? chkEl.checked : true;
     var url = gel(c.rpcId) ? gel(c.rpcId).value.trim() : '';
-    if (url) active.push({key: key, name: c.name, rpc: url});
+    if (checked && url) active.push({key: key, name: c.name, rpc: url});
   });
   return active;
 }
@@ -1013,6 +1023,12 @@ function initStorage(){
     var saved=localStorage.getItem('alchemy_'+id)||'';
     if(saved&&gel(id))gel(id).value=saved;
     if(gel(id))gel(id).addEventListener('input',function(){localStorage.setItem('alchemy_'+id,gel(id).value);});
+  });
+  var chkFields=['on-eth','on-arb','on-op','on-base'];
+  chkFields.forEach(function(id){
+    var saved=localStorage.getItem('alchemy_'+id);
+    if(saved!==null&&gel(id))gel(id).checked=(saved==='1');
+    if(gel(id))gel(id).addEventListener('change',function(){localStorage.setItem('alchemy_'+id,gel(id).checked?'1':'0');});
   });
 }
 
