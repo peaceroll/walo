@@ -756,10 +756,10 @@ async function run() {
   $('res-count').textContent = '0';
   updateStats(); renderTable();
 
+  const selectedSeeds_ = selectedSeeds.size > 0 ? [...selectedSeeds] : [...seeds];
+
   log(`=== 분석 시작 ===`, 'info');
   log(`선택: ${selectedSeeds_.length}개 / ${seeds.length}개 · 체인 ${opts.chains.join(',')} · 기간 ${opts.timeLast||'전체'} · RPM ${opts.rpm}`, 'info');
-
-  const selectedSeeds_ = selectedSeeds.size ? [...selectedSeeds] : [...seeds]; // 체크박스로 선택된 시드
 
   // STEP 1: 각 시드의 아웃바운드 TX → CEX 입금주소 수집
   setStep(1);
