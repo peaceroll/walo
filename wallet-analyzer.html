@@ -90,6 +90,11 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <input type="number" id="exch-max" value="100" min="5" max="2000" style="width:60px">
       <span style="font-size:10px;color:#3a5a7a">명 → 거래소 추정</span>
     </div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <span style="font-size:10px;color:#7a9ab8">TX 시간 분산 최소</span>
+      <input type="number" id="min-spread-h" value="24" min="0" style="width:60px">
+      <span style="font-size:10px;color:#3a5a7a">시간 이상 (첫~마지막 TX 간격)</span>
+    </div>
     <div style="display:flex;align-items:center;gap:6px">
       <span style="font-size:10px;color:#7a9ab8">클러스터당 최대 지갑</span>
       <input type="number" id="max-senders" value="50" min="5" max="500" style="width:60px">
@@ -555,8 +560,9 @@ function addLog(msg,type){
 
 // ── Alchemy API (getAssetTransfers) ──────────────────────────────────
 // 반환: [{from, to, value, asset, hash}]
-async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainKey) {
+async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainKey, withMeta) {
   chainKey = chainKey || 'eth';
+  withMeta = withMeta || false;
   if (gAborted) throw new Error('중지됨');
 
   // Rate limit: 300ms 간격
@@ -569,7 +575,7 @@ async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainKey) {
   var params = {
     fromBlock: '0x0',
     toBlock: 'latest',
-    withMetadata: false,
+    withMetadata: withMeta,
     excludeZeroValue: true,
     maxCount: '0x64', // 100
     category: ['external', 'erc20', 'erc721', 'erc1155'],
@@ -733,7 +739,7 @@ async function runAnalysis() {
     var dInfo = destSet[destKeys[i]];
 
     try {
-      sampleResult = await alchemyGetTx(dInfo.rpc, dInfo.addr, 'in', null);
+      sampleResult = await alchemyGetTx(dInfo.rpc, dInfo.addr, 'in', null, dInfo.chain, true);
       sampleTxs = sampleResult.transfers || [];
     } catch(e) {
       addLog('[STEP 2] ⚠ '+short(dInfo.addr)+' 샘플 오류: '+String(e.message||e), 'warn');
@@ -754,6 +760,22 @@ async function runAnalysis() {
     if (senderCnt > exchMax) {
       addLog('[STEP 2] '+short(dInfo.addr)+' 발신자 '+senderCnt+'명 > '+exchMax+'명 → DeFi/프로토콜 스킵', 'dim');
       continue;
+    }
+
+    // 시간 분산 체크 — 첫 TX와 마지막 TX 간격이 너무 짧으면 스킵
+    var minSpreadH = parseInt(gel('min-spread-h') ? gel('min-spread-h').value : '24') || 0;
+    if (minSpreadH > 0 && sampleTxs.length >= 2) {
+      var times = sampleTxs
+        .map(function(tx){ return tx.metadata && tx.metadata.blockTimestamp ? new Date(tx.metadata.blockTimestamp).getTime() : 0; })
+        .filter(function(t){ return t > 0; })
+        .sort(function(a,b){return a-b;});
+      if (times.length >= 2) {
+        var spreadH = (times[times.length-1] - times[0]) / 3600000;
+        if (spreadH < minSpreadH) {
+          addLog('[STEP 2] '+short(dInfo.addr)+' TX 간격 '+Math.round(spreadH)+'h < '+minSpreadH+'h → 단기집중 스킵', 'dim');
+          continue;
+        }
+      }
     }
 
     var label = '추정거래소('+senderCnt+'명)';
