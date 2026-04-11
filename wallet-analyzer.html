@@ -604,12 +604,19 @@ async function arkFetch(path, params, opts, retryCount) {
   var resp = await fetch(url, {headers: {'API-Key': opts.apiKey}});
 
   if (resp.status === 429) {
-    if (retryCount >= 5) throw new Error('429 반복 실패 — 잠시 후 다시 시도하세요');
-    // Exponential backoff with jitter
-    var base_wait = Math.pow(2, retryCount) * 5; // 5, 10, 20, 40, 80초
-    var jitter = Math.random() * 2;
+    var body429 = await resp.text().catch(function(){return '';});
+    // Intel Datapoint 한도 초과 → 재시도해도 소용없음
+    if (body429.indexOf('datapoint') >= 0 || body429.indexOf('intel') >= 0 || body429.indexOf('Intelligence') >= 0) {
+      addLog('🚫 Intel Label 한도 초과 (10,000/10,000) — Arkham 대시보드에서 REQUEST MORE 클릭 또는 2026.5.6 리셋 대기', 'err');
+      gAborted = true;
+      throw new Error('Intel 한도 초과');
+    }
+    // 일반 Rate Limit → Exponential backoff
+    if (retryCount >= 3) throw new Error('429 반복 — 잠시 후 재시도하세요');
+    var base_wait = Math.pow(2, retryCount) * 3;
+    var jitter = Math.random();
     var total = base_wait + jitter;
-    addLog('⚠ 429 Rate limit — ' + Math.round(total) + '초 대기 (시도 ' + (retryCount+1) + '/5)', 'warn');
+    addLog('⚠ 429 Rate limit — ' + Math.round(total) + '초 대기 (시도 ' + (retryCount+1) + '/3)', 'warn');
     await sleep(total * 1000);
     return arkFetch(path, params, opts, retryCount + 1);
   }
@@ -720,16 +727,13 @@ async function runAnalysis() {
 
     for (j = 0; j < txs.length; j++) {
       tx = txs[j];
-      toObj = tx.toAddress || tx.to;
-      if (!toObj) continue;
-      dep = (toObj.address || '').toLowerCase();
+      // address 필드만 사용 — arkhamEntity/arkhamLabel 완전 무시
+      var toAddr = (tx.toAddress && tx.toAddress.address) || (tx.to && tx.to.address) || '';
+      dep = toAddr.toLowerCase();
       if (!dep || dep === seed) continue;
-      if (toObj.contract || toObj.isContract) continue; // 컨트랙트 스킵
       chain = tx.chain || (opts.chains[0] || '');
       var usd = tx.historicalUSD || tx.usdValue || 0;
-      // 라벨이 있으면 참고(optional), 없어도 수집
-      var lname = (toObj.arkhamLabel && toObj.arkhamLabel.name) || (toObj.arkhamEntity && (toObj.arkhamEntity.name || toObj.arkhamEntity.id)) || '';
-      if (!destSet[dep]) destSet[dep] = {chain: chain, usd: usd, label: lname, seeds: {}};
+      if (!destSet[dep]) destSet[dep] = {chain: chain, usd: usd, seeds: {}};
       destSet[dep].seeds[seed] = true;
     }
   }
@@ -758,8 +762,10 @@ async function runAnalysis() {
     var sampleTxs = sampleData.transfers || [];
     var uniqSenders = {};
     for (j = 0; j < sampleTxs.length; j++) {
-      var fObj = sampleTxs[j].fromAddress || sampleTxs[j].from;
-      if (fObj && fObj.address) uniqSenders[fObj.address.toLowerCase()] = true;
+      // address 필드만 — 라벨 무시
+      var fa = (sampleTxs[j].fromAddress && sampleTxs[j].fromAddress.address)
+             || (sampleTxs[j].from && sampleTxs[j].from.address) || '';
+      if (fa) uniqSenders[fa.toLowerCase()] = true;
     }
     var senderCnt = Object.keys(uniqSenders).length;
 
@@ -770,9 +776,9 @@ async function runAnalysis() {
     }
 
     // 거래소 추정 — 라벨 있으면 사용, 없으면 "Unknown Exchange"
-    var exchName = destInfo.label || ('추정거래소 (발신자' + senderCnt + '명)');
+    var exchName = '추정거래소 (발신자' + senderCnt + '명)';
     depositMap[depKey] = {exchange: exchName, chain: destInfo.chain, usd: destInfo.usd};
-    addLog('[STEP 2] ✓ 거래소 추정: ' + short(depKey) + ' = ' + exchName + ' (발신자 ' + senderCnt + '명)', 'ok');
+    addLog('[STEP 2] ✓ 거래소 추정: ' + short(depKey) + ' (발신자 ' + senderCnt + '명)', 'ok');
   }
   addLog('[STEP 2] 거래소 입금주소 ' + Object.keys(depositMap).length + '개', 'info');
   updateStats();
@@ -794,14 +800,9 @@ async function runAnalysis() {
     senderMap = {};
     for (j = 0; j < txs.length; j++) {
       tx = txs[j];
-      fromObj = tx.fromAddress || tx.from;
-      if (!fromObj) continue;
-      from = (fromObj.address || '').toLowerCase();
+      // address 필드만 사용 — 라벨 완전 무시
+      from = ((tx.fromAddress && tx.fromAddress.address) || (tx.from && tx.from.address) || '').toLowerCase();
       if (!from || from === depKey) continue;
-      if (fromObj.contract || fromObj.isContract) continue;
-      // 라벨 없이 주소만 수집 — hot/cold wallet 키워드만 최소 체크
-      lbl = ((fromObj.arkhamLabel && fromObj.arkhamLabel.name) || '').toLowerCase();
-      if (lbl.indexOf('hot wallet') >= 0 || lbl.indexOf('cold wallet') >= 0) continue;
       if (!senderMap[from]) senderMap[from] = tx.historicalUSD || tx.usdValue || 0;
     }
 
