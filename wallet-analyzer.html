@@ -75,13 +75,15 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <div style="margin-top:8px;font-size:10px;color:#2a4a6a">Alchemy getAssetTransfers API 사용 · Intel Label 소비 없음 · 완전 무료</div>
   </div>
   <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;align-items:center">
-    <div style="display:flex;align-items:center;gap:6px">
-      <span style="font-size:10px;color:#7a9ab8">거래소 추정 최소 발신자</span>
-      <input type="number" id="exch-min" value="5" min="2" max="50" style="width:60px">
-      <span style="font-size:10px;color:#3a5a7a">명 이상 수신 → 거래소</span>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <span style="font-size:10px;color:#7a9ab8">거래소 추정 발신자 범위</span>
+      <input type="number" id="exch-min" value="10" min="2" max="200" style="width:55px">
+      <span style="font-size:10px;color:#3a5a7a">~</span>
+      <input type="number" id="exch-max" value="100" min="5" max="2000" style="width:60px">
+      <span style="font-size:10px;color:#3a5a7a">명 → 거래소 추정</span>
     </div>
     <div style="display:flex;align-items:center;gap:6px">
-      <span style="font-size:10px;color:#7a9ab8">최대 발신자</span>
+      <span style="font-size:10px;color:#7a9ab8">클러스터당 최대 지갑</span>
       <input type="number" id="max-senders" value="50" min="5" max="500" style="width:60px">
     </div>
   </div>
@@ -646,7 +648,8 @@ async function runAnalysis() {
   chains = getActiveChains();
   runSeeds = Object.keys(gSelected).filter(function(a){return gSelected[a];});
   if (runSeeds.length === 0) runSeeds = gSeeds.slice();
-  exchMin = parseInt(gel('exch-min').value) || 5;
+  exchMin = parseInt(gel('exch-min').value) || 10;
+  var exchMax = parseInt(gel('exch-max').value) || 100;
   maxSenders = parseInt(gel('max-senders').value) || 50;
 
   if (!chains.length) { addLog('⚠ Alchemy RPC URL을 입력하세요', 'err'); return; }
@@ -719,6 +722,10 @@ async function runAnalysis() {
 
     if (senderCnt < exchMin) {
       addLog('[STEP 2] '+short(dInfo.addr)+' 발신자 '+senderCnt+'명 → 개인지갑 스킵', 'dim');
+      continue;
+    }
+    if (senderCnt > exchMax) {
+      addLog('[STEP 2] '+short(dInfo.addr)+' 발신자 '+senderCnt+'명 > '+exchMax+'명 → DeFi/프로토콜 스킵', 'dim');
       continue;
     }
 
