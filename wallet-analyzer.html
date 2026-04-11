@@ -89,7 +89,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     </div>
     <div style="display:flex;align-items:center;gap:6px">
       <span style="font-size:10px;color:#7a9ab8">RPM</span>
-      <select id="rpm"><option value="20">20</option><option value="40">40</option><option value="60" selected>60</option></select>
+      <select id="rpm"><option value="20" selected>20</option><option value="40">40</option><option value="60">60</option></select>
     </div>
   </div>
 </div>
@@ -586,10 +586,13 @@ function entName(obj) {
          (obj.arkhamEntity && (obj.arkhamEntity.name || obj.arkhamEntity.id)) || '';
 }
 
-async function arkFetch(path, params, opts) {
+async function arkFetch(path, params, opts, retryCount) {
   if (gAborted) throw new Error('중지됨');
-  var gap = 60000 / opts.rpm;
-  var wait = Math.max(0, gap - (Date.now() - gLastCall));
+  retryCount = retryCount || 0;
+
+  // 최소 간격 보장 (초당 20요청 = 50ms, 여유분 더해서 300ms)
+  var minGap = Math.max(300, 60000 / opts.rpm);
+  var wait = Math.max(0, minGap - (Date.now() - gLastCall));
   if (wait > 0) await sleep(wait);
   gLastCall = Date.now();
   gApiCalls++;
@@ -599,10 +602,16 @@ async function arkFetch(path, params, opts) {
   var qs = new URLSearchParams(params).toString();
   var url = base + path + (qs ? '?' + qs : '');
   var resp = await fetch(url, {headers: {'API-Key': opts.apiKey}});
+
   if (resp.status === 429) {
-    addLog('⚠ 429 Rate limit — 61초 대기', 'warn');
-    await sleep(61000);
-    return arkFetch(path, params, opts);
+    if (retryCount >= 5) throw new Error('429 반복 실패 — 잠시 후 다시 시도하세요');
+    // Exponential backoff with jitter
+    var base_wait = Math.pow(2, retryCount) * 5; // 5, 10, 20, 40, 80초
+    var jitter = Math.random() * 2;
+    var total = base_wait + jitter;
+    addLog('⚠ 429 Rate limit — ' + Math.round(total) + '초 대기 (시도 ' + (retryCount+1) + '/5)', 'warn');
+    await sleep(total * 1000);
+    return arkFetch(path, params, opts, retryCount + 1);
   }
   if (!resp.ok) {
     var txt = await resp.text().catch(function(){return '';});
@@ -672,6 +681,10 @@ function buildClusters(edgeList) {
 // ── 분석 실행 ─────────────────────────────────────────────────────────
 async function runAnalysis() {
   // 모든 변수를 함수 최상단에 선언 (var — hoisting 보장)
+  // 중지 상태 즉시 초기화 — 가장 먼저
+  gAborted = false;
+  gRunning = false;
+
   var opts, runSeeds, depositMap, depKey, seedSet, i, seed, txs, toObj, dep, exch, chain, j, tx, fromObj, from, cls, lbl, senderMap, senderCount, senderKeys, k;
 
   opts = getOpts();
@@ -681,57 +694,99 @@ async function runAnalysis() {
   if (!opts.apiKey) { addLog('⚠ API 키 없음', 'err'); return; }
   if (!opts.chains.length) { addLog('⚠ 체인 선택 없음', 'warn'); return; }
 
-  gRunning = true; gAborted = false; gEdges = []; gApiCalls = 0;
+  gRunning = true; gEdges = []; gApiCalls = 0;
   gel('btn-run').disabled = true; gel('btn-stop').disabled = false;
   gel('tbody').innerHTML = ''; gel('no-res').style.display = '';
   gel('res-cnt').textContent = '0';
   updateStats(); renderTable();
 
-  addLog('=== 분석 시작 ===', 'info');
+  addLog('=== 분석 시작 (라벨 없는 행동패턴 방식) ===', 'info');
   addLog('선택: '+runSeeds.length+'개 / '+gSeeds.length+'개 · 체인: '+opts.chains.join(',') + ' · RPM: '+opts.rpm, 'info');
 
   setStep(1);
-  depositMap = {};
+  depositMap = {};  // dep → {exchange, chain, usd}
   seedSet = {};
   gSeeds.forEach(function(a){ seedSet[a] = true; });
 
-  // STEP 1+2
+  // STEP 1: 시드의 아웃바운드 TX → 목적지 주소 수집 (라벨 무관)
+  var destSet = {};  // dep → {chain, usd, label}
   for (i = 0; i < runSeeds.length; i++) {
     if (gAborted) break;
     seed = runSeeds[i];
-    addLog('[STEP 1] ' + short(seed) + ' 아웃바운드 조회', 'dim');
+    addLog('[STEP 1] ' + short(seed) + ' 아웃바운드 TX 수집', 'dim');
     txs = await fetchAll(seed, 'out', {usdGte: opts.usdGte}, opts,
       function(pg, cnt, tot){ addLog('  └ p'+pg+': '+cnt+'건 (누적 '+tot+')', 'dim'); });
     addLog('[STEP 1] → ' + txs.length + '건', 'ok');
 
-    setStep(2);
     for (j = 0; j < txs.length; j++) {
       tx = txs[j];
       toObj = tx.toAddress || tx.to;
       if (!toObj) continue;
       dep = (toObj.address || '').toLowerCase();
-      if (!dep || depositMap[dep]) continue;
-      if (classify(toObj) !== 'exchange') continue;
-      exch = entName(toObj) || 'Unknown';
+      if (!dep || dep === seed) continue;
+      if (toObj.contract || toObj.isContract) continue; // 컨트랙트 스킵
       chain = tx.chain || (opts.chains[0] || '');
-      depositMap[dep] = {exchange: exch, chain: chain};
-      addLog('[STEP 2] 입금주소: ' + short(dep) + ' = ' + exch + ' (' + chain + ')', 'ok');
+      var usd = tx.historicalUSD || tx.usdValue || 0;
+      // 라벨이 있으면 참고(optional), 없어도 수집
+      var lname = (toObj.arkhamLabel && toObj.arkhamLabel.name) || (toObj.arkhamEntity && (toObj.arkhamEntity.name || toObj.arkhamEntity.id)) || '';
+      if (!destSet[dep]) destSet[dep] = {chain: chain, usd: usd, label: lname, seeds: {}};
+      destSet[dep].seeds[seed] = true;
     }
   }
+  addLog('[STEP 1] 목적지 주소 ' + Object.keys(destSet).length + '개 수집', 'info');
 
-  addLog('[STEP 2] 총 입금주소 ' + Object.keys(depositMap).length + '개', 'info');
+  // STEP 2: 각 목적지의 수신 횟수 샘플링 → 거래소 여부 행동 패턴으로 판단
+  setStep(2);
+  var EXCH_SENDER_MIN = 5;  // 최소 발신자 수 (이 이상이면 거래소로 추정)
+  var depKeys = Object.keys(destSet);
+  for (i = 0; i < depKeys.length; i++) {
+    if (gAborted) break;
+    depKey = depKeys[i];
+    var destInfo = destSet[depKey];
+
+    // 샘플: 최근 inbound 100건만 가져와서 고유 발신자 수 확인
+    addLog('[STEP 2] ' + short(depKey) + ' 수신 패턴 확인…', 'dim');
+    var sampleParams = {flow: 'in', base: depKey, limit: 100, sortKey: 'time', sortDir: 'desc'};
+    if (destInfo.chain) sampleParams.chain = destInfo.chain;
+
+    var sampleData;
+    try { sampleData = await arkFetch('/transfers', sampleParams, opts); }
+    catch(e) {
+      addLog('[STEP 2] ' + short(depKey) + ' 샘플 오류: ' + (e.message||e), 'warn');
+      continue;
+    }
+    var sampleTxs = sampleData.transfers || [];
+    var uniqSenders = {};
+    for (j = 0; j < sampleTxs.length; j++) {
+      var fObj = sampleTxs[j].fromAddress || sampleTxs[j].from;
+      if (fObj && fObj.address) uniqSenders[fObj.address.toLowerCase()] = true;
+    }
+    var senderCnt = Object.keys(uniqSenders).length;
+
+    // 거래소 판별: 고유 발신자가 EXCH_SENDER_MIN 이상이면 거래소로 추정
+    if (senderCnt < EXCH_SENDER_MIN) {
+      addLog('[STEP 2] ' + short(depKey) + ' 발신자 ' + senderCnt + '명 → 개인지갑 (스킵)', 'dim');
+      continue;
+    }
+
+    // 거래소 추정 — 라벨 있으면 사용, 없으면 "Unknown Exchange"
+    var exchName = destInfo.label || ('추정거래소 (발신자' + senderCnt + '명)');
+    depositMap[depKey] = {exchange: exchName, chain: destInfo.chain, usd: destInfo.usd};
+    addLog('[STEP 2] ✓ 거래소 추정: ' + short(depKey) + ' = ' + exchName + ' (발신자 ' + senderCnt + '명)', 'ok');
+  }
+  addLog('[STEP 2] 거래소 입금주소 ' + Object.keys(depositMap).length + '개', 'info');
   updateStats();
 
-  // STEP 3+4
+  // STEP 3+4: 입금주소 → 인바운드 발신자 수집
   setStep(3);
-  var depKeys = Object.keys(depositMap);
+  depKeys = Object.keys(depositMap);
   for (i = 0; i < depKeys.length; i++) {
     if (gAborted) break;
     depKey = depKeys[i];
     exch = depositMap[depKey].exchange;
     chain = depositMap[depKey].chain;
-    addLog('[STEP 3] ' + short(depKey) + ' (' + exch + ') 인바운드 조회', 'info');
-    txs = await fetchAll(depKey, 'in', {from: '!type:exchange', usdGte: opts.usdGte}, opts,
+    addLog('[STEP 3] ' + short(depKey) + ' (' + exch + ') 인바운드 전수 조회', 'info');
+    txs = await fetchAll(depKey, 'in', {usdGte: opts.usdGte}, opts,
       function(pg, cnt, tot){ addLog('  └ p'+pg+': '+cnt+'건 (누적 '+tot+')', 'dim'); });
     addLog('[STEP 3] → ' + txs.length + '건', 'ok');
 
@@ -743,15 +798,15 @@ async function runAnalysis() {
       if (!fromObj) continue;
       from = (fromObj.address || '').toLowerCase();
       if (!from || from === depKey) continue;
-      cls = classify(fromObj);
-      if (cls === 'contract' || cls === 'exchange') continue;
-      if (cls === 'entity' && !seedSet[from]) continue;
+      if (fromObj.contract || fromObj.isContract) continue;
+      // 라벨 없이 주소만 수집 — hot/cold wallet 키워드만 최소 체크
       lbl = ((fromObj.arkhamLabel && fromObj.arkhamLabel.name) || '').toLowerCase();
       if (lbl.indexOf('hot wallet') >= 0 || lbl.indexOf('cold wallet') >= 0) continue;
       if (!senderMap[from]) senderMap[from] = tx.historicalUSD || tx.usdValue || 0;
     }
 
     senderKeys = Object.keys(senderMap);
+    // 발신자 수가 maxSenders 초과면 너무 넓은 공용 주소
     if (senderKeys.length > opts.maxSenders) {
       addLog('[STEP 4] ⚠ 발신자 '+senderKeys.length+'명 초과 — 공용주소 스킵', 'warn');
       continue;
