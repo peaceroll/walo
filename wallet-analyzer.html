@@ -86,6 +86,21 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <span style="font-size:10px;color:#7a9ab8">클러스터당 최대 지갑</span>
       <input type="number" id="max-senders" value="50" min="5" max="500" style="width:60px">
     </div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <span style="font-size:10px;color:#7a9ab8">조회 기간</span>
+      <select id="period-preset" onchange="applyPeriod(this.value)">
+        <option value="">직접 입력</option>
+        <option value="1">하루</option>
+        <option value="7">7일</option>
+        <option value="30">한달</option>
+        <option value="365" selected>1년</option>
+        <option value="730">2년</option>
+        <option value="1095">3년</option>
+        <option value="0">전체</option>
+      </select>
+      <input type="number" id="period-days" value="365" min="1" style="width:65px" oninput="gel('period-preset').value=''">
+      <span style="font-size:10px;color:#3a5a7a">일 이내</span>
+    </div>
   </div>
 </div>
 
@@ -532,7 +547,8 @@ function addLog(msg,type){
 
 // ── Alchemy API (getAssetTransfers) ──────────────────────────────────
 // 반환: [{from, to, value, asset, hash}]
-async function alchemyGetTx(rpcUrl, address, direction, pageKey) {
+async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainKey) {
+  chainKey = chainKey || 'eth';
   if (gAborted) throw new Error('중지됨');
 
   // Rate limit: 300ms 간격
@@ -581,7 +597,8 @@ async function alchemyGetTx(rpcUrl, address, direction, pageKey) {
 }
 
 // 모든 페이지 수집
-async function fetchAllAlchemy(rpcUrl, address, direction, onPage) {
+async function fetchAllAlchemy(rpcUrl, address, direction, onPage, chainKey) {
+  chainKey = chainKey || 'eth';
   var allTx = [], pageKey = null, page = 0;
   while (!gAborted) {
     var result = await alchemyGetTx(rpcUrl, address, direction, pageKey);
@@ -678,7 +695,7 @@ async function runAnalysis() {
 
       try {
         txs = await fetchAllAlchemy(chain.rpc, seed, 'out',
-          function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 (누적 '+tot+')', 'dim');});
+          function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 (누적 '+tot+')', 'dim');}, chain.key);
         addLog('[STEP 1] → '+txs.length+'건', 'ok');
       } catch(e) {
         addLog('[STEP 1] ⚠ '+chain.name+' 오류: '+String(e.message||e), 'warn');
@@ -747,7 +764,7 @@ async function runAnalysis() {
 
     try {
       txs = await fetchAllAlchemy(dm.rpc, dm.addr, 'in',
-        function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 (누적 '+tot+')', 'dim');});
+        function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 (누적 '+tot+')', 'dim');}, dm.chain);
       addLog('[STEP 3] → '+txs.length+'건', 'ok');
     } catch(e) {
       addLog('[STEP 3] ⚠ 오류: '+String(e.message||e), 'warn');
