@@ -677,6 +677,10 @@ async function arkFetch(path, params, opts) {
       await sleep(61000);
       return arkFetch(path, params, opts);
     }
+    if (resp.status === 402) {
+      const txt = await resp.text().catch(() => '');
+      throw new Error(`크레딧 부족 (402) — ${txt.slice(0, 120)}`);
+    }
     if (!resp.ok) {
       const txt = await resp.text().catch(() => '');
       throw new Error(`HTTP ${resp.status} — ${txt.slice(0, 120)}`);
@@ -702,8 +706,14 @@ async function fetchAll(address, flow, extraParams, opts, onPage) {
     let data;
     try { data = await arkFetch('/transfers', params, opts); }
     catch(e) {
-      if (String(e).includes('offset + limit')) break; // 10000 한도
-      log(`⚠ ${short(address)} 오류: ${e.message}`, 'warn');
+      const msg = String(e.message || e);
+      if (msg.includes('offset + limit')) break; // 10000 한도
+      if (msg.includes('크레딧') || msg.includes('402')) {
+        log(`🚫 크레딧 부족으로 중단. API 사용량 확인 필요`, 'err');
+        aborted = true; break;
+      }
+      if (msg.includes('중지됨')) break;
+      log(`⚠ ${short(address)} 오류: ${msg}`, 'warn');
       break;
     }
     const batch = data.transfers || [];
@@ -749,7 +759,7 @@ async function run() {
   log(`=== 분석 시작 ===`, 'info');
   log(`선택: ${selectedSeeds_.length}개 / ${seeds.length}개 · 체인 ${opts.chains.join(',')} · 기간 ${opts.timeLast||'전체'} · RPM ${opts.rpm}`, 'info');
 
-  const selectedSeeds_ = [...selectedSeeds]; // 체크박스로 선택된 시드
+  const selectedSeeds_ = selectedSeeds.size ? [...selectedSeeds] : [...seeds]; // 체크박스로 선택된 시드
 
   // STEP 1: 각 시드의 아웃바운드 TX → CEX 입금주소 수집
   setStep(1);
