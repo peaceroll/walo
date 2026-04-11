@@ -93,7 +93,24 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
       <span style="font-size:10px;color:#7a9ab8">TX 시간 분산 최소</span>
       <input type="number" id="min-spread-h" value="24" min="0" style="width:60px">
-      <span style="font-size:10px;color:#3a5a7a">시간 이상 (첫~마지막 TX 간격)</span>
+      <span style="font-size:10px;color:#3a5a7a">시간 이상</span>
+      <span style="font-size:10px;color:#2a4a6a">· 샘플 100건 중 첫 TX ~ 마지막 TX 간격이 이보다 짧으면 스킵 (DeFi·컨트랙트 제거용. 0=비활성)</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <span style="font-size:10px;color:#7a9ab8">요청속도 (RPS)</span>
+      <select id="rps-sel">
+        <option value="1">1/초 (안전)</option>
+        <option value="2" selected>2/초 (기본)</option>
+        <option value="3">3/초 (빠름)</option>
+        <option value="5">5/초 (위험)</option>
+      </select>
+      <span style="font-size:10px;color:#3a5a7a">· 병렬</span>
+      <select id="concurrency-sel">
+        <option value="1">1 (순차)</option>
+        <option value="2">2</option>
+        <option value="3" selected>3</option>
+        <option value="5">5</option>
+      </select>
     </div>
     <div style="display:flex;align-items:center;gap:6px">
       <span style="font-size:10px;color:#7a9ab8">클러스터당 최대 지갑</span>
@@ -542,6 +559,53 @@ var gEdges = [];
 var gApiCalls = 0;
 var gAborted = false;
 var gLastCall = 0;
+
+// ── Rate Limiter (토큰 버킷) ──────────────────────────────────────────
+// Alchemy free: 330 CUPs, getAssetTransfers = 150 CUs → max 2.2/초
+// 안전하게 2/초로 제한
+var gRateQueue = [];
+var gRateRunning = false;
+var gRateRPS = 2; // requests per second (설정 가능)
+
+function setRPS(rps) { gRateRPS = rps; }
+
+function rateCall(fn) {
+  return new Promise(function(resolve, reject) {
+    gRateQueue.push({fn: fn, resolve: resolve, reject: reject});
+    if (!gRateRunning) drainQueue();
+  });
+}
+
+async function drainQueue() {
+  gRateRunning = true;
+  while (gRateQueue.length > 0) {
+    var item = gRateQueue.shift();
+    var gap = Math.max(0, (1000 / gRateRPS) - (Date.now() - gLastCall));
+    if (gap > 0) await sleep(gap);
+    gLastCall = Date.now();
+    try { item.resolve(await item.fn()); }
+    catch(e) { item.reject(e); }
+  }
+  gRateRunning = false;
+}
+
+// N개 작업을 병렬로 실행 (rate limit 내에서)
+async function runParallel(items, fn, concurrency) {
+  concurrency = concurrency || 3;
+  var results = new Array(items.length);
+  var idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      var i = idx++;
+      try { results[i] = await fn(items[i], i); }
+      catch(e) { results[i] = null; }
+    }
+  }
+  var workers = [];
+  for (var w = 0; w < Math.min(concurrency, items.length); w++) workers.push(worker());
+  await Promise.all(workers);
+  return results;
+}
 gSeeds.forEach(function(a){gSelected[a]=true;});
 
 // ── 유틸 ─────────────────────────────────────────────────────────────
@@ -564,11 +628,6 @@ async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainKey, withM
   chainKey = chainKey || 'eth';
   withMeta = withMeta || false;
   if (gAborted) throw new Error('중지됨');
-
-  // Rate limit: 300ms 간격
-  var wait = Math.max(0, 300 - (Date.now() - gLastCall));
-  if (wait > 0) await sleep(wait);
-  gLastCall = Date.now();
   gApiCalls++;
   updateStats();
 
@@ -590,10 +649,12 @@ async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainKey, withM
     params: [params]
   });
 
-  var resp = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: body
+  var resp = await rateCall(function() {
+    return fetch(rpcUrl, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: body
+    });
   });
 
   if (resp.status === 429) {
@@ -688,6 +749,8 @@ async function runAnalysis() {
   if (!chains.length) { addLog('⚠ Alchemy RPC URL을 입력하세요', 'err'); return; }
 
   gAborted = false; gEdges = []; gApiCalls = 0;
+  setRPS(parseInt(gel('rps-sel') ? gel('rps-sel').value : '2') || 2);
+  var concurrency = parseInt(gel('concurrency-sel') ? gel('concurrency-sel').value : '3') || 3;
   gel('btn-run').disabled = true; gel('btn-stop').disabled = false;
   gel('tbody').innerHTML = ''; gel('no-res').style.display = '';
   gel('res-cnt').textContent = '0';
@@ -729,59 +792,44 @@ async function runAnalysis() {
   }
   addLog('[STEP 1] 목적지 주소 '+Object.keys(destSet).length+'개 수집', 'info');
 
-  // STEP 2: 각 목적지 수신 패턴 샘플링 → 거래소 추정
+  // STEP 2: 각 목적지 수신 패턴 샘플링 → 거래소 추정 (병렬 처리)
   setStep(2);
-  depMap = {}; // key → {addr, chain, chainName, rpc, exchLabel}
+  depMap = {};
   var destKeys = Object.keys(destSet);
+  var minSpreadH2 = parseInt(gel('min-spread-h') ? gel('min-spread-h').value : '24') || 0;
 
-  for (i = 0; i < destKeys.length; i++) {
-    if (gAborted) break;
-    var dInfo = destSet[destKeys[i]];
+  addLog('[STEP 2] '+destKeys.length+'개 주소 병렬 샘플링 (동시 '+concurrency+'개)…', 'info');
 
+  await runParallel(destKeys, async function(dkey) {
+    if (gAborted) return;
+    var dInfo = destSet[dkey];
+    var sResult, sTxs;
     try {
-      sampleResult = await alchemyGetTx(dInfo.rpc, dInfo.addr, 'in', null, dInfo.chain, true);
-      sampleTxs = sampleResult.transfers || [];
+      sResult = await alchemyGetTx(dInfo.rpc, dInfo.addr, 'in', null, dInfo.chain, true);
+      sTxs = sResult.transfers || [];
     } catch(e) {
-      addLog('[STEP 2] ⚠ '+short(dInfo.addr)+' 샘플 오류: '+String(e.message||e), 'warn');
-      continue;
+      addLog('[STEP 2] ⚠ '+short(dInfo.addr)+' 오류: '+String(e.message||e), 'warn');
+      return;
     }
+    var uSenders = {};
+    sTxs.forEach(function(tx){ var f=(tx.from||'').toLowerCase(); if(f) uSenders[f]=true; });
+    var sCnt = Object.keys(uSenders).length;
 
-    uniqSenders = {};
-    sampleTxs.forEach(function(tx){
-      fromAddr = (tx.from || '').toLowerCase();
-      if (fromAddr) uniqSenders[fromAddr] = true;
-    });
-    senderCnt = Object.keys(uniqSenders).length;
+    if (sCnt < exchMin) { addLog('[STEP 2] '+short(dInfo.addr)+' '+sCnt+'명 → 개인 스킵', 'dim'); return; }
+    if (sCnt > exchMax) { addLog('[STEP 2] '+short(dInfo.addr)+' '+sCnt+'명 → DeFi 스킵', 'dim'); return; }
 
-    if (senderCnt < exchMin) {
-      addLog('[STEP 2] '+short(dInfo.addr)+' 발신자 '+senderCnt+'명 → 개인지갑 스킵', 'dim');
-      continue;
-    }
-    if (senderCnt > exchMax) {
-      addLog('[STEP 2] '+short(dInfo.addr)+' 발신자 '+senderCnt+'명 > '+exchMax+'명 → DeFi/프로토콜 스킵', 'dim');
-      continue;
-    }
-
-    // 시간 분산 체크 — 첫 TX와 마지막 TX 간격이 너무 짧으면 스킵
-    var minSpreadH = parseInt(gel('min-spread-h') ? gel('min-spread-h').value : '24') || 0;
-    if (minSpreadH > 0 && sampleTxs.length >= 2) {
-      var times = sampleTxs
-        .map(function(tx){ return tx.metadata && tx.metadata.blockTimestamp ? new Date(tx.metadata.blockTimestamp).getTime() : 0; })
-        .filter(function(t){ return t > 0; })
-        .sort(function(a,b){return a-b;});
-      if (times.length >= 2) {
-        var spreadH = (times[times.length-1] - times[0]) / 3600000;
-        if (spreadH < minSpreadH) {
-          addLog('[STEP 2] '+short(dInfo.addr)+' TX 간격 '+Math.round(spreadH)+'h < '+minSpreadH+'h → 단기집중 스킵', 'dim');
-          continue;
-        }
+    // 시간 분산 체크
+    if (minSpreadH2 > 0 && sTxs.length >= 2) {
+      var times2 = sTxs.map(function(tx){ return tx.metadata&&tx.metadata.blockTimestamp?new Date(tx.metadata.blockTimestamp).getTime():0; }).filter(function(t){return t>0;}).sort(function(a,b){return a-b;});
+      if (times2.length >= 2) {
+        var spreadH2 = (times2[times2.length-1]-times2[0])/3600000;
+        if (spreadH2 < minSpreadH2) { addLog('[STEP 2] '+short(dInfo.addr)+' 간격 '+Math.round(spreadH2)+'h → 단기집중 스킵', 'dim'); return; }
       }
     }
 
-    var label = '추정거래소('+senderCnt+'명)';
-    depMap[destKeys[i]] = {addr: dInfo.addr, chain: dInfo.chain, chainName: dInfo.chainName, rpc: dInfo.rpc, exchLabel: label};
-    addLog('[STEP 2] ✓ 거래소 추정: '+short(dInfo.addr)+' (발신자 '+senderCnt+'명, '+dInfo.chainName+')', 'ok');
-  }
+    depMap[dkey] = {addr:dInfo.addr, chain:dInfo.chain, chainName:dInfo.chainName, rpc:dInfo.rpc, exchLabel:'추정거래소('+sCnt+'명)'};
+    addLog('[STEP 2] ✓ '+short(dInfo.addr)+' 발신자 '+sCnt+'명 ('+dInfo.chainName+')', 'ok');
+  }, concurrency);
   addLog('[STEP 2] 거래소 추정 입금주소 '+Object.keys(depMap).length+'개', 'info');
   updateStats();
 
