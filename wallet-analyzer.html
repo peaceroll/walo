@@ -88,6 +88,11 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <span class="chain-lbl" style="color:#f0b90b">BSC</span>
       <input type="text" id="rpc-bsc" style="width:100%" placeholder="https://bsc-mainnet.nodereal.io/v1/YOUR-KEY">
     </div>
+    <div class="chain-row">
+      <input type="checkbox" id="on-polygon" style="accent-color:var(--g);cursor:pointer">
+      <span class="chain-lbl" style="color:#8247e5">POL</span>
+      <input type="text" id="rpc-polygon" style="width:100%" placeholder="https://polygon-mainnet.g.alchemy.com/v2/...">
+    </div>
     <div style="margin-top:6px;font-size:10px;color:#2a4a6a">Intel Label 소비 없음 · 행동패턴으로 거래소 추정</div>
   </div>
 
@@ -115,6 +120,41 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <input type="number" id="usd-max" value="0" min="0" style="width:90px" placeholder="최대 (0=무제한)">
     <span class="hint">USD · 프록시/핫월렛 제거용. 0=무제한</span>
   </div>
+  <div class="row" style="align-items:flex-start">
+    <span class="lbl" style="padding-top:4px">토큰 필터</span>
+    <div style="flex:1">
+      <div style="font-size:10px;color:#3a6a8a;margin-bottom:6px">
+        특정 토큰(컨트랙트)만 조회 · 비우면 전체 (ETH·ERC20·NFT 등) · 여러 개 추가 가능
+      </div>
+      <div id="token-filter-list" style="margin-bottom:6px"></div>
+      <div class="row" style="margin:0;gap:6px">
+        <select id="tf-chain" style="width:70px">
+          <option value="">전체</option>
+          <option value="eth">ETH</option>
+          <option value="arb">ARB</option>
+          <option value="op">OP</option>
+          <option value="base">Base</option>
+          <option value="bsc">BSC</option>
+        </select>
+        <input type="text" id="tf-addr" placeholder="컨트랙트 주소 (0x...) 또는 'native'" style="flex:1;min-width:200px">
+        <input type="text" id="tf-name" placeholder="이름 (예: USDC)" style="width:90px">
+        <button class="btn dim" onclick="addTokenFilter()">+ 추가</button>
+        <button class="btn dim red" onclick="clearTokenFilters()">↺ 초기화</button>
+      </div>
+      <div style="margin-top:6px;font-size:10px;color:#2a4a6a">
+        자주 쓰는 컨트랙트:
+        <span onclick="quickToken('eth','0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48','USDC')" style="color:var(--b);cursor:pointer;margin:0 4px">ETH-USDC</span>
+        <span onclick="quickToken('eth','0xdac17f958d2ee523a2206206994597c13d831ec7','USDT')" style="color:var(--b);cursor:pointer;margin:0 4px">ETH-USDT</span>
+        <span onclick="quickToken('bsc','0x55d398326f99059ff775485246999027b3197955','BSC-USDT')" style="color:var(--b);cursor:pointer;margin:0 4px">BSC-USDT</span>
+        <span onclick="quickToken('bsc','0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d','BSC-USDC')" style="color:var(--b);cursor:pointer;margin:0 4px">BSC-USDC</span>
+        <span onclick="quickToken('arb','0xaf88d065e77c8cc2239327c5edb3a432268e5831','ARB-USDC')" style="color:var(--b);cursor:pointer;margin:0 4px">ARB-USDC</span>
+        <span onclick="quickToken('polygon','0xc2132d05d31c914a87c6611c10748aeb04b58e8f','POL-USDT')" style="color:var(--b);cursor:pointer;margin:0 4px">POL-USDT</span>
+        <span onclick="quickToken('polygon','0x3c499c542cef5e3811e1192ce70d8cc03d5c3359','POL-USDC')" style="color:var(--b);cursor:pointer;margin:0 4px">POL-USDC</span>
+        <span onclick="quickToken('','native','Native ETH/BNB')" style="color:var(--b);cursor:pointer;margin:0 4px">Native 코인</span>
+      </div>
+    </div>
+  </div>
+
   <div class="row">
     <span class="lbl">조회 기간</span>
     <select id="period-preset" onchange="applyPeriod(this.value)">
@@ -176,6 +216,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <option value="op">OP</option>
       <option value="base">Base</option>
       <option value="bsc">BSC</option>
+      <option value="polygon">POL</option>
     </select>
     <button class="btn dim" onclick="addDirectDep()">+ 추가</button>
     <button class="btn dim red" onclick="clearDirectDep()">↺ 초기화</button>
@@ -641,6 +682,8 @@ var CHAIN_DEFS = [
    blockTime:2,    latest:25000000},
   {key:'bsc',  name:'BSC',  color:'#f0b90b', rpcId:'rpc-bsc', onId:'on-bsc',
    blockTime:3,    latest:48000000, provider:'meganode'},
+  {key:'polygon', name:'POL', color:'#8247e5', rpcId:'rpc-polygon', onId:'on-polygon',
+   blockTime:2,   latest:68000000},
 ];
 
 var STEPS_DEF = [
@@ -672,6 +715,8 @@ var gDepFilters = [];
 
 // 분석 모드: 'auto' | 'direct'
 var gMode = 'auto';
+// 토큰 필터: [{chainKey, addr, name}]  chainKey=''이면 모든 체인
+var gTokenFilters = [];
 // 직접 입력 입금주소: [{addr, label, chainKey}]
 var gDirectDeps = [];
 
@@ -767,12 +812,26 @@ async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainDef, withM
   var days=gel('period-days')?gel('period-days').value:'';
   var fromBlock=days?daysToFromBlock(chainDef,days):'0x0';
 
+  // 토큰 필터 적용
+  var tokenInfo = getContractsForChain(chainDef ? chainDef.key : '');
+  var useCategory;
+  if (gTokenFilters.length === 0) {
+    useCategory = ['external','erc20','erc721','erc1155'];
+  } else if (tokenInfo.hasNative && !tokenInfo.contracts.length) {
+    useCategory = ['external']; // native 코인만
+  } else if (!tokenInfo.hasNative && tokenInfo.contracts.length) {
+    useCategory = ['erc20','erc721','erc1155']; // 토큰만
+  } else {
+    useCategory = ['external','erc20','erc721','erc1155'];
+  }
+
   var params={
     fromBlock:fromBlock, toBlock:'latest',
     withMetadata:!!withMeta, excludeZeroValue:true,
     maxCount:'0x64',
-    category:['external','erc20','erc721','erc1155'],
+    category:useCategory,
   };
+  if (tokenInfo.contracts.length) params.contractAddresses = tokenInfo.contracts;
   if(direction==='out') params.fromAddress=address;
   else params.toAddress=address;
   if(pageKey) params.pageKey=pageKey;
@@ -1307,6 +1366,63 @@ function removeDepFilter(addr){
 
 function clearDepFilter(){gDepFilters=[];renderDepFilters();}
 
+// ── 토큰 필터 함수 ──────────────────────────────────────────────
+function addTokenFilter() {
+  var chainKey = gel('tf-chain').value;
+  var addr = gel('tf-addr').value.trim().toLowerCase();
+  var name = gel('tf-name').value.trim() || addr.slice(0,8)+'…';
+  if (!addr) { addLog('컨트랙트 주소를 입력하세요','warn'); return; }
+  if (addr !== 'native' && (!addr.startsWith('0x') || addr.length !== 42)) {
+    addLog("유효한 0x 주소 또는 'native' 입력","warn"); return;
+  }
+  gTokenFilters.push({chainKey:chainKey, addr:addr, name:name});
+  gel('tf-addr').value = ''; gel('tf-name').value = '';
+  renderTokenFilters();
+  addLog('토큰 필터 추가: '+(chainKey||'전체')+' · '+name,'ok');
+}
+
+function quickToken(chainKey, addr, name) {
+  gel('tf-chain').value = chainKey;
+  gel('tf-addr').value = addr;
+  gel('tf-name').value = name;
+  addTokenFilter();
+}
+
+function clearTokenFilters() { gTokenFilters = []; renderTokenFilters(); }
+
+function removeTokenFilter(idx) {
+  gTokenFilters.splice(idx, 1);
+  renderTokenFilters();
+}
+
+function renderTokenFilters() {
+  var el = gel('token-filter-list');
+  if (!gTokenFilters.length) {
+    el.innerHTML = '<span style="font-size:10px;color:#2a4a6a">없음 (전체 토큰 조회)</span>';
+    return;
+  }
+  el.innerHTML = gTokenFilters.map(function(f, i) {
+    return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px">'
+      + '<span style="background:rgba(79,163,255,.12);color:var(--b);border-radius:2px;padding:1px 5px">'+(f.chainKey||'전체')+'</span>'
+      + '<span style="color:var(--g);font-weight:700">'+f.name+'</span>'
+      + '<span style="color:#3a6a9a;font-family:monospace">'+f.addr+'</span>'
+      + '<button data-i="'+i+'" onclick="removeTokenFilter(+this.dataset.i)" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button>'
+      + '</div>';
+  }).join('');
+}
+
+// 특정 체인+주소에 맞는 토큰 컨트랙트 배열 반환
+function getContractsForChain(chainKey) {
+  var contracts = [];
+  var hasNative = false;
+  gTokenFilters.forEach(function(f) {
+    if (f.chainKey && f.chainKey !== chainKey) return; // 다른 체인 스킵
+    if (f.addr === 'native') { hasNative = true; return; }
+    contracts.push(f.addr);
+  });
+  return {contracts: contracts, hasNative: hasNative};
+}
+
 // ── 모드 전환 ──────────────────────────────────────────────────────
 function setMode(mode) {
   gMode = mode;
@@ -1426,9 +1542,9 @@ function resetSeeds(){
 // ══════════════════════════════════════════════════════════════════════
 var LS_FIELDS=[
   {id:'rpc-eth',type:'text'},{id:'rpc-arb',type:'text'},
-  {id:'rpc-op',type:'text'},{id:'rpc-base',type:'text'},{id:'rpc-bsc',type:'text'},
+  {id:'rpc-op',type:'text'},{id:'rpc-base',type:'text'},{id:'rpc-bsc',type:'text'},{id:'rpc-polygon',type:'text'},
   {id:'on-eth',type:'check'},{id:'on-arb',type:'check'},
-  {id:'on-op',type:'check'},{id:'on-base',type:'check'},{id:'on-bsc',type:'check'},
+  {id:'on-op',type:'check'},{id:'on-base',type:'check'},{id:'on-bsc',type:'check'},{id:'on-polygon',type:'check'},
   {id:'exch-min',type:'text'},{id:'exch-max',type:'text'},
   {id:'min-spread-h',type:'text'},{id:'max-senders',type:'text'},
   {id:'period-days',type:'text'},{id:'rps-sel',type:'text'},
@@ -1469,6 +1585,7 @@ function lsListen(){
   updateStats();
   renderDepFilters();
   renderDirectDeps();
+  renderTokenFilters();
   addLog('준비 완료. Alchemy RPC URL 입력 → 분석 시작','ok');
   addLog('v12.0 · 완전 재작성 · 섹션별 구조 · var hoisting 안전','info');
 })();
