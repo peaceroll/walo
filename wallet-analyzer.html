@@ -1245,6 +1245,7 @@ async function collectInbound(depMap,opts){
     if(gAborted)return;
     var dm=depMap[dk],ch=dm.chain;
     addLog('[STEP 3] '+short(dm.addr)+' ('+dm.label+' · '+ch.name+') 조회','info');
+    var seedSet={};gSeeds.forEach(function(a){seedSet[a]=1;}); // 시드 집합
 
     // 조기 종료: 페이지마다 발신자 수 체크 — maxSenders 초과 시 즉시 중단
     var txs=[], pageKey=null, earlyStop=false;
@@ -1255,7 +1256,9 @@ async function collectInbound(depMap,opts){
       // 조기 종료 체크: 고유 발신자가 maxSenders 초과하면 더 가져올 필요 없음
       var tempSenders={};
       txs.forEach(function(tx){var f=(tx.from||'').toLowerCase();if(f&&f!==dm.addr.toLowerCase())tempSenders[f]=1;});
-      if(Object.keys(tempSenders).length>opts.maxSenders){
+      // 시드 지갑은 카운트에서 제외 (항상 포함 대상)
+      var nonSeedCount=Object.keys(tempSenders).filter(function(a){return !seedSet[a];}).length;
+      if(nonSeedCount>opts.maxSenders){
         addLog('[STEP 3] '+short(dm.addr)+' 발신자 이미 '+Object.keys(tempSenders).length+'명 초과 → 조기 종료','warn');
         earlyStop=true;break;
       }
@@ -1282,11 +1285,12 @@ async function collectInbound(depMap,opts){
       if(opts.txMin>0&&v.txCount<opts.txMin){delete fromMap[a];return;}
       if(opts.txMax>0&&v.txCount>opts.txMax){delete fromMap[a];return;}
     });
-    // 1차 필터: gHotTargets — 이미 스윕 목적지로 확인된 주소는 핫월렛 (API 없음)
+    // 1차 필터: gHotTargets (시드 제외)
     Object.keys(fromMap).forEach(function(a){
+      if(seedSet[a])return; // 시드는 제외
       var hotInfo=gHotTargets[a];
       if(hotInfo&&hotInfo.sources.length>=1){
-        addLog('[STEP 3] '+short(a)+' gHotTargets에 있음(핫월렛) → 제거','dim');
+        addLog('[STEP 3] '+short(a)+' gHotTargets(핫월렛) → 제거','dim');
         delete fromMap[a];
       }
     });
@@ -1294,14 +1298,12 @@ async function collectInbound(depMap,opts){
     var fromKeys=Object.keys(fromMap);
     if(fromKeys.length>opts.maxSenders){addLog('[STEP 3] ⚠ '+short(dm.addr)+' 발신자 '+fromKeys.length+'명 초과 → 스킵','warn');}
     else{
-      // 2차 필터: 컨트랙트 + nonce 병렬 체크
-      var senderChecks=fromKeys.map(function(addr){
+      // 2차 필터: 컨트랙트 + nonce 병렬 체크 (시드 제외)
+      var senderChecks=fromKeys.filter(function(a){return !seedSet[a];}).map(function(addr){
         var checks=[];
-        // 컨트랙트 체크 — 컨트랙트는 개인 지갑 아님
         checks.push(isContract(ch.rpc,addr).then(function(isCon){
           if(isCon){addLog('[STEP 3] '+short(addr)+' 컨트랙트 → 제거','dim');delete fromMap[addr];}
         }));
-        // nonce 체크 — 개인지갑은 수백, 핫월렛은 수만 이상
         if(opts.nonceMax>0){
           checks.push(getNonce(ch.rpc,addr).then(function(nonce){
             if(fromMap[addr]&&nonce>opts.nonceMax){
