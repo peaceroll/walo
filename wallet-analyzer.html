@@ -688,7 +688,7 @@ var CHAIN_DEFS = [
   {key:'base', name:'Base', color:'#3a7bff', rpcId:'rpc-base',onId:'on-base',
    blockTime:2,    latest:25000000},
   {key:'bsc',  name:'BSC',  color:'#f0b90b', rpcId:'rpc-bsc', onId:'on-bsc',
-   blockTime:3,    latest:48000000, provider:'meganode'},
+   blockTime:3,    latest:58000000, provider:'meganode'},
   {key:'polygon', name:'POL', color:'#8247e5', rpcId:'rpc-polygon', onId:'on-polygon',
    blockTime:2,   latest:68000000},
 ];
@@ -761,7 +761,10 @@ function daysToFromBlock(chainDef, days){
   var d=parseInt(days);
   if(!d||d<=0) return '0x0';
   var blocks=Math.floor(d*86400/chainDef.blockTime);
-  return '0x'+Math.max(0, chainDef.latest-blocks).toString(16);
+  var fromBlock=chainDef.latest-blocks;
+  // fromBlock이 음수거나 0 이하면 전체 조회
+  if(fromBlock<=0) return '0x0';
+  return '0x'+fromBlock.toString(16);
 }
 
 function getActiveChains(){
