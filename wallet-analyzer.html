@@ -1153,31 +1153,35 @@ async function runAutoMode(chains,opts,isResume){
   addLog('=== '+(isResume?'재개':'자동')+' 분석 시작 ===','info');
   addLog('시드: '+pending.length+'개 · 체인: '+chains.map(function(c){return c.name;}).join(','),'info');
 
-  // STEP 1
+  // STEP 1 — 시드×체인 병렬 처리
   setStep(1);
   var destMap = isResume&&gSnapshot ? gSnapshot.destMap : {};
   var done1=0, total1=pending.length*chains.length;
 
-  for(var si=0;si<pending.length;si++){
-    if(gAborted)break;
-    var seed=pending[si];
-    for(var ci=0;ci<chains.length;ci++){
-      if(gAborted)break;
-      var ch=chains[ci];
-      addLog('[STEP 1] '+short(seed)+' ('+ch.name+')','dim');
-      var txs=await fetchAll(ch.rpc,ch.key,ch.provider,'out',seed,ch.blockTime,opts.days,
-        function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+')','dim');});
-      addLog('[STEP 1] → '+txs.length+'건','ok');
-      txs.forEach(function(tx){
-        var to=(tx.to||'').toLowerCase();
-        if(!to||to===seed)return;
-        var k=to+'::'+ch.key;
-        if(!destMap[k])destMap[k]={addr:to,chain:ch};
-      });
-      setProgress(++done1,total1,'STEP 1 · 시드 아웃바운드 수집');
-    }
+  // 시드×체인 조합 생성
+  var step1Tasks=[];
+  pending.forEach(function(seed){
+    chains.forEach(function(ch){
+      step1Tasks.push({seed:seed,chain:ch});
+    });
+  });
+
+  await runParallel(step1Tasks, async function(task){
+    if(gAborted)return;
+    var seed=task.seed, ch=task.chain;
+    addLog('[STEP 1] '+short(seed)+' ('+ch.name+')','dim');
+    var txs=await fetchAll(ch.rpc,ch.key,ch.provider,'out',seed,ch.blockTime,opts.days,
+      function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+')','dim');});
+    addLog('[STEP 1] → '+txs.length+'건 ('+ch.name+')','ok');
+    txs.forEach(function(tx){
+      var to=(tx.to||'').toLowerCase();
+      if(!to||to===seed)return;
+      var k=to+'::'+ch.key;
+      if(!destMap[k])destMap[k]={addr:to,chain:ch};
+    });
     visitedSeeds[seed]=true;
-  }
+    setProgress(++done1,total1,'STEP 1 · 시드 아웃바운드 수집');
+  }, opts.concurrency);
   addLog('[STEP 1] 목적지 '+Object.keys(destMap).length+'개','info');
   gSnapshot={visitedSeeds:visitedSeeds,destMap:destMap};
 
