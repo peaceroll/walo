@@ -211,6 +211,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <input type="text" id="direct-addr" placeholder="입금주소 (0x...)" style="flex:1">
     <input type="text" id="direct-label" placeholder="거래소 이름 (예: Binance)" style="width:140px">
     <select id="direct-chain">
+      <option value="">전체 체인</option>
       <option value="eth">ETH</option>
       <option value="arb">ARB</option>
       <option value="op">OP</option>
@@ -820,15 +821,22 @@ async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainDef, withM
 
   // 토큰 필터 적용
   var tokenInfo = getContractsForChain(chainDef ? chainDef.key : '');
+  var isMegaNode = chainDef && chainDef.provider === 'meganode';
+
+  // category 형식: Alchemy=문자열, MegaNode=숫자문자열
   var useCategory;
   if (gTokenFilters.length === 0) {
-    useCategory = ['external','erc20','erc721','erc1155'];
+    useCategory = isMegaNode
+      ? ['external','20','721','1155']
+      : ['external','erc20','erc721','erc1155'];
   } else if (tokenInfo.hasNative && !tokenInfo.contracts.length) {
-    useCategory = ['external']; // native 코인만
+    useCategory = ['external'];
   } else if (!tokenInfo.hasNative && tokenInfo.contracts.length) {
-    useCategory = ['erc20','erc721','erc1155']; // 토큰만
+    useCategory = isMegaNode ? ['20','721','1155'] : ['erc20','erc721','erc1155'];
   } else {
-    useCategory = ['external','erc20','erc721','erc1155'];
+    useCategory = isMegaNode
+      ? ['external','20','721','1155']
+      : ['external','erc20','erc721','erc1155'];
   }
 
   var params={
@@ -859,7 +867,10 @@ async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainDef, withM
   }
   var data=await resp.json();
   if(data.error) throw new Error(data.error.message||JSON.stringify(data.error));
-  return data.result||{transfers:[],pageKey:null};
+  var result = data.result || {};
+  // MegaNode 응답: result.transfers 또는 result 직접
+  if(Array.isArray(result)) return {transfers:result, pageKey:null};
+  return result.transfers !== undefined ? result : {transfers:[], pageKey:null};
 }
 
 async function fetchAll(rpcUrl, address, direction, chainDef, onPage){
@@ -1037,7 +1048,6 @@ async function startAnalysis(){
     addLog('[STEP 3] '+short(dm.addr)+' ('+dm.chain.name+') 인바운드 전수 조회','info');
     var inTxs=await fetchAll(dm.chain.rpc,dm.addr,'in',dm.chain.def,
       function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+'건)','dim');});
-    addLog('[STEP 3] → '+inTxs.length+'건','ok');
 
     var STABLE = {usdc:1,usdt:1,dai:1,busd:1,tusd:1,usdp:1,gusd:1,frax:1,lusd:1,usdd:1};
     var fromMap={};  // addr → 스테이블코인 누적 USD
@@ -1120,17 +1130,24 @@ async function startDirectAnalysis(chains) {
     if(gAborted) break;
     var dm=gDirectDeps[di];
 
-    // 해당 체인 RPC 찾기
-    var chainObj=chains.find(function(c){return c.key===dm.chainKey;});
-    if(!chainObj){
-      addLog('[STEP 3] ⚠ '+dm.chainKey+' RPC 미설정 — 스킵','warn');
+    // 해당 체인 RPC 찾기 — 전체 체인이면 활성 체인 모두 순회
+    var targetChains = dm.chainKey
+      ? chains.filter(function(c){return c.key===dm.chainKey;})
+      : chains;
+    if(!targetChains.length){
+      addLog('[STEP 3] ⚠ '+dm.addr+' — RPC 미설정된 체인 스킵','warn');
       continue;
     }
 
-    addLog('[STEP 3] '+short(dm.addr)+' ('+dm.label+' · '+dm.chainKey+') 인바운드 전수 조회','info');
-    var inTxs=await fetchAll(chainObj.rpc,dm.addr,'in',chainObj.def,
-      function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+'건)','dim');});
-    addLog('[STEP 3] → '+inTxs.length+'건','ok');
+    var inTxs=[];
+    for(var ci2=0;ci2<targetChains.length;ci2++){
+      var chainObj=targetChains[ci2];
+      addLog('[STEP 3] '+short(dm.addr)+' ('+dm.label+' · '+chainObj.name+') 인바운드 전수 조회','info');
+      var chainTxs=await fetchAll(chainObj.rpc,dm.addr,'in',chainObj.def,
+        function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+'건)','dim');});
+      addLog('[STEP 3] → '+chainTxs.length+'건 ('+chainObj.name+')','ok');
+      inTxs=inTxs.concat(chainTxs);
+    }
 
     var STABLE={usdc:1,usdt:1,dai:1,busd:1,tusd:1,usdp:1,gusd:1,frax:1,lusd:1};
     var fromMap={};
