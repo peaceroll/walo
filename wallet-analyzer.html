@@ -1245,8 +1245,25 @@ async function collectInbound(depMap,opts){
     if(gAborted)return;
     var dm=depMap[dk],ch=dm.chain;
     addLog('[STEP 3] '+short(dm.addr)+' ('+dm.label+' · '+ch.name+') 조회','info');
-    var txs=await fetchAll(ch.rpc,ch.key,ch.provider,'in',dm.addr,ch.blockTime,opts.days,
-      function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+')','dim');});
+
+    // 조기 종료: 페이지마다 발신자 수 체크 — maxSenders 초과 시 즉시 중단
+    var txs=[], pageKey=null, earlyStop=false;
+    while(!gAborted&&!earlyStop){
+      var result=await alchemyCall(ch.rpc,ch.key,ch.provider,'in',dm.addr,pageKey,false,ch.blockTime,opts.days);
+      var batch=result.transfers||[];
+      txs=txs.concat(batch);
+      // 조기 종료 체크: 고유 발신자가 maxSenders 초과하면 더 가져올 필요 없음
+      var tempSenders={};
+      txs.forEach(function(tx){var f=(tx.from||'').toLowerCase();if(f&&f!==dm.addr.toLowerCase())tempSenders[f]=1;});
+      if(Object.keys(tempSenders).length>opts.maxSenders){
+        addLog('[STEP 3] '+short(dm.addr)+' 발신자 이미 '+Object.keys(tempSenders).length+'명 초과 → 조기 종료','warn');
+        earlyStop=true;break;
+      }
+      addLog('  └ p'+(Math.ceil(txs.length/100))+': '+batch.length+'건 ('+txs.length+')','dim');
+      pageKey=result.pageKey;
+      if(!pageKey||!batch.length)break;
+    }
+    if(earlyStop){setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');return;}
     addLog('[STEP 3] → '+txs.length+'건','ok');
 
     var fromMap={};
