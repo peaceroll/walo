@@ -1574,15 +1574,40 @@ function exportReport(){
   var newW=allW.filter(function(w){return !seedSet[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
   var clCnt=new Set(allW.map(function(w){return wInfo[w].cluster;})).size;
   L.push('  지갑: '+allW.length+'개  |  클러스터: '+clCnt+'개  |  API: '+gApiCalls+'회',D,'');
-  L.push('■ 시드 지갑 — '+seedW.length+'명',d);
-  seedW.forEach(function(w,i){var info=wInfo[w],name=PERSON_ADDRESSES[w]||w.slice(0,10)+'…',deps=Object.keys(info.deps);L.push('  '+(i+1)+'위.  '+name,'       지갑: '+w,'       거래소 추정 입금주소 ('+deps.length+'개):');deps.forEach(function(dep){L.push('         '+dep+'  ['+info.deps[dep].exchange+' · '+info.deps[dep].chain+']');});L.push('       클러스터: '+info.cluster,'');});
+  // 시드 중 결과에 직접 포함된 경우 + 클러스터에 연결된 경우 모두 표시
+  var seedClusters={};
+  seedW.forEach(function(w){if(wInfo[w])seedClusters[wInfo[w].cluster]=w;});
+  // 결과에 없는 시드도 연결된 클러스터가 있으면 표시
+  var seedInResult=seedW.length>0;
+  // 전체 시드 목록에서 분석 대상이었던 시드
+  var analyzedSeeds=Object.keys(gSelected).filter(function(a){return gSelected[a];});
+  if(!analyzedSeeds.length)analyzedSeeds=gSeeds.slice();
+
+  L.push('■ 시드 지갑 — '+analyzedSeeds.length+'개 분석',d);
+  analyzedSeeds.forEach(function(w,i){
+    var name=PERSON_ADDRESSES[w]||'';
+    var tag=WALLET_TAGS[w]?('['+WALLET_TAGS[w]+']'):'';
+    var inResult=!!wInfo[w];
+    var cluster=inResult?wInfo[w].cluster:'(결과 없음)';
+    var deps=inResult?Object.keys(wInfo[w].deps):[];
+    L.push('  '+(i+1)+'위.  '+(name||w.slice(0,10)+'…')+(tag?' '+tag:''));
+    L.push('       지갑: '+w);
+    if(inResult){
+      L.push('       거래소 추정 입금주소 ('+deps.length+'개):');
+      deps.forEach(function(dep){L.push('         '+dep+'  ['+wInfo[w].deps[dep].exchange+' · '+wInfo[w].deps[dep].chain+']');});
+      L.push('       클러스터: '+cluster);
+    } else {
+      L.push('       → 이번 분석에서 거래소 입금주소 미발견');
+    }
+    L.push('');
+  });
   var w2s={};newW.forEach(function(nw){var cs={};Object.keys(wInfo[nw].deps).forEach(function(dep){seedW.forEach(function(sw){if(wInfo[sw]&&wInfo[sw].deps[dep])cs[PERSON_ADDRESSES[sw]||sw.slice(0,8)+'…']=1;});});w2s[nw]=Object.keys(cs);});
   var groups={},multi=[],noSeed=[];
   newW.forEach(function(nw){var cs=w2s[nw];if(!cs.length)noSeed.push(nw);else if(cs.length===1){if(!groups[cs[0]])groups[cs[0]]=[];groups[cs[0]].push(nw);}else multi.push(nw);});
   L.push(d,'■ 신규 발견 지갑 — 시드별 연결',d);
   Object.keys(groups).forEach(function(sn){L.push('◆ '+sn+'  관련 지갑 ('+groups[sn].length+'개)','─'.repeat(50));groups[sn].forEach(function(nw,i){var info=wInfo[nw],deps=Object.keys(info.deps);L.push('  '+(i+1)+'위.  '+nw,'       입금주소 ('+deps.length+'개):');deps.forEach(function(dep){L.push('         '+dep+'  ['+info.deps[dep].exchange+' · '+info.deps[dep].chain+']');});L.push('       클러스터: '+info.cluster,'');});});
   if(multi.length){L.push('◆ 복수 시드 공통 연결','─'.repeat(50));multi.forEach(function(nw,i){L.push('  '+(i+1)+'위.  '+nw,'       연결시드: '+w2s[nw].join(', '));Object.keys(wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+']');});L.push('       클러스터: '+wInfo[nw].cluster,'');});}
-  if(noSeed.length){L.push('◆ 시드 연결 없음 ('+noSeed.length+'개)','─'.repeat(50));noSeed.forEach(function(nw,i){L.push('  '+(i+1)+'위.  '+nw);Object.keys(wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+']');});L.push('       클러스터: '+wInfo[nw].cluster,'');});}
+  if(noSeed.length){L.push('◆ 시드 연결 없음 ('+noSeed.length+'개)','─'.repeat(50));noSeed.forEach(function(nw,i){var name=PERSON_ADDRESSES[nw]||'';L.push('  '+(i+1)+'위.  '+nw+(name?' ['+name+']':''));Object.keys(wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+' · '+wInfo[nw].deps[dep].chain+']');});L.push('       클러스터: '+wInfo[nw].cluster,'');});}
   L.push(D,'  END OF REPORT',D);
   download('wallet-report-'+new Date().toISOString().slice(0,10)+'.txt',L.join('\n'),'text/plain;charset=utf-8');addLog('리포트 완료','ok');
 }
