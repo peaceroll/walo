@@ -979,11 +979,24 @@ async function collectInbound(depMap,opts){
       var checks=fromKeys.filter(function(a){return !seedSet[a];}).map(function(addr){
         return Promise.all([
           getCode(ch.rpc,addr).then(function(isCon){if(isCon)delete fromMap[addr];}),
-          getNonce(ch.rpc,addr).then(function(nonce){
+          (async function(){
+            // 현재 체인 nonce 체크
+            var nonce=await getNonce(ch.rpc,addr);
             if(!fromMap[addr])return;
             if(nonce===0){delete fromMap[addr];return;}
-            if(opts.nonceMax>0&&nonce>opts.nonceMax){addLog('[STEP 3] '+short(addr)+' nonce='+nonce+' → 핫월렛 제거','dim');delete fromMap[addr];}
-          })
+            if(opts.nonceMax>0&&nonce>opts.nonceMax){addLog('[STEP 3] '+short(addr)+' nonce='+nonce+'('+ch.name+') → 제거','dim');delete fromMap[addr];return;}
+            // ETH 메인넷 교차 검증 (BSE/ARB 등에서 nonce가 낮아도 ETH에선 높을 수 있음)
+            if(ch.key!=='eth'){
+              var ethEl=gel('rpc-eth');
+              if(ethEl&&ethEl.value.trim()){
+                var ethNonce=await getNonce(ethEl.value.trim(),addr);
+                if(fromMap[addr]&&opts.nonceMax>0&&ethNonce>opts.nonceMax){
+                  addLog('[STEP 3] '+short(addr)+' ETH nonce='+ethNonce+' → 핫월렛 제거','dim');
+                  delete fromMap[addr];
+                }
+              }
+            }
+          })()
         ]);
       });
       await Promise.all(checks);
@@ -1018,6 +1031,10 @@ function updateStats(){
   gel('s-cl').textContent=clusterEdges(gEdges.slice()); // 복사본으로 클러스터 수만 계산
 }
 
+function labelKeydown(ev,el){
+  if(ev.key==='Enter'){ev.preventDefault();el.blur();}
+  else if(ev.key==='Escape'){el.textContent=gEdges[+el.dataset.idx].exchange;el.blur();}
+}
 function saveLabel(el){
   var idx=+el.dataset.idx,edge=gEdges[idx];if(!edge)return;
   var val=el.textContent.trim().replace(/^✎ /,'');
@@ -1035,26 +1052,45 @@ function renderTable(){
     if(fw&&e.wallet.indexOf(fw)<0&&e.deposit.indexOf(fw)<0)return;
     if(fe&&(e.userLabel||e.exchange).toLowerCase().indexOf(fe)<0)return;
     if(fc&&(e._cluster||'').toLowerCase().indexOf(fc)<0)return;
-    if(onlySeed&&!meta.seedClusters[e._cluster])return;
+    // 시드 연결만 보기: 시드와 같은 클러스터에 있는 NEW 지갑만 표시
+    // (시드 본인 제외 — 시드 본인은 항상 연결돼 있어서 필터 의미 없음)
+    if(onlySeed){
+      if(!meta.seedClusters[e._cluster])return;   // 시드 클러스터 아니면 제외
+      if(meta.seedSet[e.wallet])return;            // 시드 본인 제외 → ★ 붙은 NEW만
+    }
     var k=e.wallet+'::'+e.deposit;if(seen[k])return;seen[k]=1;
     rows.push({e:e,idx:idx});
   });
   gel('res-cnt').textContent=rows.length;
   if(!rows.length){gel('tbody').innerHTML='';gel('no-res').style.display='';return;}
   gel('no-res').style.display='none';
+  var lastWallet='';
   gel('tbody').innerHTML=rows.map(function(item){
     var r=item.e,idx=item.idx;
     var isSeed=!!meta.seedSet[r.wallet],hasSeed=!!meta.seedClusters[r._cluster];
     var clLabel=(r._cluster||'—')+(hasSeed&&!isSeed?' ★':'');
     var exchDisplay=r.userLabel?('✎ '+r.userLabel):r.exchange;
     var exchCss=r.userLabel?'user':(r.cssClass||'');
+    var sameWallet=(r.wallet===lastWallet);
+    lastWallet=r.wallet;
+    if(sameWallet){
+      return '<tr class="'+(hasSeed&&!isSeed?'seed-related':'')+'">'
+        +'<td></td>'
+        +'<td style="color:#2a4a6a;font-size:10px;padding-left:8px">└</td>'
+        +'<td></td><td></td>'
+        +'<td style="font-family:monospace;font-size:10px;color:#3a6a8a">'+r.deposit+'</td>'
+        +'<td><span class="tag-exch '+exchCss+'" contenteditable="true" spellcheck="false" data-idx="'+idx+'" onblur="saveLabel(this)" onkeydown="labelKeydown(event,this)">'+exchDisplay+'</span></td>'
+        +'<td style="color:#4a6a8a;font-size:10px">'+r.chain+'</td>'
+        +'<td style="white-space:nowrap"><a href="'+arkUrl(r.deposit)+'" target="_blank">deposit↗</a></td>'
+        +'</tr>';
+    }
     return '<tr class="'+(hasSeed&&!isSeed?'seed-related':'')+'">'
       +'<td style="font-weight:700;color:'+(hasSeed?'var(--g)':'#4a6a8a')+'">'+clLabel+'</td>'
       +'<td style="font-family:monospace;font-size:10px;color:#7ab4d4">'+r.wallet+'</td>'
       +'<td style="color:#9ab8c8;font-size:10px">'+(PERSON_ADDRESSES[r.wallet]||'')+'</td>'
       +'<td>'+(isSeed?'<span class="tag seed">seed</span>':'<span class="tag new">new</span>')+'</td>'
       +'<td style="font-family:monospace;font-size:10px;color:#3a6a8a">'+r.deposit+'</td>'
-      +'<td><span class="tag-exch '+exchCss+'" contenteditable="true" spellcheck="false" data-idx="'+idx+'" onblur="saveLabel(this)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}if(event.key===\'Escape\'){this.textContent=gEdges[+this.dataset.idx].exchange;this.blur();}">'+exchDisplay+'</span></td>'
+      +'<td><span class="tag-exch '+exchCss+'" contenteditable="true" spellcheck="false" data-idx="'+idx+'" onblur="saveLabel(this)" onkeydown="labelKeydown(event,this)">'+exchDisplay+'</span></td>'
       +'<td style="color:#4a6a8a;font-size:10px">'+r.chain+'</td>'
       +'<td style="white-space:nowrap"><a href="'+arkUrl(r.wallet)+'" target="_blank">wallet↗</a> · <a href="'+arkUrl(r.deposit)+'" target="_blank">deposit↗</a></td>'
       +'</tr>';
