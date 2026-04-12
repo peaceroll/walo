@@ -87,17 +87,17 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   </div>
 
   <!-- 분석 파라미터 -->
-  <div class="row">
+  <div class="row" id="row-exch-range">
     <span class="lbl">거래소 발신자 범위</span>
     <input type="number" id="exch-min" value="10" min="2" max="200" style="width:55px">
     <span class="hint">~</span>
     <input type="number" id="exch-max" value="100" min="5" max="2000" style="width:60px">
-    <span class="hint">명</span>
+    <span class="hint">명 &nbsp;<span style="color:var(--a);font-size:9px">★ 자동 모드 전용</span></span>
   </div>
-  <div class="row">
+  <div class="row" id="row-spread">
     <span class="lbl">TX 시간 분산 최소</span>
     <input type="number" id="min-spread-h" value="24" min="0" style="width:60px">
-    <span class="hint">시간 이상 벌어져 있어야 거래소로 인정 · 100건 최근 입금 중 가장 오래된 것과 가장 최신 것의 시간 차이가 이 값보다 작으면 "단기간에 몰린 입금" → DeFi/이벤트 컨트랙트로 보고 제외. 진짜 거래소는 오랜 기간 꾸준히 입금됨. 0 입력 시 비활성</span>
+    <span class="hint">시간 이상 벌어져 있어야 거래소로 인정 · 100건 최근 입금 중 가장 오래된 것과 가장 최신 것의 시간 차이가 이 값보다 작으면 "단기간에 몰린 입금" → DeFi/이벤트 컨트랙트로 보고 제외. 진짜 거래소는 오랜 기간 꾸준히 입금됨. 0 입력 시 비활성 &nbsp;<span style="color:var(--a);font-size:9px">★ 자동 모드 전용</span></span>
   </div>
   <div class="row">
     <span class="lbl">클러스터당 최대 지갑</span>
@@ -143,8 +143,41 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   </div>
 </div>
 
+<!-- ── 모드 선택 탭 ── -->
+<div style="display:flex;gap:0;margin-bottom:12px;border-bottom:1px solid var(--bd)">
+  <button id="tab-auto" onclick="setMode('auto')"
+    style="background:var(--bg2);border:1px solid var(--bd);border-bottom:none;color:var(--g);font-family:'Courier New',monospace;font-size:11px;font-weight:700;padding:8px 20px;cursor:pointer;border-radius:4px 4px 0 0;margin-bottom:-1px">
+    ▶ 자동 분석 (STEP 1~4)
+  </button>
+  <button id="tab-direct" onclick="setMode('direct')"
+    style="background:var(--bg3);border:1px solid var(--bd);border-bottom:1px solid var(--bd);color:#4a6a8a;font-family:'Courier New',monospace;font-size:11px;font-weight:700;padding:8px 20px;cursor:pointer;border-radius:4px 4px 0 0;margin-bottom:-1px;margin-left:4px">
+    ⬡ 입금주소 직접 분석 (STEP 3~4)
+  </button>
+</div>
+
+<!-- ── 직접 입금주소 패널 (직접 모드용) ── -->
+<div id="direct-panel" class="panel" style="display:none">
+  <h2>거래소 입금주소 직접 입력</h2>
+  <div style="font-size:10px;color:#3a6a8a;margin-bottom:10px">
+    입금주소를 이미 알고 있을 때 STEP 1·2를 건너뛰고 바로 발신자 수집부터 시작합니다.
+  </div>
+  <div id="direct-dep-list"></div>
+  <div class="row" style="margin-top:8px">
+    <input type="text" id="direct-addr" placeholder="입금주소 (0x...)" style="flex:1">
+    <input type="text" id="direct-label" placeholder="거래소 이름 (예: Binance)" style="width:140px">
+    <select id="direct-chain">
+      <option value="eth">ETH</option>
+      <option value="arb">ARB</option>
+      <option value="op">OP</option>
+      <option value="base">Base</option>
+    </select>
+    <button class="btn dim" onclick="addDirectDep()">+ 추가</button>
+    <button class="btn dim red" onclick="clearDirectDep()">↺ 초기화</button>
+  </div>
+</div>
+
 <!-- ── 시드 주소 ── -->
-<div class="panel">
+<div class="panel" id="seed-panel-wrap">
   <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleEl('seed-body','seed-arrow')">
     <span style="color:var(--b)">◈</span>
     <h2 style="margin:0">시드 주소 &nbsp;<span class="bdg" id="seed-cnt-lbl">0</span></h2>
@@ -166,9 +199,10 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     </div>
   </div>
 </div>
+</div><!-- /seed-panel-wrap -->
 
 <!-- ── 입금주소 필터 ── -->
-<div class="panel">
+<div class="panel" id="dep-filter-wrap">
   <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleEl('dep-filter-body','dep-filter-arrow')">
     <span style="color:var(--a)">⬡</span>
     <h2 style="margin:0">입금주소 필터 &nbsp;<span class="bdg" id="dep-filter-cnt">0</span></h2>
@@ -628,6 +662,11 @@ gSeeds.forEach(function(a){gSelected[a]=true;});
 // 입금주소 필터: [{addr, label, mode}]
 var gDepFilters = [];
 
+// 분석 모드: 'auto' | 'direct'
+var gMode = 'auto';
+// 직접 입력 입금주소: [{addr, label, chainKey}]
+var gDirectDeps = [];
+
 // ══════════════════════════════════════════════════════════════════════
 // 섹션 4: 유틸 함수
 // ══════════════════════════════════════════════════════════════════════
@@ -799,6 +838,13 @@ function clusterEdges(edges){
 async function startAnalysis(){
   // 1. 설정 읽기 — 함수 최상단에서 모두 선언
   var chains=getActiveChains();
+
+  // 직접 모드: STEP 3부터 바로 시작
+  if(gMode==='direct'){
+    startDirectAnalysis(chains);
+    return;
+  }
+
   var runSeeds=Object.keys(gSelected).filter(function(a){return gSelected[a];});
   var exchMin=num('exch-min',10);
   var exchMax=num('exch-max',100);
@@ -974,6 +1020,87 @@ function stopAnalysis(){
   addLog('⬛ 중지','warn');
   gel('btn-run').disabled=false;
   gel('btn-stop').disabled=true;
+}
+
+// ── 직접 모드 분석 (STEP 3~4만) ─────────────────────────────────
+async function startDirectAnalysis(chains) {
+  var maxSenders=num('max-senders',50);
+  var usdMin=parseFloat(gel('usd-min')?gel('usd-min').value:'0')||0;
+  var usdMax=parseFloat(gel('usd-max')?gel('usd-max').value:'0')||0;
+
+  if(!gDirectDeps.length){addLog('⚠ 입금주소를 먼저 추가하세요','err');return;}
+  if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 선택하세요','err');return;}
+
+  gAborted=false; gEdges=[]; gApiCalls=0;
+  gRateRPS=num('rps-sel',2);
+  gel('btn-run').disabled=true; gel('btn-stop').disabled=false;
+  gel('tbody').innerHTML=''; gel('no-res').style.display='';
+  gel('res-cnt').textContent='0';
+  updateStats(); renderTable();
+
+  addLog('=== 직접 입금주소 분석 시작 (STEP 3~4) ===','info');
+  addLog('입금주소: '+gDirectDeps.length+'개','info');
+
+  // STEP 3: 각 입금주소 인바운드 발신자 수집
+  setStep(3);
+  for(var di=0;di<gDirectDeps.length;di++){
+    if(gAborted) break;
+    var dm=gDirectDeps[di];
+
+    // 해당 체인 RPC 찾기
+    var chainObj=chains.find(function(c){return c.key===dm.chainKey;});
+    if(!chainObj){
+      addLog('[STEP 3] ⚠ '+dm.chainKey+' RPC 미설정 — 스킵','warn');
+      continue;
+    }
+
+    addLog('[STEP 3] '+short(dm.addr)+' ('+dm.label+' · '+dm.chainKey+') 인바운드 전수 조회','info');
+    var inTxs=await fetchAll(chainObj.rpc,dm.addr,'in',chainObj.def,
+      function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+'건)','dim');});
+    addLog('[STEP 3] → '+inTxs.length+'건','ok');
+
+    var STABLE={usdc:1,usdt:1,dai:1,busd:1,tusd:1,usdp:1,gusd:1,frax:1,lusd:1};
+    var fromMap={};
+    inTxs.forEach(function(tx){
+      var f=(tx.from||'').toLowerCase();
+      if(!f||f===dm.addr) return;
+      if(!fromMap[f]) fromMap[f]=0;
+      var asset=(tx.asset||'').toLowerCase();
+      if(STABLE[asset]) fromMap[f]+=parseFloat(tx.value||0);
+    });
+
+    if(usdMin>0||usdMax>0){
+      Object.keys(fromMap).forEach(function(addr){
+        var v=fromMap[addr];
+        if(usdMin>0&&v<usdMin) delete fromMap[addr];
+        if(usdMax>0&&v>usdMax) delete fromMap[addr];
+      });
+    }
+
+    var fromKeys=Object.keys(fromMap);
+    if(fromKeys.length>maxSenders){
+      addLog('[STEP 3] ⚠ 발신자 '+fromKeys.length+'명 > '+maxSenders+' → 스킵','warn');
+      continue;
+    }
+    fromKeys.forEach(function(from){
+      gEdges.push({wallet:from,deposit:dm.addr,exchange:dm.label,chain:dm.chainKey});
+    });
+    addLog('[STEP 3] 발신자 '+fromKeys.length+'명 수집','ok');
+    updateStats(); renderTable();
+  }
+
+  // STEP 4: 클러스터 계산
+  setStep(4);
+  clusterEdges(gEdges);
+  updateStats(); renderTable();
+
+  STEPS_DEF.forEach(function(s){
+    var n=gel('sn'+s.id);if(!n)return;
+    n.className='snum'+(s.id>=3?'done':'');
+    gel('sl'+s.id).className='slbl'+(s.id>=3?'done':'');
+  });
+  addLog('=== 완료 · API '+gApiCalls+'회 · 연결 '+gEdges.length+'개 ===','ok');
+  gel('btn-run').disabled=false; gel('btn-stop').disabled=true;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1172,6 +1299,60 @@ function removeDepFilter(addr){
 
 function clearDepFilter(){gDepFilters=[];renderDepFilters();}
 
+// ── 모드 전환 ──────────────────────────────────────────────────────
+function setMode(mode) {
+  gMode = mode;
+  var isAuto = mode === 'auto';
+  // 탭 스타일
+  gel('tab-auto').style.background   = isAuto ? 'var(--bg2)' : 'var(--bg3)';
+  gel('tab-auto').style.color        = isAuto ? 'var(--g)'   : '#4a6a8a';
+  gel('tab-auto').style.borderBottom = isAuto ? 'none'       : '1px solid var(--bd)';
+  gel('tab-direct').style.background   = !isAuto ? 'var(--bg2)' : 'var(--bg3)';
+  gel('tab-direct').style.color        = !isAuto ? 'var(--g)'   : '#4a6a8a';
+  gel('tab-direct').style.borderBottom = !isAuto ? 'none'       : '1px solid var(--bd)';
+  // 패널 표시
+  gel('direct-panel').style.display    = isAuto ? 'none'  : '';
+  gel('seed-panel-wrap').style.display = isAuto ? ''      : 'none';
+  gel('dep-filter-wrap') && (gel('dep-filter-wrap').style.display = isAuto ? '' : 'none');
+  // 자동 모드 전용 항목 dim 처리
+  var autoOnly = ['row-exch-range','row-spread'];
+  autoOnly.forEach(function(id){
+    var el=gel(id); if(!el) return;
+    el.style.opacity = isAuto ? '1' : '0.35';
+    el.style.pointerEvents = isAuto ? '' : 'none';
+  });
+}
+
+// ── 직접 입금주소 UI ──────────────────────────────────────────────
+function addDirectDep() {
+  var addrEl=gel('direct-addr'), lblEl=gel('direct-label'), chainEl=gel('direct-chain');
+  var v=addrEl.value.trim().toLowerCase();
+  if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}
+  if(gDirectDeps.find(function(d){return d.addr===v;})){addLog('이미 추가됨','warn');return;}
+  var label=lblEl.value.trim()||'입금주소';
+  var chainKey=chainEl.value;
+  gDirectDeps.push({addr:v, label:label, chainKey:chainKey});
+  addrEl.value=''; lblEl.value='';
+  renderDirectDeps();
+  addLog('입금주소 추가: '+v+' ('+label+' · '+chainKey+')','ok');
+}
+
+function clearDirectDep(){gDirectDeps=[];renderDirectDeps();}
+function removeDirectDep(addr){gDirectDeps=gDirectDeps.filter(function(d){return d.addr!==addr;});renderDirectDeps();}
+
+function renderDirectDeps(){
+  var el=gel('direct-dep-list');
+  if(!gDirectDeps.length){el.innerHTML='<div style="font-size:10px;color:#2a4a6a;padding:4px 0">추가된 입금주소 없음</div>';return;}
+  el.innerHTML=gDirectDeps.map(function(d){
+    return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:10px">'
+      +'<span style="background:rgba(0,255,157,.1);color:var(--g);border-radius:2px;padding:1px 5px;font-weight:700">'+d.chainKey.toUpperCase()+'</span>'
+      +'<span style="color:var(--a);min-width:100px">'+d.label+'</span>'
+      +'<span style="color:#3a6a9a;font-family:monospace">'+d.addr+'</span>'
+      +'<button data-addr="'+d.addr+'" onclick="removeDirectDep(this.dataset.addr)" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button>'
+      +'</div>';
+  }).join('');
+}
+
 function renderDepFilters(){
   gel('dep-filter-cnt').textContent=gDepFilters.length;
   if(!gDepFilters.length){
@@ -1279,6 +1460,7 @@ function lsListen(){
   renderSeeds();
   updateStats();
   renderDepFilters();
+  renderDirectDeps();
   addLog('준비 완료. Alchemy RPC URL 입력 → 분석 시작','ok');
   addLog('v12.0 · 완전 재작성 · 섹션별 구조 · var hoisting 안전','info');
 })();
