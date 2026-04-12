@@ -273,6 +273,12 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <button class="btn dim" onclick="addDepFilter()">+ 추가</button>
       <button class="btn dim red" onclick="clearDepFilter()">↺ 초기화</button>
     </div>
+    <div class="row" style="margin-top:6px">
+      <button class="btn dim" onclick="saveDepFilters()">💾 파일 저장</button>
+      <button class="btn dim" onclick="gel('dep-filter-file').click()">📂 불러오기</button>
+      <input type="file" id="dep-filter-file" accept=".csv,.txt" style="display:none" onchange="loadDepFilters(this)">
+      <span class="hint">CSV로 저장·불러오기 · 엑셀/구글시트에서 바로 수정 가능</span>
+    </div>
   </div>
 </div>
 
@@ -1365,6 +1371,48 @@ function removeDepFilter(addr){
 }
 
 function clearDepFilter(){gDepFilters=[];renderDepFilters();}
+
+function saveDepFilters(){
+  if(!gDepFilters.length){addLog('저장할 주소 없음','warn');return;}
+  var lines=['addr,label,mode'];
+  gDepFilters.forEach(function(f){
+    lines.push([f.addr,'"'+(f.label||'').replace(/"/g,'""')+'"',f.mode||'exclude'].join(','));
+  });
+  var blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='dep-filters-'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+  addLog('입금주소 필터 '+gDepFilters.length+'개 CSV 저장 완료','ok');
+}
+
+function loadDepFilters(input){
+  var file=input.files[0];if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      var lines=e.target.result.split(/\r?\n/).filter(function(l){return l.trim();});
+      if(!lines.length)throw new Error('빈 파일');
+      // 첫 줄 헤더 확인
+      var header=lines[0].toLowerCase();
+      var startIdx=header.includes('addr')?1:0;
+      var added=0;
+      for(var i=startIdx;i<lines.length;i++){
+        var cols=lines[i].split(',');
+        var addr=(cols[0]||'').trim().toLowerCase();
+        var label=(cols[1]||'').trim().replace(/^"|"$/g,'');
+        var mode=(cols[2]||'exclude').trim().toLowerCase();
+        if(!addr||!addr.startsWith('0x')||addr.length!==42)continue;
+        if(gDepFilters.find(function(x){return x.addr===addr;}))continue;
+        if(mode!=='include')mode='exclude';
+        gDepFilters.push({addr:addr,label:label||addr.slice(0,10)+'…',mode:mode});
+        added++;
+      }
+      renderDepFilters();
+      addLog('불러오기 완료: '+added+'개 추가 (총 '+gDepFilters.length+'개)','ok');
+    }catch(err){addLog('파일 오류: '+err.message,'err');}
+    input.value='';
+  };
+  reader.readAsText(file);
+}
 
 // ── 토큰 필터 함수 ──────────────────────────────────────────────
 function addTokenFilter() {
