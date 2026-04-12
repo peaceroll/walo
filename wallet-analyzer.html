@@ -875,47 +875,80 @@ function computeSweep(inTxs, outTxs, addrLow, maxSweepSec) {
 
 // analyzeCandidate: 3회 병렬 API (in+out+getCode) → 모든 판단 재사용
 // 대비: 기존 detectSweep+getNonce+isContract+checkHotWallet = 6회 순차 → 3회 병렬
+// analyzeCandidate: 거래소 입금주소 판별
+// 설계 원칙:
+//   1. 스윕 패턴이 1순위 — 금액/토큰 완전 일치 + 1시간 이내 출금
+//   2. 스윕 HIGH → 발신자 수 무관 통과 (1인 전용 입금주소도 포함)
+//   3. 스윕 미확인 → 발신자 수(exchMin~exchMax)로 보조 판단
+//   4. 컨트랙트 / 출금이력 없음(nonce=0) / 발신자 과다(DeFi) → 즉시 스킵
+//   5. 핫월렛 확인: outTxs fan-out + gHotTargets 재사용 (추가 API 없음)
 async function analyzeCandidate(chain, address, opts) {
-  var addrLow=address.toLowerCase();
-  var results=await Promise.all([
+  var addrLow = address.toLowerCase();
+
+  // ① 3회 병렬 API: inbound + outbound + 컨트랙트 여부
+  var results = await Promise.all([
     alchemyCall(chain.rpc,chain.key,chain.provider,"in", address,null,opts.spreadH>0,chain.blockTime,opts.days).catch(function(){return{transfers:[]};}),
-    alchemyCall(chain.rpc,chain.key,chain.provider,"out",address,null,false,          chain.blockTime,opts.days).catch(function(){return{transfers:[]};}),
-    isContract(chain.rpc,address)
+    alchemyCall(chain.rpc,chain.key,chain.provider,"out",address,null,false,chain.blockTime,opts.days).catch(function(){return{transfers:[]};}),
+    isContract(chain.rpc, address)
   ]);
-  var inTxs=(results[0].transfers||[]),outTxs=(results[1].transfers||[]),isCon=results[2];
-  if(isCon)return{skip:true,reason:"컨트랙트"};
-  if(!outTxs.length)return{skip:true,reason:"출금이력 없음(nonce=0)"};
-  var senders={};
+  var inTxs  = results[0].transfers || [];
+  var outTxs = results[1].transfers || [];
+  var isCon  = results[2];
+
+  // ② 즉시 스킵 조건
+  if (isCon)          return {skip:true, reason:"컨트랙트"};
+  if (!outTxs.length) return {skip:true, reason:"출금이력 없음"};
+
+  // ③ 발신자 수 (스윕 판단 전에 과다만 먼저 걸러냄)
+  var senders = {};
   inTxs.forEach(function(tx){var f=(tx.from||"").toLowerCase();if(f)senders[f]=true;});
-  var cnt=Object.keys(senders).length;
-  if(cnt<opts.exchMin)return{skip:true,reason:"발신자 부족("+cnt+"명)"};
-  if(cnt>opts.exchMax)return{skip:true,reason:"발신자 과다("+cnt+"명)"};
-  if(opts.spreadH>0&&inTxs.length>=100){
-    var times=inTxs.map(function(tx){return tx.metadata&&tx.metadata.blockTimestamp?new Date(tx.metadata.blockTimestamp).getTime():0;}).filter(function(t){return t>0;}).sort(function(a,b){return a-b;});
-    if(times.length>=2&&(times[times.length-1]-times[0])/3600000<opts.spreadH)
-      return{skip:true,reason:"단기집중"};
-  }
-  var sweep=computeSweep(inTxs,outTxs,addrLow,3600);
-  var topTarget=Object.keys(sweep.targets).sort(function(a,b){return sweep.targets[b]-sweep.targets[a];})[0];
-  var hwConf="NONE";
-  if(topTarget){
-    var known=gHotTargets[topTarget];
-    if(known&&known.sources.length>=2){hwConf="HIGH";}
-    else{
-      var outRec={};outTxs.forEach(function(tx){outRec[(tx.to||"").toLowerCase()]=1;});
-      var fanOut=Object.keys(outRec).length;
-      hwConf=fanOut<=5?"HIGH":fanOut<=10?"MEDIUM":"NONE";
+  var cnt = Object.keys(senders).length;
+  if (cnt > opts.exchMax) return {skip:true, reason:"발신자 과다("+cnt+"명, DeFi)"};
+
+  // ④ 스윕 패턴 계산 (inTxs/outTxs 재사용 — API 추가 없음)
+  var sweep = computeSweep(inTxs, outTxs, addrLow, 3600);
+
+  // ⑤ 스윕 LOW이면 발신자 수 + 시간분산으로 보조 판단
+  if (sweep.confidence === "LOW" || sweep.confidence === "NONE") {
+    if (cnt < opts.exchMin) return {skip:true, reason:"스윕없음+발신자부족("+cnt+"명)"};
+    if (opts.spreadH > 0 && inTxs.length >= 100) {
+      var times = inTxs
+        .map(function(tx){return tx.metadata&&tx.metadata.blockTimestamp?new Date(tx.metadata.blockTimestamp).getTime():0;})
+        .filter(function(t){return t>0;})
+        .sort(function(a,b){return a-b;});
+      if (times.length>=2 && (times[times.length-1]-times[0])/3600000 < opts.spreadH)
+        return {skip:true, reason:"단기집중"};
     }
   }
-  var label,cssClass;
-  if(sweep.confidence==="HIGH"&&(hwConf==="HIGH"||hwConf==="MEDIUM")){
-    label="CEX입금★★(스윕"+sweep.swept+"/"+sweep.total+"건+핫월렛확인)";cssClass="high";
-  } else if(sweep.confidence!=="LOW"){
-    label="CEX입금★(스윕"+sweep.swept+"/"+sweep.total+"건)";cssClass="medium";
-  } else {
-    label="추정거래소(발신자"+cnt+"명)";cssClass="";
+
+  // ⑥ 핫월렛 확인 (outTxs fan-out + gHotTargets — API 없음)
+  var topTarget = Object.keys(sweep.targets).sort(function(a,b){return sweep.targets[b]-sweep.targets[a];})[0];
+  var hwConf = "NONE";
+  if (topTarget) {
+    var known = gHotTargets[topTarget];
+    if (known && known.sources.length >= 2) {
+      hwConf = "HIGH"; // 여러 입금주소가 동일 목적지로 스윕 → 확실한 핫월렛
+    } else {
+      var outRec = {};
+      outTxs.forEach(function(tx){outRec[(tx.to||"").toLowerCase()]=1;});
+      var fanOut = Object.keys(outRec).length;
+      hwConf = fanOut<=5 ? "HIGH" : fanOut<=10 ? "MEDIUM" : "NONE";
+    }
   }
-  return{skip:false,label:label,cssClass:cssClass};
+
+  // ⑦ 최종 라벨
+  var label, cssClass;
+  if (sweep.swept > 0 && (hwConf==="HIGH"||hwConf==="MEDIUM")) {
+    label    = "CEX입금★★(스윕"+sweep.swept+"/"+sweep.total+"건+핫월렛확인)";
+    cssClass = "high";
+  } else if (sweep.swept > 0) {
+    label    = "CEX입금★(스윕"+sweep.swept+"/"+sweep.total+"건)";
+    cssClass = "medium";
+  } else {
+    label    = "추정거래소(발신자"+cnt+"명)";
+    cssClass = "";
+  }
+  return {skip:false, label:label, cssClass:cssClass};
 }
 
 
