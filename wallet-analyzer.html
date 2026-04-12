@@ -832,7 +832,93 @@ async function fetchAll(rpcUrl,chainKey,provider,direction,address,blockTime,day
   return all;
 }
 
-// ══ 섹션 6: 스윕 패턴 감지 ═════════════════════════════════════════
+// ══ 섹션 6: 스윕 계산 + 거래소 후보 판별 ══════════════════════════════
+// computeSweep: 이미 가져온 inTxs/outTxs 재사용 (API 추가 없음)
+//   - 토큰별 그룹핑: USDT입금→USDT출금만 페어링
+//   - 금액 완전 동일 (거래소가 가스비 별도 납부)
+//   - 시간 순서: 출금이 입금 이후여야 스윕으로 인정
+function computeSweep(inTxs, outTxs, addrLow, maxSweepSec) {
+  if(!maxSweepSec) maxSweepSec=3600;
+  function getTs(tx){return tx.metadata&&tx.metadata.blockTimestamp?new Date(tx.metadata.blockTimestamp).getTime():0;}
+  var sortedIn =inTxs.slice().sort(function(a,b){return getTs(a)-getTs(b);});
+  var sortedOut=outTxs.slice().sort(function(a,b){return getTs(a)-getTs(b);});
+  var inByAsset={};
+  sortedIn.forEach(function(tx){
+    var asset=tx.asset||"ETH",val=parseFloat(tx.value||0),t=getTs(tx);
+    if(!inByAsset[asset])inByAsset[asset]=[];
+    inByAsset[asset].push({t:t,val:val});
+  });
+  var swept=0,targets={};
+  sortedOut.forEach(function(tx){
+    var asset=tx.asset||"ETH",val=parseFloat(tx.value||0),t=getTs(tx),to=(tx.to||"").toLowerCase();
+    if(!val||to===addrLow)return;
+    var queue=inByAsset[asset];
+    if(!queue||!queue.length)return;
+    for(var i=queue.length-1;i>=0;i--){
+      var inn=queue[i];
+      var diffSec=(t-inn.t)/1000;
+      if(diffSec<0)break;
+      if(diffSec>maxSweepSec)break;
+      if(inn.val===val){
+        swept++;targets[to]=(targets[to]||0)+1;
+        if(!gHotTargets[to])gHotTargets[to]={count:0,sources:[]};
+        gHotTargets[to].count++;
+        if(gHotTargets[to].sources.indexOf(addrLow)<0)gHotTargets[to].sources.push(addrLow);
+        queue.splice(i,1);break;
+      }
+    }
+  });
+  var total=sortedIn.length,ratio=total>0?swept/total:0;
+  var conf=ratio>=0.7&&swept>=3?"HIGH":ratio>=0.4&&swept>=2?"MEDIUM":"LOW";
+  return{swept:swept,total:total,ratio:ratio,confidence:conf,targets:targets};
+}
+
+// analyzeCandidate: 3회 병렬 API (in+out+getCode) → 모든 판단 재사용
+// 대비: 기존 detectSweep+getNonce+isContract+checkHotWallet = 6회 순차 → 3회 병렬
+async function analyzeCandidate(chain, address, opts) {
+  var addrLow=address.toLowerCase();
+  var results=await Promise.all([
+    alchemyCall(chain.rpc,chain.key,chain.provider,"in", address,null,opts.spreadH>0,chain.blockTime,opts.days).catch(function(){return{transfers:[]};}),
+    alchemyCall(chain.rpc,chain.key,chain.provider,"out",address,null,false,          chain.blockTime,opts.days).catch(function(){return{transfers:[]};}),
+    isContract(chain.rpc,address)
+  ]);
+  var inTxs=(results[0].transfers||[]),outTxs=(results[1].transfers||[]),isCon=results[2];
+  if(isCon)return{skip:true,reason:"컨트랙트"};
+  if(!outTxs.length)return{skip:true,reason:"출금이력 없음(nonce=0)"};
+  var senders={};
+  inTxs.forEach(function(tx){var f=(tx.from||"").toLowerCase();if(f)senders[f]=true;});
+  var cnt=Object.keys(senders).length;
+  if(cnt<opts.exchMin)return{skip:true,reason:"발신자 부족("+cnt+"명)"};
+  if(cnt>opts.exchMax)return{skip:true,reason:"발신자 과다("+cnt+"명)"};
+  if(opts.spreadH>0&&inTxs.length>=100){
+    var times=inTxs.map(function(tx){return tx.metadata&&tx.metadata.blockTimestamp?new Date(tx.metadata.blockTimestamp).getTime():0;}).filter(function(t){return t>0;}).sort(function(a,b){return a-b;});
+    if(times.length>=2&&(times[times.length-1]-times[0])/3600000<opts.spreadH)
+      return{skip:true,reason:"단기집중"};
+  }
+  var sweep=computeSweep(inTxs,outTxs,addrLow,3600);
+  var topTarget=Object.keys(sweep.targets).sort(function(a,b){return sweep.targets[b]-sweep.targets[a];})[0];
+  var hwConf="NONE";
+  if(topTarget){
+    var known=gHotTargets[topTarget];
+    if(known&&known.sources.length>=2){hwConf="HIGH";}
+    else{
+      var outRec={};outTxs.forEach(function(tx){outRec[(tx.to||"").toLowerCase()]=1;});
+      var fanOut=Object.keys(outRec).length;
+      hwConf=fanOut<=5?"HIGH":fanOut<=10?"MEDIUM":"NONE";
+    }
+  }
+  var label,cssClass;
+  if(sweep.confidence==="HIGH"&&(hwConf==="HIGH"||hwConf==="MEDIUM")){
+    label="CEX입금★★(스윕"+sweep.swept+"/"+sweep.total+"건+핫월렛확인)";cssClass="high";
+  } else if(sweep.confidence!=="LOW"){
+    label="CEX입금★(스윕"+sweep.swept+"/"+sweep.total+"건)";cssClass="medium";
+  } else {
+    label="추정거래소(발신자"+cnt+"명)";cssClass="";
+  }
+  return{skip:false,label:label,cssClass:cssClass};
+}
+
+
 // 핵심 원칙:
 //   - 토큰별로 그룹핑 (USDT 입금 → USDT 출금, ETH 입금 → ETH 출금)
 //   - ERC-20: 가스비 ETH로 별도 납부 → 스윕 금액 = 입금 금액 100% 동일
