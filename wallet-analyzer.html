@@ -75,21 +75,27 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <input type="number" id="p-exch-min" value="10" min="2" max="200" style="width:55px">
     <span class="hint">~</span>
     <input type="number" id="p-exch-max" value="100" min="5" max="2000" style="width:60px">
-    <span class="hint">명 <span class="note">★ 자동모드 전용</span></span>
+    <span class="hint">명 · 입금주소에 돈을 보낸 서로 다른 지갑 수. 너무 적으면 개인지갑, 너무 많으면 DeFi 컨트랙트 → 이 범위 안에 드는 주소만 거래소로 추정 <span class="note">★ 자동모드 전용</span></span>
   </div>
   <div class="row"><span class="lbl">TX 시간 분산 최소</span>
     <input type="number" id="p-spread-h" value="24" min="0" style="width:60px">
-    <span class="hint">시간 이상 벌어져야 거래소로 인정 · 짧으면 DeFi/이벤트로 판단 스킵 · 0=비활성 <span class="note">★ 자동모드 전용</span></span>
+    <span class="hint">시간 이상 · 최근 100건 입금 중 가장 오래된 것과 최신 것의 시간 간격. 24시간 미만이면 단기간에 몰린 것 → DeFi/이벤트 컨트랙트로 보고 제외. 진짜 거래소는 수개월에 걸쳐 꾸준히 입금됨. 0=비활성 <span class="note">★ 자동모드 전용</span></span>
   </div>
   <div class="row"><span class="lbl">최대 발신자 수</span>
     <input type="number" id="p-max-senders" value="50" min="5" max="500" style="width:60px">
-    <span class="hint">이 수 초과 시 공용 주소로 판단, 스킵</span>
+    <span class="hint">명 초과 시 스킵 · 하나의 입금주소에서 너무 많은 지갑이 발견되면 신뢰도 낮은 공용 주소로 판단하여 제외. 클러스터 오염 방지용</span>
   </div>
-  <div class="row"><span class="lbl">입금 금액 (USD)</span>
+  <div class="row"><span class="lbl">발신자 전송량 (USD)</span>
     <input type="number" id="p-usd-min" value="0" min="0" style="width:80px" placeholder="최소">
     <span class="hint">~</span>
     <input type="number" id="p-usd-max" value="0" min="0" style="width:90px" placeholder="최대(0=무제한)">
-    <span class="hint">스테이블코인 기준 · 0=무제한</span>
+    <span class="hint">이 입금주소로 보낸 총 금액 기준 (USDC·USDT 등 스테이블코인 합산) · 최솟값: 너무 소액만 보낸 주소 제거 · 최댓값: 수십만달러씩 보내는 거래소 핫월렛 제거 · 0=제한없음</span>
+  </div>
+  <div class="row"><span class="lbl">발신자 TX 횟수</span>
+    <input type="number" id="p-tx-min" value="0" min="0" style="width:70px" placeholder="최소">
+    <span class="hint">~</span>
+    <input type="number" id="p-tx-max" value="0" min="0" style="width:70px" placeholder="최대(0=무제한)">
+    <span class="hint">이 입금주소로 보낸 TX 건수 기준 · 최솟값: 1회만 보낸 우발적 주소 제거 · 최댓값: 수십~수백 회 반복 입금하는 거래소 핫월렛 제거 · 0=제한없음</span>
   </div>
   <div class="row"><span class="lbl">토큰 필터</span>
     <select id="p-tf-chain" style="width:75px"><option value="">전체</option></select>
@@ -120,7 +126,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <option value="0">전체</option>
     </select>
     <input type="number" id="p-period-days" value="365" min="1" style="width:65px" oninput="document.getElementById('p-period-sel').value=''">
-    <span class="hint">일 이내</span>
+    <span class="hint">일 이내 TX만 조회 · 기간이 길수록 더 많은 연결을 찾지만 API 호출량 증가</span>
   </div>
   <div class="row"><span class="lbl">요청 속도</span>
     <select id="p-rps"><option value="1">1/초(안전)</option><option value="2" selected>2/초(기본)</option><option value="3">3/초(빠름)</option><option value="5">5/초(위험)</option></select>
@@ -805,6 +811,7 @@ async function runAnalysis(){
   var exchMin=num('p-exch-min',10), exchMax=num('p-exch-max',100);
   var maxSenders=num('p-max-senders',50), spreadH=num('p-spread-h',24);
   var usdMin=pnum('p-usd-min',0), usdMax=pnum('p-usd-max',0);
+  var txMin=num('p-tx-min',0), txMax=num('p-tx-max',0);
 
   if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 선택하세요','err');return;}
 
@@ -901,7 +908,7 @@ async function runAutoMode(chains,days,exchMin,exchMax,spreadH,maxSenders,usdMin
   },concurrency);
 
   addLog('[STEP 2] 거래소 추정 입금주소 '+Object.keys(depMap).length+'개','info');
-  await collectInbound(depMap,maxSenders,usdMin,usdMax,days);
+  await collectInbound(depMap,maxSenders,usdMin,usdMax,txMin,txMax,days);
 }
 
 // 직접 모드
@@ -910,14 +917,21 @@ async function runDirectMode(chains,maxSenders,usdMin,usdMax,days){
   addLog('=== 직접 입금주소 분석 시작 (STEP 3~4) ===','info');
   var depMap={};
   gDirectDeps.forEach(function(d){
-    var targetChains=d.chainKey?chains.filter(function(c){return c.key===d.chainKey;}):chains;
+    var targetChains;
+    if(!d.chainKey){
+      targetChains=chains; // 전체
+    } else if(d.chainKey==='__no_bsc__'){
+      targetChains=chains.filter(function(c){return c.key!=='bsc';}); // BSC 제외
+    } else {
+      targetChains=chains.filter(function(c){return c.key===d.chainKey;});
+    }
     targetChains.forEach(function(ch){depMap[d.addr+'::'+ch.key]={addr:d.addr,chain:ch,label:d.label};});
   });
-  await collectInbound(depMap,maxSenders,usdMin,usdMax,days);
+  await collectInbound(depMap,maxSenders,usdMin,usdMax,txMin,txMax,days);
 }
 
 // STEP 3+4 공통
-async function collectInbound(depMap,maxSenders,usdMin,usdMax,days){
+async function collectInbound(depMap,maxSenders,usdMin,usdMax,txMin,txMax,days){
   var STABLE={usdc:1,usdt:1,dai:1,busd:1,tusd:1,frax:1,lusd:1};
   setStep(3);
   var depKeys=Object.keys(depMap);
@@ -929,21 +943,23 @@ async function collectInbound(depMap,maxSenders,usdMin,usdMax,days){
       function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+')','dim');});
     addLog('[STEP 3] → '+txs.length+'건','ok');
 
-    var fromMap={};
+    var fromMap={};   // addr → {usd, txCount}
     txs.forEach(function(tx){
       var f=(tx.from||'').toLowerCase();
       if(!f||f===dm.addr)return;
-      if(!fromMap[f])fromMap[f]=0;
+      if(!fromMap[f])fromMap[f]={usd:0,txCount:0};
+      fromMap[f].txCount++;
       var asset=(tx.asset||'').toLowerCase();
-      if(STABLE[asset])fromMap[f]+=parseFloat(tx.value||0);
+      if(STABLE[asset])fromMap[f].usd+=parseFloat(tx.value||0);
     });
-    if(usdMin>0||usdMax>0){
-      Object.keys(fromMap).forEach(function(a){
-        var v=fromMap[a];
-        if(usdMin>0&&v<usdMin)delete fromMap[a];
-        if(usdMax>0&&v>usdMax)delete fromMap[a];
-      });
-    }
+    // 발신자 전송량 + TX 횟수 필터
+    Object.keys(fromMap).forEach(function(a){
+      var v=fromMap[a];
+      if(usdMin>0&&v.usd<usdMin){delete fromMap[a];return;}
+      if(usdMax>0&&v.usd>usdMax){delete fromMap[a];return;}
+      if(txMin>0&&v.txCount<txMin){delete fromMap[a];return;}
+      if(txMax>0&&v.txCount>txMax){delete fromMap[a];return;}
+    });
     var fromKeys=Object.keys(fromMap);
     if(fromKeys.length>maxSenders){addLog('[STEP 3] ⚠ 발신자 '+fromKeys.length+'명 초과 → 스킵','warn');continue;}
     fromKeys.forEach(function(from){gEdges.push({wallet:from,deposit:dm.addr,exchange:dm.label,chain:ch.name});});
@@ -1056,7 +1072,7 @@ function renderDirectDeps(){
   if(!gDirectDeps.length){el.innerHTML='<span style="color:#2a4a6a;font-size:10px">추가된 입금주소 없음</span>';return;}
   el.innerHTML=gDirectDeps.map(function(d,i){
     return '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;font-size:10px">'
-      +'<span style="background:rgba(0,255,157,.1);color:var(--g);border-radius:2px;padding:1px 5px;font-weight:700">'+(d.chainKey||'전체')+'</span>'
+      +'<span style="background:rgba(0,255,157,.1);color:var(--g);border-radius:2px;padding:1px 5px;font-weight:700">'+(d.chainKey==='__no_bsc__'?'BSC제외':d.chainKey||'전체')+'</span>'
       +'<span style="color:var(--a);min-width:100px">'+d.label+'</span>'
       +'<span style="color:#3a6a9a;font-family:monospace">'+d.addr+'</span>'
       +'<button data-i="'+i+'" onclick="gDirectDeps.splice(+this.dataset.i,1);renderDirectDeps()" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button>'
@@ -1214,7 +1230,7 @@ function buildChainUI(){
 
   // 토큰 필터 / 직접 모드 체인 select 자동 생성
   var opts='<option value="">전체</option>';
-  var dOpts='<option value="">전체 체인</option>';
+  var dOpts='<option value="">전체 체인</option><option value="__no_bsc__">전체 (BSC 제외)</option>';
   CHAINS.forEach(function(c){
     opts+='<option value="'+c.key+'">'+c.name+'</option>';
     dOpts+='<option value="'+c.key+'">'+c.name+'</option>';
@@ -1236,7 +1252,7 @@ function lsLoad(){
     if(rpcEl){var v=localStorage.getItem('wca_rpc-'+c.key)||'';rpcEl.value=v;rpcEl.addEventListener('input',function(){lsSave('rpc-'+c.key,'text');});}
     if(onEl){var v=localStorage.getItem('wca_on-'+c.key);onEl.checked=v===null?false:(v==='1');onEl.addEventListener('change',function(){lsSave('on-'+c.key,'check');});}
   });
-  var textFields=['p-exch-min','p-exch-max','p-spread-h','p-max-senders','p-usd-min','p-usd-max','p-period-days','p-rps','p-concur'];
+  var textFields=['p-exch-min','p-exch-max','p-spread-h','p-max-senders','p-usd-min','p-usd-max','p-tx-min','p-tx-max','p-period-days','p-rps','p-concur'];
   textFields.forEach(function(id){
     var el=gel(id);if(!el)return;
     var v=localStorage.getItem('wca_'+id);if(v!==null)el.value=v;
