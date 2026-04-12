@@ -83,6 +83,11 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <span class="chain-lbl" style="color:#3a7bff">Base</span>
       <input type="text" id="rpc-base" style="width:100%" placeholder="https://base-mainnet.g.alchemy.com/v2/...">
     </div>
+    <div class="chain-row">
+      <input type="checkbox" id="on-bsc" style="accent-color:var(--g);cursor:pointer">
+      <span class="chain-lbl" style="color:#f0b90b">BSC</span>
+      <input type="text" id="rpc-bsc" style="width:100%" placeholder="https://bsc-mainnet.nodereal.io/v1/YOUR-KEY">
+    </div>
     <div style="margin-top:6px;font-size:10px;color:#2a4a6a">Intel Label 소비 없음 · 행동패턴으로 거래소 추정</div>
   </div>
 
@@ -170,6 +175,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <option value="arb">ARB</option>
       <option value="op">OP</option>
       <option value="base">Base</option>
+      <option value="bsc">BSC</option>
     </select>
     <button class="btn dim" onclick="addDirectDep()">+ 추가</button>
     <button class="btn dim red" onclick="clearDirectDep()">↺ 초기화</button>
@@ -633,6 +639,8 @@ var CHAIN_DEFS = [
    blockTime:2,    latest:130000000},
   {key:'base', name:'Base', color:'#3a7bff', rpcId:'rpc-base',onId:'on-base',
    blockTime:2,    latest:25000000},
+  {key:'bsc',  name:'BSC',  color:'#f0b90b', rpcId:'rpc-bsc', onId:'on-bsc',
+   blockTime:3,    latest:48000000, provider:'meganode'},
 ];
 
 var STEPS_DEF = [
@@ -769,7 +777,7 @@ async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainDef, withM
   else params.toAddress=address;
   if(pageKey) params.pageKey=pageKey;
 
-  var body=JSON.stringify({id:1,jsonrpc:'2.0',method:'alchemy_getAssetTransfers',params:[params]});
+  var body=JSON.stringify({id:1,jsonrpc:'2.0',method:(chainDef&&chainDef.provider==='meganode'?'nr_getAssetTransfers':'alchemy_getAssetTransfers'),params:[params]});
 
   var resp=await rateCall(function(){
     return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:body});
@@ -1418,9 +1426,9 @@ function resetSeeds(){
 // ══════════════════════════════════════════════════════════════════════
 var LS_FIELDS=[
   {id:'rpc-eth',type:'text'},{id:'rpc-arb',type:'text'},
-  {id:'rpc-op',type:'text'},{id:'rpc-base',type:'text'},
+  {id:'rpc-op',type:'text'},{id:'rpc-base',type:'text'},{id:'rpc-bsc',type:'text'},
   {id:'on-eth',type:'check'},{id:'on-arb',type:'check'},
-  {id:'on-op',type:'check'},{id:'on-base',type:'check'},
+  {id:'on-op',type:'check'},{id:'on-base',type:'check'},{id:'on-bsc',type:'check'},
   {id:'exch-min',type:'text'},{id:'exch-max',type:'text'},
   {id:'min-spread-h',type:'text'},{id:'max-senders',type:'text'},
   {id:'period-days',type:'text'},{id:'rps-sel',type:'text'},
