@@ -757,14 +757,28 @@ function applyPeriod(v){
   else if(v) gel('period-days').value=v;
 }
 
-function daysToFromBlock(chainDef, days){
+var gBlockNumCache={};
+
+async function getCurrentBlock(rpcUrl){
+  if(gBlockNumCache[rpcUrl]) return gBlockNumCache[rpcUrl];
+  try{
+    var r=await fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_blockNumber',params:[]})});
+    var d=await r.json();
+    var n=parseInt(d.result,16);
+    if(n>0) gBlockNumCache[rpcUrl]=n;
+    return n||0;
+  }catch(e){return 0;}
+}
+
+async function daysToFromBlock(rpcUrl,chainDef,days){
   var d=parseInt(days);
   if(!d||d<=0) return '0x0';
+  var cur=await getCurrentBlock(rpcUrl);
+  if(!cur) cur=chainDef.latest;
   var blocks=Math.floor(d*86400/chainDef.blockTime);
-  var fromBlock=chainDef.latest-blocks;
-  // fromBlock이 음수거나 0 이하면 전체 조회
-  if(fromBlock<=0) return '0x0';
-  return '0x'+fromBlock.toString(16);
+  var from=cur-blocks;
+  return from<=0?'0x0':('0x'+from.toString(16));
 }
 
 function getActiveChains(){
@@ -820,7 +834,7 @@ async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainDef, withM
   updateStats();
 
   var days=gel('period-days')?gel('period-days').value:'';
-  var fromBlock=days?daysToFromBlock(chainDef,days):'0x0';
+  var fromBlock=days?(await daysToFromBlock(rpcUrl,chainDef,days)):'0x0';
 
   // 토큰 필터 적용
   var tokenInfo = getContractsForChain(chainDef ? chainDef.key : '');
@@ -945,7 +959,7 @@ async function startAnalysis(){
   if(!runSeeds.length) runSeeds=gSeeds.slice();
 
   // 2. 초기화 — gAborted 맨 먼저
-  gAborted=false; gEdges=[]; gApiCalls=0;
+  gAborted=false; gEdges=[]; gApiCalls=0; gBlockNumCache={};
   gRateRPS=num('rps-sel',2);
 
   gel('btn-run').disabled=true; gel('btn-stop').disabled=false;
@@ -1117,7 +1131,7 @@ async function startDirectAnalysis(chains) {
   if(!gDirectDeps.length){addLog('⚠ 입금주소를 먼저 추가하세요','err');return;}
   if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 선택하세요','err');return;}
 
-  gAborted=false; gEdges=[]; gApiCalls=0;
+  gAborted=false; gEdges=[]; gApiCalls=0; gBlockNumCache={};
   gRateRPS=num('rps-sel',2);
   gel('btn-run').disabled=true; gel('btn-stop').disabled=false;
   gel('tbody').innerHTML=''; gel('no-res').style.display='';
