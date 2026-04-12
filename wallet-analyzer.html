@@ -248,6 +248,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   <div class="row center" style="margin-bottom:10px">
     <h2 style="margin:0">결과 <span class="bdg" id="res-cnt">0</span></h2>
     <input type="text" id="fw" placeholder="지갑" style="width:120px" oninput="renderTable()">
+    <input type="text" id="fd" placeholder="입금주소" style="width:140px" oninput="renderTable()">
     <input type="text" id="fe" placeholder="거래소" style="width:90px" oninput="renderTable()">
     <input type="text" id="fc" placeholder="클러스터" style="width:75px" oninput="renderTable()">
     <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:4px;cursor:pointer">
@@ -1104,7 +1105,7 @@ function saveLabel(el){
 }
 
 function renderTable(){
-  var fw=gel('fw').value.toLowerCase(),fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
+  var fw=gel('fw').value.toLowerCase(),fd=gel('fd').value.toLowerCase(),fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
   var onlySeed=gel('only-seed-related')&&gel('only-seed-related').checked;
   var onlySeedWallet=gel('only-seed')&&gel('only-seed').checked;
   clusterEdges(gEdges);
@@ -1112,6 +1113,7 @@ function renderTable(){
   var seen={},rows=[];
   gEdges.forEach(function(e,idx){
     if(fw&&e.wallet.indexOf(fw)<0&&e.deposit.indexOf(fw)<0)return;
+    if(fd&&e.deposit.indexOf(fd)<0)return;
     if(fe&&(e.userLabel||e.exchange).toLowerCase().indexOf(fe)<0)return;
     if(fc&&(e._cluster||'').toLowerCase().indexOf(fc)<0)return;
     // 시드 연결만 보기: 시드와 같은 클러스터에 있는 NEW 지갑만 표시
@@ -1206,11 +1208,12 @@ function saveResults(){saveCSV(gEdges,'wallet-results');}
 function saveFiltered(){
   clusterEdges(gEdges);
   var meta=_seedMeta();
-  var fw=gel('fw').value.toLowerCase(),fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
+  var fw=gel('fw').value.toLowerCase(),fd=gel('fd').value.toLowerCase(),fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
     var onlySeed=gel('only-seed-related')&&gel('only-seed-related').checked;
   var onlySeedWallet=gel('only-seed')&&gel('only-seed').checked; var seen={},filtered=[];
   gEdges.forEach(function(e){
     if(fw&&e.wallet.indexOf(fw)<0&&e.deposit.indexOf(fw)<0)return;
+    if(fd&&e.deposit.indexOf(fd)<0)return;
     if(fe&&(e.userLabel||e.exchange).toLowerCase().indexOf(fe)<0)return;
     if(fc&&(e._cluster||'').toLowerCase().indexOf(fc)<0)return;
     if(onlySeedWallet&&!meta.seedSet[e.wallet])return;
