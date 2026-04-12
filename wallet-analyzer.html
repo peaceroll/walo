@@ -1133,7 +1133,7 @@ function toCSV(edges){
 }
 function saveCSV(edges,filename){
   if(!edges.length){addLog('저장할 결과 없음','warn');return;}
-  download(filename+'-'+new Date().toISOString().slice(0,10)+'.csv',toCSV(edges),'text/csv;charset=utf-8');
+  download(filename+'-'+new Date().toISOString().slice(0,10)+'.csv','\uFEFF'+toCSV(edges),'text/csv;charset=utf-8-bom');
   addLog('저장 완료: '+filename+' ('+(edges.length)+'행)','ok');
 }
 
@@ -1202,6 +1202,45 @@ function exportReport(){
   });
   if(multi.length){L.push('◆ 복수 시드 공통 연결','─'.repeat(50));multi.forEach(function(nw,i){L.push('  '+(i+1)+'위.  '+nw,'       연결시드: '+w2s[nw].join(', '));Object.keys(wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+']');});L.push('       클러스터: '+wInfo[nw].cluster,'');});}
   if(noSeed.length){L.push('◆ 시드 연결 없음 ('+noSeed.length+'개)','─'.repeat(50));noSeed.forEach(function(nw,i){var name=PERSON_ADDRESSES[nw]||'';L.push('  '+(i+1)+'위.  '+nw+(name?' ['+name+']':''));Object.keys(wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+' · '+wInfo[nw].deps[dep].chain+']');});L.push('       클러스터: '+wInfo[nw].cluster,'');});}
+  // ── 요약 섹션 ──────────────────────────────────────────────────
+  L.push(d,'■ 요약',d);
+
+  // 시드 지갑
+  L.push('[ 시드 지갑 ]');
+  analyzedSeeds.forEach(function(w){
+    var name=PERSON_ADDRESSES[w]||'';
+    var tag=WALLET_TAGS[w]?(' ['+WALLET_TAGS[w]+']'):'';
+    var inR=!!wInfo[w];
+    L.push('  '+(name||w.slice(0,10)+'…')+tag+' — '+w+(inR?' (입금주소 '+Object.keys(wInfo[w].deps).length+'개)':' (미발견)'));
+  });
+  L.push('');
+
+  // 발견된 새 지갑
+  L.push('[ 발견된 새 지갑 — '+newW.length+'개 ]');
+  newW.forEach(function(w,i){
+    var seeds=w2s[w].join(', ')||'시드 연결 없음';
+    var deps=Object.keys(wInfo[w].deps);
+    L.push('  '+(i+1)+'. '+w);
+    L.push('     연결 시드: '+seeds);
+    deps.forEach(function(dep){L.push('     → '+dep+' ['+wInfo[w].deps[dep].exchange+' · '+wInfo[w].deps[dep].chain+']');});
+  });
+  L.push('');
+
+  // 거래소 목록
+  var exchSet={};
+  gEdges.forEach(function(e){
+    var ex=(e.userLabel||e.exchange).replace(/CEX입금[★]*/,'').replace(/\(.*\)/,'').trim()||e.exchange;
+    var dep=e.deposit;
+    if(!exchSet[dep])exchSet[dep]={exchange:e.userLabel||e.exchange,chain:e.chain};
+  });
+  var exchList=Object.keys(exchSet).map(function(dep){return {dep:dep,exchange:exchSet[dep].exchange,chain:exchSet[dep].chain};});
+  exchList.sort(function(a,b){return a.chain.localeCompare(b.chain)||a.exchange.localeCompare(b.exchange);});
+  L.push('[ 거래소 추정 입금주소 — '+exchList.length+'개 ]');
+  exchList.forEach(function(x,i){
+    L.push('  '+(i+1)+'. ['+x.chain+'] '+x.dep+'  ('+x.exchange+')');
+  });
+  L.push('');
+
   L.push(D,'  END OF REPORT',D);
   download('wallet-report-'+new Date().toISOString().slice(0,10)+'.txt',L.join('\n'),'text/plain;charset=utf-8');
   addLog('리포트 완료','ok');
