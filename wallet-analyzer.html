@@ -100,9 +100,9 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <input type="number" id="p-tx-max" value="5" min="0" style="width:85px" placeholder="최대(0=무제한)">
     <span class="hint">이 입금주소로 보낸 TX 건수 · 최댓값 5 권장: 개인은 1~3번, 초과 시 핫월렛 · 0=무제한</span>
   </div>
-  <div class="row center"><span class="lbl">발신자 잔고 최대</span>
-    <input type="number" id="p-bal-max" value="0" min="0" style="width:90px" placeholder="0=무제한">
-    <span class="hint">ETH 기준 · 이 값 초과하는 발신자는 핫월렛으로 판단하여 제외 · 예: 100 입력 시 100 ETH 초과 주소 제거 · 0=무제한</span>
+  <div class="row center"><span class="lbl">발신자 nonce 최대</span>
+    <input type="number" id="p-nonce-max" value="10000" min="0" style="width:90px" placeholder="0=무제한">
+    <span class="hint">발신자가 평생 보낸 총 TX 수 · 개인 지갑은 보통 수백 이하, 거래소 핫월렛은 수만 이상 · 예: 10000 설정 시 OKX/Binance 핫월렛 자동 제거 · 0=무제한</span>
   </div>
   <div class="row center"><span class="lbl">토큰 필터</span>
     <select id="p-tf-chain" style="width:75px"><option value="">전체</option></select>
@@ -688,7 +688,7 @@ function getOpts(){
     spreadH:num('p-spread-h',0),   maxSenders:num('p-max-senders',50),
     usdMin:pnum('p-usd-min',0),    usdMax:pnum('p-usd-max',0),
     txMin:num('p-tx-min',0),       txMax:num('p-tx-max',5),
-    balMax:pnum('p-bal-max',0),
+    nonceMax:num('p-nonce-max',10000),
     concurrency:num('p-concur',3),
     days:(gel('p-period-days')&&gel('p-period-days').value)||''
   };
@@ -1232,24 +1232,30 @@ async function collectInbound(depMap,opts){
       if(opts.txMin>0&&v.txCount<opts.txMin){delete fromMap[a];return;}
       if(opts.txMax>0&&v.txCount>opts.txMax){delete fromMap[a];return;}
     });
+    // 1차 필터: gHotTargets — 이미 스윕 목적지로 확인된 주소는 핫월렛 (API 없음)
+    Object.keys(fromMap).forEach(function(a){
+      var hotInfo=gHotTargets[a];
+      if(hotInfo&&hotInfo.sources.length>=1){
+        addLog('[STEP 3] '+short(a)+' gHotTargets에 있음(핫월렛) → 제거','dim');
+        delete fromMap[a];
+      }
+    });
+
     var fromKeys=Object.keys(fromMap);
     if(fromKeys.length>opts.maxSenders){addLog('[STEP 3] ⚠ '+short(dm.addr)+' 발신자 '+fromKeys.length+'명 초과 → 스킵','warn');}
     else{
-      // 발신자 병렬 필터: 컨트랙트 + 잔고 동시 체크
+      // 2차 필터: 컨트랙트 + nonce 병렬 체크
       var senderChecks=fromKeys.map(function(addr){
         var checks=[];
-        // 컨트랙트 체크 (항상 실행 — 컨트랙트는 개인 지갑 아님)
+        // 컨트랙트 체크 — 컨트랙트는 개인 지갑 아님
         checks.push(isContract(ch.rpc,addr).then(function(isCon){
-          if(isCon){
-            addLog('[STEP 3] '+short(addr)+' 컨트랙트 → 제거','dim');
-            delete fromMap[addr];
-          }
+          if(isCon){addLog('[STEP 3] '+short(addr)+' 컨트랙트 → 제거','dim');delete fromMap[addr];}
         }));
-        // 잔고 체크 (설정 시만)
-        if(opts.balMax>0&&fromMap[addr]){
-          checks.push(getEthBalance(ch.rpc,addr).then(function(bal){
-            if(fromMap[addr]&&bal>opts.balMax){
-              addLog('[STEP 3] '+short(addr)+' 잔고 '+bal.toFixed(1)+' ETH > '+opts.balMax+' → 핫월렛 제거','dim');
+        // nonce 체크 — 개인지갑은 수백, 핫월렛은 수만 이상
+        if(opts.nonceMax>0){
+          checks.push(getNonce(ch.rpc,addr).then(function(nonce){
+            if(fromMap[addr]&&nonce>opts.nonceMax){
+              addLog('[STEP 3] '+short(addr)+' nonce='+nonce+' > '+opts.nonceMax+' → 핫월렛 제거','dim');
               delete fromMap[addr];
             }
           }));
@@ -1578,7 +1584,7 @@ function lsInit(){
     if(rEl){var v=localStorage.getItem('wca_rpc-'+c.key)||'';rEl.value=v;rEl.addEventListener('input',function(){localStorage.setItem('wca_rpc-'+c.key,rEl.value);});}
     if(oEl){var v=localStorage.getItem('wca_on-'+c.key);oEl.checked=v===null?false:(v==='1');oEl.addEventListener('change',function(){localStorage.setItem('wca_on-'+c.key,oEl.checked?'1':'0');});}
   });
-  ['p-exch-min','p-exch-max','p-spread-h','p-max-senders','p-usd-min','p-usd-max','p-tx-min','p-tx-max','p-bal-max','p-period-days','p-rps','p-concur'].forEach(function(id){
+  ['p-exch-min','p-exch-max','p-spread-h','p-max-senders','p-usd-min','p-usd-max','p-tx-min','p-tx-max','p-nonce-max','p-period-days','p-rps','p-concur'].forEach(function(id){
     var el=gel(id);if(!el)return;
     var v=localStorage.getItem('wca_'+id);if(v!==null)el.value=v;
     el.addEventListener('change',function(){localStorage.setItem('wca_'+id,el.value);});
