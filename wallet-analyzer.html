@@ -228,6 +228,9 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:4px;cursor:pointer">
       <input type="checkbox" id="only-seed-related" onchange="renderTable()" style="accent-color:var(--g)">시드 연결만 보기
     </label>
+    <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:4px;cursor:pointer">
+      <input type="checkbox" id="only-seed" onchange="renderTable()" style="accent-color:var(--b)">시드만 보기
+    </label>
   </div>
   <div style="font-size:10px;color:#2a4a6a;margin-bottom:8px">거래소추정 셀 클릭 → 거래소 이름 직접 입력 · Enter로 저장</div>
   <div class="rw">
@@ -1045,6 +1048,7 @@ function saveLabel(el){
 function renderTable(){
   var fw=gel('fw').value.toLowerCase(),fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
   var onlySeed=gel('only-seed-related')&&gel('only-seed-related').checked;
+  var onlySeedWallet=gel('only-seed')&&gel('only-seed').checked;
   clusterEdges(gEdges);
   var meta=_seedMeta();
   var seen={},rows=[];
@@ -1054,6 +1058,7 @@ function renderTable(){
     if(fc&&(e._cluster||'').toLowerCase().indexOf(fc)<0)return;
     // 시드 연결만 보기: 시드와 같은 클러스터에 있는 NEW 지갑만 표시
     // (시드 본인 제외 — 시드 본인은 항상 연결돼 있어서 필터 의미 없음)
+    if(onlySeedWallet&&!meta.seedSet[e.wallet])return; // 시드 지갑만
     if(onlySeed){
       if(!meta.seedClusters[e._cluster])return;   // 시드 클러스터 아니면 제외
       if(meta.seedSet[e.wallet])return;            // 시드 본인 제외 → ★ 붙은 NEW만
@@ -1144,12 +1149,13 @@ function saveFiltered(){
   clusterEdges(gEdges);
   var meta=_seedMeta();
   var fw=gel('fw').value.toLowerCase(),fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
-  var onlySeed=gel('only-seed-related')&&gel('only-seed-related').checked;
-  var seen={},filtered=[];
+    var onlySeed=gel('only-seed-related')&&gel('only-seed-related').checked;
+  var onlySeedWallet=gel('only-seed')&&gel('only-seed').checked; var seen={},filtered=[];
   gEdges.forEach(function(e){
     if(fw&&e.wallet.indexOf(fw)<0&&e.deposit.indexOf(fw)<0)return;
     if(fe&&(e.userLabel||e.exchange).toLowerCase().indexOf(fe)<0)return;
     if(fc&&(e._cluster||'').toLowerCase().indexOf(fc)<0)return;
+    if(onlySeedWallet&&!meta.seedSet[e.wallet])return;
     if(onlySeed&&!meta.seedClusters[e._cluster])return;
     var k=e.wallet+'::'+e.deposit;if(seen[k])return;seen[k]=1;
     filtered.push(e);
