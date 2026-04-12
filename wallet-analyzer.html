@@ -97,11 +97,18 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   <div class="row">
     <span class="lbl">TX 시간 분산 최소</span>
     <input type="number" id="min-spread-h" value="24" min="0" style="width:60px">
-    <span class="hint">시간 이상 · 샘플 100건 중 첫~마지막 TX 간격. 짧으면 DeFi/컨트랙트로 판단 스킵 (0=비활성)</span>
+    <span class="hint">시간 이상 벌어져 있어야 거래소로 인정 · 100건 최근 입금 중 가장 오래된 것과 가장 최신 것의 시간 차이가 이 값보다 작으면 "단기간에 몰린 입금" → DeFi/이벤트 컨트랙트로 보고 제외. 진짜 거래소는 오랜 기간 꾸준히 입금됨. 0 입력 시 비활성</span>
   </div>
   <div class="row">
     <span class="lbl">클러스터당 최대 지갑</span>
     <input type="number" id="max-senders" value="50" min="5" max="500" style="width:60px">
+  </div>
+  <div class="row">
+    <span class="lbl">입금 금액 (USD)</span>
+    <input type="number" id="usd-min" value="0" min="0" style="width:80px" placeholder="최소">
+    <span class="hint">~</span>
+    <input type="number" id="usd-max" value="0" min="0" style="width:90px" placeholder="최대 (0=무제한)">
+    <span class="hint">USD · 프록시/핫월렛 제거용. 0=무제한</span>
   </div>
   <div class="row">
     <span class="lbl">조회 기간</span>
@@ -156,6 +163,34 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <input type="text" id="add-addr" placeholder="추가 (0x...)" style="flex:1">
       <button class="btn dim" onclick="addSeed()">+ 추가</button>
       <button class="btn dim red" onclick="resetSeeds()">↺ 초기화</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 입금주소 필터 ── -->
+<div class="panel">
+  <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleEl('dep-filter-body','dep-filter-arrow')">
+    <span style="color:var(--a)">⬡</span>
+    <h2 style="margin:0">입금주소 필터 &nbsp;<span class="bdg" id="dep-filter-cnt">0</span></h2>
+    <span id="dep-filter-arrow" style="margin-left:auto;color:#2a4a6a;font-size:10px">▼</span>
+  </div>
+  <div id="dep-filter-body" style="display:none;margin-top:12px">
+    <div style="font-size:10px;color:#3a6a8a;margin-bottom:8px">
+      알고 있는 입금주소를 등록하면 거래소 추정 단계에서 강제 포함하거나 제외할 수 있습니다.
+    </div>
+    <div class="row" style="margin-bottom:6px">
+      <select id="dep-filter-mode" style="width:120px">
+        <option value="exclude">제외 (블랙리스트)</option>
+        <option value="include">강제 포함 (화이트리스트)</option>
+      </select>
+      <span class="hint">로 등록된 주소를 처리</span>
+    </div>
+    <div class="al" id="dep-filter-list" style="margin-bottom:8px;color:#4a6a8a"></div>
+    <div class="row">
+      <input type="text" id="dep-filter-addr" placeholder="입금주소 (0x...)" style="flex:1">
+      <input type="text" id="dep-filter-label" placeholder="메모 (선택)" style="width:120px">
+      <button class="btn dim" onclick="addDepFilter()">+ 추가</button>
+      <button class="btn dim red" onclick="clearDepFilter()">↺ 초기화</button>
     </div>
   </div>
 </div>
@@ -590,6 +625,9 @@ var gRateRPS     = 2;
 
 gSeeds.forEach(function(a){gSelected[a]=true;});
 
+// 입금주소 필터: [{addr, label, mode}]
+var gDepFilters = [];
+
 // ══════════════════════════════════════════════════════════════════════
 // 섹션 4: 유틸 함수
 // ══════════════════════════════════════════════════════════════════════
@@ -767,6 +805,8 @@ async function startAnalysis(){
   var maxSenders=num('max-senders',50);
   var minSpreadH=num('min-spread-h',24);
   var concurrency=num('concur-sel',3);
+  var usdMin=parseFloat(gel('usd-min')?gel('usd-min').value:'0')||0;
+  var usdMax=parseFloat(gel('usd-max')?gel('usd-max').value:'0')||0;
 
   if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 선택하세요','err');return;}
   if(!runSeeds.length) runSeeds=gSeeds.slice();
@@ -805,7 +845,14 @@ async function startAnalysis(){
       });
     }
   }
-  addLog('[STEP 1] 목적지 '+Object.keys(destMap).length+'개','info');
+  // 화이트리스트 주소 → 목적지 맵에 강제 추가 (발신자 수 샘플링 없이 바로 포함)
+  gDepFilters.filter(function(f){return f.mode==='include';}).forEach(function(f){
+    chains.forEach(function(chain){
+      var k=f.addr+'::'+chain.key;
+      if(!destMap[k]) destMap[k]={addr:f.addr,chainKey:chain.key,chain:chain};
+    });
+  });
+  addLog('[STEP 1] 목적지 '+Object.keys(destMap).length+'개 (화이트리스트 포함)','info');
 
   // ── STEP 2: 병렬 샘플링 → 거래소 추정 ───────────────────────────
   setStep(2);
@@ -848,8 +895,15 @@ async function startAnalysis(){
       }
     }
 
-    depMap[k]={addr:d.addr,chainKey:d.chainKey,chain:d.chain,label:'추정거래소('+cnt+'명)'};
-    addLog('[STEP 2] ✓ '+short(d.addr)+' '+cnt+'명 ('+d.chain.name+')','ok');
+    // 입금주소 필터 적용
+    var depFilterHit=gDepFilters.find(function(f){return f.addr===d.addr;});
+    if(depFilterHit && depFilterHit.mode==='exclude'){
+      addLog('[STEP 2] ✗ '+short(d.addr)+' ['+depFilterHit.label+'] → 제외 필터','warn');
+      return;
+    }
+    var label=depFilterHit?('['+depFilterHit.label+'] 강제포함'):'추정거래소('+cnt+'명)';
+    depMap[k]={addr:d.addr,chainKey:d.chainKey,chain:d.chain,label:label};
+    addLog('[STEP 2] ✓ '+short(d.addr)+' '+cnt+'명 ('+d.chain.name+')'+(depFilterHit?' [강제포함]':''),'ok');
   }, concurrency);
 
   addLog('[STEP 2] 거래소 추정 입금주소 '+Object.keys(depMap).length+'개','info');
@@ -866,12 +920,26 @@ async function startAnalysis(){
       function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+'건)','dim');});
     addLog('[STEP 3] → '+inTxs.length+'건','ok');
 
-    var fromMap={};
+    var STABLE = {usdc:1,usdt:1,dai:1,busd:1,tusd:1,usdp:1,gusd:1,frax:1,lusd:1,usdd:1};
+    var fromMap={};  // addr → 스테이블코인 누적 USD
     inTxs.forEach(function(tx){
       var f=(tx.from||'').toLowerCase();
       if(!f||f===dm.addr) return;
       if(!fromMap[f]) fromMap[f]=0;
+      // 스테이블코인이면 value를 USD로 간주
+      var asset=(tx.asset||'').toLowerCase();
+      if(STABLE[asset]) fromMap[f]+=parseFloat(tx.value||0);
     });
+
+    // USD 금액 필터: stablecoin(USDC/USDT/DAI 등) value는 USD 근사값
+    // ETH/기타 토큰은 필터 적용 안 함 (USD 환산 불가)
+    if(usdMin>0||usdMax>0){
+      Object.keys(fromMap).forEach(function(addr){
+        var totalStable=fromMap[addr];
+        if(usdMin>0 && totalStable<usdMin) delete fromMap[addr];
+        if(usdMax>0 && totalStable>usdMax) delete fromMap[addr];
+      });
+    }
 
     var fromKeys=Object.keys(fromMap);
     if(fromKeys.length>maxSenders){
@@ -1084,6 +1152,44 @@ function download(name,content,mime){
 // ══════════════════════════════════════════════════════════════════════
 // 섹션 11: 시드 UI
 // ══════════════════════════════════════════════════════════════════════
+// ── 입금주소 필터 함수 ─────────────────────────────────────────────
+function addDepFilter(){
+  var addrEl=gel('dep-filter-addr'), lblEl=gel('dep-filter-label');
+  var v=addrEl.value.trim().toLowerCase();
+  if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}
+  if(gDepFilters.find(function(f){return f.addr===v;})){addLog('이미 등록된 주소','warn');return;}
+  var mode=gel('dep-filter-mode').value;
+  gDepFilters.push({addr:v, label:lblEl.value.trim()||v.slice(0,10)+'…', mode:mode});
+  addrEl.value=''; lblEl.value='';
+  renderDepFilters();
+  addLog((mode==='exclude'?'제외':'포함')+'으로 등록: '+v,'ok');
+}
+
+function removeDepFilter(addr){
+  gDepFilters=gDepFilters.filter(function(f){return f.addr!==addr;});
+  renderDepFilters();
+}
+
+function clearDepFilter(){gDepFilters=[];renderDepFilters();}
+
+function renderDepFilters(){
+  gel('dep-filter-cnt').textContent=gDepFilters.length;
+  if(!gDepFilters.length){
+    gel('dep-filter-list').innerHTML='<span style="color:#2a4a6a">등록된 주소 없음</span>';
+    return;
+  }
+  gel('dep-filter-list').innerHTML=gDepFilters.map(function(f){
+    var color=f.mode==='exclude'?'var(--r)':'var(--g)';
+    var badge=f.mode==='exclude'?'제외':'포함';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:2px 0">'
+      +'<span style="background:rgba(255,255,255,.05);border-radius:2px;font-size:9px;font-weight:700;padding:1px 5px;color:'+color+'">'+badge+'</span>'
+      +'<span style="color:var(--a);font-size:10px;min-width:100px">'+f.label+'</span>'
+      +'<span style="color:#3a6a9a;font-size:10px">'+f.addr+'</span>'
+      +'<button data-addr="'+f.addr+'" onclick="removeDepFilter(this.dataset.addr)" style="background:none;border:none;color:var(--r);cursor:pointer;font-size:10px;margin-left:auto">✕</button>'
+      +'</div>';
+  }).join('');
+}
+
 function renderSeeds(){
   var q=(gel('seed-q').value||'').toLowerCase();
   var filtered=gSeeds.filter(function(a){
@@ -1138,6 +1244,7 @@ var LS_FIELDS=[
   {id:'min-spread-h',type:'text'},{id:'max-senders',type:'text'},
   {id:'period-days',type:'text'},{id:'rps-sel',type:'text'},
   {id:'concur-sel',type:'text'},
+  {id:'usd-min',type:'text'},{id:'usd-max',type:'text'},
 ];
 
 function lsLoad(){
@@ -1171,6 +1278,7 @@ function lsListen(){
   }).join('');
   renderSeeds();
   updateStats();
+  renderDepFilters();
   addLog('준비 완료. Alchemy RPC URL 입력 → 분석 시작','ok');
   addLog('v12.0 · 완전 재작성 · 섹션별 구조 · var hoisting 안전','info');
 })();
