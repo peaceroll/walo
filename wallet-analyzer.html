@@ -13,8 +13,9 @@ h1{font-size:16px;font-weight:700;letter-spacing:2px;color:var(--g);text-transfo
 h2{font-size:12px;font-weight:700;letter-spacing:1px;color:#7a9ab8;text-transform:uppercase;margin-bottom:8px}
 .panel{background:var(--bg2);border:1px solid var(--bd);border-radius:4px;padding:12px 16px;margin-bottom:12px}
 .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
-.lbl{font-size:10px;color:#7a9ab8;white-space:nowrap}
+.lbl{font-size:10px;color:#7a9ab8;white-space:nowrap;min-width:90px}
 .hint{font-size:10px;color:#2a4a6a}
+.note{font-size:9px;color:var(--a)}
 input[type=text],input[type=number]{background:#07101a;border:1px solid var(--bd);border-radius:3px;color:#c8d3e0;font-family:'Courier New',monospace;font-size:11px;padding:5px 8px;outline:none}
 input:focus{border-color:var(--b)}
 select{background:#07101a;border:1px solid var(--bd);border-radius:3px;color:#c8d3e0;font-family:'Courier New',monospace;font-size:11px;padding:5px 6px;outline:none}
@@ -26,6 +27,8 @@ select{background:#07101a;border:1px solid var(--bd);border-radius:3px;color:#c8
 .lm.ok{color:var(--g)}.lm.warn{color:var(--a)}.lm.err{color:var(--r)}.lm.info{color:var(--b)}.lm.dim{color:#2a4a6a}
 .chain-row{display:grid;grid-template-columns:auto 55px 1fr;gap:6px 8px;align-items:center;margin-bottom:4px}
 .chain-lbl{font-size:11px;font-weight:700}
+.tab-btn{background:var(--bg3);border:1px solid var(--bd);border-bottom:1px solid var(--bd);color:#4a6a8a;font-family:'Courier New',monospace;font-size:11px;font-weight:700;padding:8px 20px;cursor:pointer;border-radius:4px 4px 0 0;margin-bottom:-1px;margin-right:4px}
+.tab-btn.active{background:var(--bg2);border-bottom:1px solid var(--bg2);color:var(--g)}
 .rw{overflow-x:auto;max-height:500px;overflow-y:auto}
 table{width:100%;border-collapse:collapse;font-size:11px}
 thead{position:sticky;top:0;background:var(--bg2);z-index:1}
@@ -37,12 +40,12 @@ tr:hover td{background:rgba(255,255,255,.01)}
 .tag.new{background:rgba(0,255,157,.1);color:var(--g);border:1px solid rgba(0,255,157,.18)}
 .tag.exch{background:rgba(255,179,71,.12);color:var(--a);border:1px solid rgba(255,179,71,.2)}
 a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:underline}
-.sr{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.sv-wrap{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .sv{background:var(--bg3);border:1px solid var(--bd);border-radius:3px;padding:8px 14px;min-width:90px}
 .svv{font-size:22px;font-weight:700;color:var(--g)}.svk{font-size:9px;color:#4a6a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
 .pb{height:2px;background:var(--bd);border-radius:1px;overflow:hidden;margin:8px 0}
 .pf{height:100%;background:var(--g);transition:width .3s;border-radius:1px}
-.al{max-height:200px;overflow-y:auto;background:#050d15;border:1px solid var(--bd);border-radius:3px;padding:6px 8px;font-size:10px;line-height:2}
+.al{overflow-y:auto;background:#050d15;border:1px solid var(--bd);border-radius:3px;padding:6px 8px;font-size:10px;line-height:2}
 .bdg{display:inline-block;background:rgba(255,179,71,.15);color:var(--a);border-radius:2px;font-size:9px;padding:1px 5px;font-weight:700}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 .snum{width:22px;height:22px;border-radius:50%;background:var(--bg3);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;color:#4a6a8a}
@@ -56,108 +59,57 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
 <div style="max-width:980px;margin:0 auto;padding:16px">
 <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:16px">
   <h1>⬡ Wallet Cluster Analyzer</h1>
-  <span style="font-size:10px;color:#1e3a5a">v12.0 · Alchemy API · 행동패턴</span>
+  <span style="font-size:10px;color:#1e3a5a">v13.0 · 완전 재작성</span>
 </div>
 
-<!-- ── API 설정 ── -->
+<!-- ── API / 체인 설정 ── -->
 <div class="panel">
   <div style="background:#060e18;border:1px solid rgba(255,179,71,.28);border-radius:4px;padding:12px 14px;margin-bottom:10px">
-    <div style="font-size:11px;font-weight:700;color:var(--a);margin-bottom:10px">⬡ ALCHEMY RPC 설정</div>
-    <div class="chain-row">
-      <input type="checkbox" id="on-eth" checked style="accent-color:var(--g);cursor:pointer">
-      <span class="chain-lbl" style="color:#4fa3ff">ETH</span>
-      <input type="text" id="rpc-eth" style="width:100%" placeholder="https://eth-mainnet.g.alchemy.com/v2/...">
-    </div>
-    <div class="chain-row">
-      <input type="checkbox" id="on-arb" checked style="accent-color:var(--g);cursor:pointer">
-      <span class="chain-lbl" style="color:#28a0f0">ARB</span>
-      <input type="text" id="rpc-arb" style="width:100%" placeholder="https://arb-mainnet.g.alchemy.com/v2/...">
-    </div>
-    <div class="chain-row">
-      <input type="checkbox" id="on-op" style="accent-color:var(--g);cursor:pointer">
-      <span class="chain-lbl" style="color:#ff5a57">OP</span>
-      <input type="text" id="rpc-op" style="width:100%" placeholder="https://opt-mainnet.g.alchemy.com/v2/...">
-    </div>
-    <div class="chain-row">
-      <input type="checkbox" id="on-base" style="accent-color:var(--g);cursor:pointer">
-      <span class="chain-lbl" style="color:#3a7bff">Base</span>
-      <input type="text" id="rpc-base" style="width:100%" placeholder="https://base-mainnet.g.alchemy.com/v2/...">
-    </div>
-    <div class="chain-row">
-      <input type="checkbox" id="on-bsc" style="accent-color:var(--g);cursor:pointer">
-      <span class="chain-lbl" style="color:#f0b90b">BSC</span>
-      <input type="text" id="rpc-bsc" style="width:100%" placeholder="https://bsc-mainnet.nodereal.io/v1/YOUR-KEY">
-    </div>
-    <div class="chain-row">
-      <input type="checkbox" id="on-polygon" style="accent-color:var(--g);cursor:pointer">
-      <span class="chain-lbl" style="color:#8247e5">POL</span>
-      <input type="text" id="rpc-polygon" style="width:100%" placeholder="https://polygon-mainnet.g.alchemy.com/v2/...">
-    </div>
-    <div style="margin-top:6px;font-size:10px;color:#2a4a6a">Intel Label 소비 없음 · 행동패턴으로 거래소 추정</div>
+    <div style="font-size:11px;font-weight:700;color:var(--a);margin-bottom:10px">⬡ 체인 RPC 설정</div>
+    <div id="chain-rpc-rows"></div>
+    <div style="margin-top:6px;font-size:10px;color:#2a4a6a">행동패턴 거래소 추정 · Intel Label 소비 없음 · 체인별 실시간 블록번호 자동 조회</div>
   </div>
 
   <!-- 분석 파라미터 -->
-  <div class="row" id="row-exch-range">
-    <span class="lbl">거래소 발신자 범위</span>
-    <input type="number" id="exch-min" value="10" min="2" max="200" style="width:55px">
+  <div class="row"><span class="lbl">거래소 발신자 범위</span>
+    <input type="number" id="p-exch-min" value="10" min="2" max="200" style="width:55px">
     <span class="hint">~</span>
-    <input type="number" id="exch-max" value="100" min="5" max="2000" style="width:60px">
-    <span class="hint">명 &nbsp;<span style="color:var(--a);font-size:9px">★ 자동 모드 전용</span></span>
+    <input type="number" id="p-exch-max" value="100" min="5" max="2000" style="width:60px">
+    <span class="hint">명 <span class="note">★ 자동모드 전용</span></span>
   </div>
-  <div class="row" id="row-spread">
-    <span class="lbl">TX 시간 분산 최소</span>
-    <input type="number" id="min-spread-h" value="24" min="0" style="width:60px">
-    <span class="hint">시간 이상 벌어져 있어야 거래소로 인정 · 100건 최근 입금 중 가장 오래된 것과 가장 최신 것의 시간 차이가 이 값보다 작으면 "단기간에 몰린 입금" → DeFi/이벤트 컨트랙트로 보고 제외. 진짜 거래소는 오랜 기간 꾸준히 입금됨. 0 입력 시 비활성 &nbsp;<span style="color:var(--a);font-size:9px">★ 자동 모드 전용</span></span>
+  <div class="row"><span class="lbl">TX 시간 분산 최소</span>
+    <input type="number" id="p-spread-h" value="24" min="0" style="width:60px">
+    <span class="hint">시간 이상 벌어져야 거래소로 인정 · 짧으면 DeFi/이벤트로 판단 스킵 · 0=비활성 <span class="note">★ 자동모드 전용</span></span>
   </div>
-  <div class="row">
-    <span class="lbl">클러스터당 최대 지갑</span>
-    <input type="number" id="max-senders" value="50" min="5" max="500" style="width:60px">
+  <div class="row"><span class="lbl">최대 발신자 수</span>
+    <input type="number" id="p-max-senders" value="50" min="5" max="500" style="width:60px">
+    <span class="hint">이 수 초과 시 공용 주소로 판단, 스킵</span>
   </div>
-  <div class="row">
-    <span class="lbl">입금 금액 (USD)</span>
-    <input type="number" id="usd-min" value="0" min="0" style="width:80px" placeholder="최소">
+  <div class="row"><span class="lbl">입금 금액 (USD)</span>
+    <input type="number" id="p-usd-min" value="0" min="0" style="width:80px" placeholder="최소">
     <span class="hint">~</span>
-    <input type="number" id="usd-max" value="0" min="0" style="width:90px" placeholder="최대 (0=무제한)">
-    <span class="hint">USD · 프록시/핫월렛 제거용. 0=무제한</span>
+    <input type="number" id="p-usd-max" value="0" min="0" style="width:90px" placeholder="최대(0=무제한)">
+    <span class="hint">스테이블코인 기준 · 0=무제한</span>
   </div>
-  <div class="row" style="align-items:flex-start">
-    <span class="lbl" style="padding-top:4px">토큰 필터</span>
-    <div style="flex:1">
-      <div style="font-size:10px;color:#3a6a8a;margin-bottom:6px">
-        특정 토큰(컨트랙트)만 조회 · 비우면 전체 (ETH·ERC20·NFT 등) · 여러 개 추가 가능
-      </div>
-      <div id="token-filter-list" style="margin-bottom:6px"></div>
-      <div class="row" style="margin:0;gap:6px">
-        <select id="tf-chain" style="width:70px">
-          <option value="">전체</option>
-          <option value="eth">ETH</option>
-          <option value="arb">ARB</option>
-          <option value="op">OP</option>
-          <option value="base">Base</option>
-          <option value="bsc">BSC</option>
-        </select>
-        <input type="text" id="tf-addr" placeholder="컨트랙트 주소 (0x...) 또는 'native'" style="flex:1;min-width:200px">
-        <input type="text" id="tf-name" placeholder="이름 (예: USDC)" style="width:90px">
-        <button class="btn dim" onclick="addTokenFilter()">+ 추가</button>
-        <button class="btn dim red" onclick="clearTokenFilters()">↺ 초기화</button>
-      </div>
-      <div style="margin-top:6px;font-size:10px;color:#2a4a6a">
-        자주 쓰는 컨트랙트:
-        <span onclick="quickToken('eth','0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48','USDC')" style="color:var(--b);cursor:pointer;margin:0 4px">ETH-USDC</span>
-        <span onclick="quickToken('eth','0xdac17f958d2ee523a2206206994597c13d831ec7','USDT')" style="color:var(--b);cursor:pointer;margin:0 4px">ETH-USDT</span>
-        <span onclick="quickToken('bsc','0x55d398326f99059ff775485246999027b3197955','BSC-USDT')" style="color:var(--b);cursor:pointer;margin:0 4px">BSC-USDT</span>
-        <span onclick="quickToken('bsc','0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d','BSC-USDC')" style="color:var(--b);cursor:pointer;margin:0 4px">BSC-USDC</span>
-        <span onclick="quickToken('arb','0xaf88d065e77c8cc2239327c5edb3a432268e5831','ARB-USDC')" style="color:var(--b);cursor:pointer;margin:0 4px">ARB-USDC</span>
-        <span onclick="quickToken('polygon','0xc2132d05d31c914a87c6611c10748aeb04b58e8f','POL-USDT')" style="color:var(--b);cursor:pointer;margin:0 4px">POL-USDT</span>
-        <span onclick="quickToken('polygon','0x3c499c542cef5e3811e1192ce70d8cc03d5c3359','POL-USDC')" style="color:var(--b);cursor:pointer;margin:0 4px">POL-USDC</span>
-        <span onclick="quickToken('','native','Native ETH/BNB')" style="color:var(--b);cursor:pointer;margin:0 4px">Native 코인</span>
-      </div>
-    </div>
+  <div class="row"><span class="lbl">토큰 필터</span>
+    <select id="p-tf-chain" style="width:75px"><option value="">전체</option></select>
+    <input type="text" id="p-tf-addr" placeholder="컨트랙트 (0x...) 또는 native" style="flex:1;min-width:180px">
+    <input type="text" id="p-tf-name" placeholder="이름(USDC 등)" style="width:90px">
+    <button class="btn dim" onclick="addTokenFilter()">+ 추가</button>
+    <button class="btn dim red" onclick="clearTokenFilters()">초기화</button>
   </div>
-
-  <div class="row">
-    <span class="lbl">조회 기간</span>
-    <select id="period-preset" onchange="applyPeriod(this.value)">
+  <div id="token-filter-list" style="margin-left:98px;margin-bottom:6px"></div>
+  <div style="margin-left:98px;font-size:10px;color:#2a4a6a">빠른 추가:
+    <span onclick="quickToken('eth','0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48','USDC')" style="color:var(--b);cursor:pointer;margin:0 4px">ETH-USDC</span>
+    <span onclick="quickToken('eth','0xdac17f958d2ee523a2206206994597c13d831ec7','USDT')" style="color:var(--b);cursor:pointer;margin:0 4px">ETH-USDT</span>
+    <span onclick="quickToken('bsc','0x55d398326f99059ff775485246999027b3197955','BSC-USDT')" style="color:var(--b);cursor:pointer;margin:0 4px">BSC-USDT</span>
+    <span onclick="quickToken('bsc','0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d','BSC-USDC')" style="color:var(--b);cursor:pointer;margin:0 4px">BSC-USDC</span>
+    <span onclick="quickToken('arb','0xaf88d065e77c8cc2239327c5edb3a432268e5831','ARB-USDC')" style="color:var(--b);cursor:pointer;margin:0 4px">ARB-USDC</span>
+    <span onclick="quickToken('polygon','0xc2132d05d31c914a87c6611c10748aeb04b58e8f','POL-USDT')" style="color:var(--b);cursor:pointer;margin:0 4px">POL-USDT</span>
+    <span onclick="quickToken('','native','Native')" style="color:var(--b);cursor:pointer;margin:0 4px">Native</span>
+  </div>
+  <div class="row"><span class="lbl">조회 기간</span>
+    <select id="p-period-sel" onchange="applyPeriod(this.value)">
       <option value="">직접 입력</option>
       <option value="1">하루</option>
       <option value="7">7일</option>
@@ -167,65 +119,38 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <option value="1095">3년</option>
       <option value="0">전체</option>
     </select>
-    <input type="number" id="period-days" value="365" min="1" style="width:65px" oninput="document.getElementById('period-preset').value=''">
+    <input type="number" id="p-period-days" value="365" min="1" style="width:65px" oninput="document.getElementById('p-period-sel').value=''">
     <span class="hint">일 이내</span>
   </div>
-  <div class="row">
-    <span class="lbl">요청 속도 (RPS)</span>
-    <select id="rps-sel">
-      <option value="1">1/초 (안전)</option>
-      <option value="2" selected>2/초 (기본)</option>
-      <option value="3">3/초 (빠름)</option>
-      <option value="5">5/초 (위험)</option>
-    </select>
-    <span class="lbl" style="margin-left:8px">병렬</span>
-    <select id="concur-sel">
-      <option value="1">1 (순차)</option>
-      <option value="2">2</option>
-      <option value="3" selected>3</option>
-      <option value="5">5</option>
-    </select>
+  <div class="row"><span class="lbl">요청 속도</span>
+    <select id="p-rps"><option value="1">1/초(안전)</option><option value="2" selected>2/초(기본)</option><option value="3">3/초(빠름)</option><option value="5">5/초(위험)</option></select>
+    <span class="lbl" style="min-width:30px">병렬</span>
+    <select id="p-concur"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="5">5</option></select>
   </div>
 </div>
 
-<!-- ── 모드 선택 탭 ── -->
-<div style="display:flex;gap:0;margin-bottom:12px;border-bottom:1px solid var(--bd)">
-  <button id="tab-auto" onclick="setMode('auto')"
-    style="background:var(--bg2);border:1px solid var(--bd);border-bottom:none;color:var(--g);font-family:'Courier New',monospace;font-size:11px;font-weight:700;padding:8px 20px;cursor:pointer;border-radius:4px 4px 0 0;margin-bottom:-1px">
-    ▶ 자동 분석 (STEP 1~4)
-  </button>
-  <button id="tab-direct" onclick="setMode('direct')"
-    style="background:var(--bg3);border:1px solid var(--bd);border-bottom:1px solid var(--bd);color:#4a6a8a;font-family:'Courier New',monospace;font-size:11px;font-weight:700;padding:8px 20px;cursor:pointer;border-radius:4px 4px 0 0;margin-bottom:-1px;margin-left:4px">
-    ⬡ 입금주소 직접 분석 (STEP 3~4)
-  </button>
+<!-- ── 모드 탭 ── -->
+<div style="border-bottom:1px solid var(--bd);margin-bottom:12px">
+  <button class="tab-btn active" id="tab-auto" onclick="setMode('auto')">▶ 자동 분석 (STEP 1~4)</button>
+  <button class="tab-btn" id="tab-direct" onclick="setMode('direct')">⬡ 입금주소 직접 분석 (STEP 3~4)</button>
 </div>
 
-<!-- ── 직접 입금주소 패널 (직접 모드용) ── -->
-<div id="direct-panel" class="panel" style="display:none">
+<!-- ── 직접 모드 패널 ── -->
+<div id="panel-direct" class="panel" style="display:none">
   <h2>거래소 입금주소 직접 입력</h2>
-  <div style="font-size:10px;color:#3a6a8a;margin-bottom:10px">
-    입금주소를 이미 알고 있을 때 STEP 1·2를 건너뛰고 바로 발신자 수집부터 시작합니다.
-  </div>
-  <div id="direct-dep-list"></div>
-  <div class="row" style="margin-top:8px">
+  <div style="font-size:10px;color:#3a6a8a;margin-bottom:8px">알고 있는 입금주소를 입력하면 STEP 1·2 없이 바로 발신자 수집을 시작합니다.</div>
+  <div class="al" id="direct-dep-list" style="max-height:120px;margin-bottom:8px"></div>
+  <div class="row">
     <input type="text" id="direct-addr" placeholder="입금주소 (0x...)" style="flex:1">
-    <input type="text" id="direct-label" placeholder="거래소 이름 (예: Binance)" style="width:140px">
-    <select id="direct-chain">
-      <option value="">전체 체인</option>
-      <option value="eth">ETH</option>
-      <option value="arb">ARB</option>
-      <option value="op">OP</option>
-      <option value="base">Base</option>
-      <option value="bsc">BSC</option>
-      <option value="polygon">POL</option>
-    </select>
+    <input type="text" id="direct-label" placeholder="거래소 이름" style="width:130px">
+    <select id="direct-chain-sel" style="width:90px"><option value="">전체 체인</option></select>
     <button class="btn dim" onclick="addDirectDep()">+ 추가</button>
-    <button class="btn dim red" onclick="clearDirectDep()">↺ 초기화</button>
+    <button class="btn dim red" onclick="clearDirectDeps()">초기화</button>
   </div>
 </div>
 
-<!-- ── 시드 주소 ── -->
-<div class="panel" id="seed-panel-wrap">
+<!-- ── 시드 주소 (자동 모드) ── -->
+<div id="panel-seed" class="panel">
   <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleEl('seed-body','seed-arrow')">
     <span style="color:var(--b)">◈</span>
     <h2 style="margin:0">시드 주소 &nbsp;<span class="bdg" id="seed-cnt-lbl">0</span></h2>
@@ -239,7 +164,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <button class="btn dim" onclick="selInvert()">반전</button>
       <span id="sel-lbl" style="font-size:10px;color:#4a6a8a"></span>
     </div>
-    <div class="al" id="seed-list"></div>
+    <div class="al" id="seed-list" style="max-height:200px"></div>
     <div class="row" style="margin-top:8px">
       <input type="text" id="add-addr" placeholder="추가 (0x...)" style="flex:1">
       <button class="btn dim" onclick="addSeed()">+ 추가</button>
@@ -247,45 +172,36 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     </div>
   </div>
 </div>
-</div><!-- /seed-panel-wrap -->
 
-<!-- ── 입금주소 필터 ── -->
-<div class="panel" id="dep-filter-wrap">
+<!-- ── 입금주소 필터 (자동 모드) ── -->
+<div id="panel-dep-filter" class="panel">
   <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleEl('dep-filter-body','dep-filter-arrow')">
     <span style="color:var(--a)">⬡</span>
     <h2 style="margin:0">입금주소 필터 &nbsp;<span class="bdg" id="dep-filter-cnt">0</span></h2>
     <span id="dep-filter-arrow" style="margin-left:auto;color:#2a4a6a;font-size:10px">▼</span>
   </div>
   <div id="dep-filter-body" style="display:none;margin-top:12px">
-    <div style="font-size:10px;color:#3a6a8a;margin-bottom:8px">
-      알고 있는 입금주소를 등록하면 거래소 추정 단계에서 강제 포함하거나 제외할 수 있습니다.
-    </div>
-    <div class="row" style="margin-bottom:6px">
-      <select id="dep-filter-mode" style="width:120px">
-        <option value="exclude">제외 (블랙리스트)</option>
-        <option value="include">강제 포함 (화이트리스트)</option>
-      </select>
-      <span class="hint">로 등록된 주소를 처리</span>
-    </div>
-    <div class="al" id="dep-filter-list" style="margin-bottom:8px;color:#4a6a8a"></div>
+    <div style="font-size:10px;color:#3a6a8a;margin-bottom:8px">알고 있는 입금주소를 거래소 추정 단계에서 강제 포함하거나 제외합니다.</div>
+    <div class="row"><select id="dep-filter-mode"><option value="exclude">제외 (블랙리스트)</option><option value="include">강제 포함 (화이트리스트)</option></select></div>
+    <div class="al" id="dep-filter-list" style="max-height:120px;margin-bottom:8px"></div>
     <div class="row">
       <input type="text" id="dep-filter-addr" placeholder="입금주소 (0x...)" style="flex:1">
       <input type="text" id="dep-filter-label" placeholder="메모 (선택)" style="width:120px">
       <button class="btn dim" onclick="addDepFilter()">+ 추가</button>
-      <button class="btn dim red" onclick="clearDepFilter()">↺ 초기화</button>
+      <button class="btn dim red" onclick="clearDepFilters()">초기화</button>
     </div>
-    <div class="row" style="margin-top:6px">
-      <button class="btn dim" onclick="saveDepFilters()">💾 파일 저장</button>
-      <button class="btn dim" onclick="gel('dep-filter-file').click()">📂 불러오기</button>
-      <input type="file" id="dep-filter-file" accept=".csv,.txt" style="display:none" onchange="loadDepFilters(this)">
-      <span class="hint">CSV로 저장·불러오기 · 엑셀/구글시트에서 바로 수정 가능</span>
+    <div class="row" style="margin-top:4px">
+      <button class="btn dim" onclick="saveDepFiltersCsv()">💾 CSV 저장</button>
+      <button class="btn dim" onclick="document.getElementById('dep-filter-file').click()">📂 CSV 불러오기</button>
+      <input type="file" id="dep-filter-file" accept=".csv,.txt" style="display:none" onchange="loadDepFiltersCsv(this)">
+      <span class="hint">엑셀에서 수정 가능 · addr,label,mode 형식</span>
     </div>
   </div>
 </div>
 
 <!-- ── 컨트롤 ── -->
 <div class="row" style="margin-bottom:8px">
-  <button class="btn" id="btn-run" onclick="startAnalysis()">▶ 분석 시작</button>
+  <button class="btn" id="btn-run" onclick="runAnalysis()">▶ 분석 시작</button>
   <button class="btn red" id="btn-stop" onclick="stopAnalysis()" disabled>■ 중지</button>
   <button class="btn dim" onclick="exportCSV()">↓ CSV</button>
   <button class="btn dim" onclick="exportReport()">↓ 리포트</button>
@@ -294,7 +210,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
 <div class="pb"><div class="pf" id="pbar" style="width:0%"></div></div>
 
 <!-- ── 통계 ── -->
-<div class="sr">
+<div class="sv-wrap">
   <div class="sv"><div class="svv" id="s-api">0</div><div class="svk">API 호출</div></div>
   <div class="sv"><div class="svv" id="s-dep">0</div><div class="svk">입금주소</div></div>
   <div class="sv"><div class="svv" id="s-edge">0</div><div class="svk">연결</div></div>
@@ -302,10 +218,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   <div class="sv"><div class="svv" id="s-wl">0</div><div class="svk">지갑</div></div>
 </div>
 
-<!-- ── 파이프라인 ── -->
 <div class="panel"><h2>파이프라인</h2><div id="steps"></div></div>
-
-<!-- ── 로그 ── -->
 <div class="panel" style="padding:10px 12px"><h2>실시간 로그</h2><div id="log"></div></div>
 
 <!-- ── 결과 ── -->
@@ -318,16 +231,13 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   </div>
   <div class="rw">
     <table>
-      <thead><tr>
-        <th>클러스터</th><th>지갑</th><th>이름</th><th>구분</th>
-        <th>입금주소</th><th>거래소추정</th><th>체인</th><th>링크</th>
-      </tr></thead>
+      <thead><tr><th>클러스터</th><th>지갑</th><th>이름</th><th>구분</th><th>입금주소</th><th>거래소추정</th><th>체인</th><th>링크</th></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
     <div id="no-res" style="text-align:center;padding:32px;color:#1e3a5a;font-size:11px">분석 시작 후 결과가 표시됩니다</div>
   </div>
 </div>
-</div><!-- /container -->
+</div>
 <script>
 const SEEDS_RAW = [
   "0x3b95232113d35f1200dc40cf22c407fdb1759340",
@@ -672,25 +582,15 @@ const WALLET_TAGS = {
 
 
 // ══════════════════════════════════════════════════════════════════════
-// 섹션 1: 데이터 (SEEDS_RAW, PERSON_ADDRESSES, WALLET_TAGS)
-// 위에서 주입됨
-
+// 섹션 1: 체인 정의 — 한 곳에서만 관리. 추가 = 이 배열에 한 줄
 // ══════════════════════════════════════════════════════════════════════
-// 섹션 2: 상수 & 설정
-// ══════════════════════════════════════════════════════════════════════
-var CHAIN_DEFS = [
-  {key:'eth',  name:'ETH',  color:'#4fa3ff', rpcId:'rpc-eth', onId:'on-eth',
-   blockTime:12,   latest:22000000},
-  {key:'arb',  name:'ARB',  color:'#28a0f0', rpcId:'rpc-arb', onId:'on-arb',
-   blockTime:0.25, latest:310000000},
-  {key:'op',   name:'OP',   color:'#ff5a57', rpcId:'rpc-op',  onId:'on-op',
-   blockTime:2,    latest:130000000},
-  {key:'base', name:'Base', color:'#3a7bff', rpcId:'rpc-base',onId:'on-base',
-   blockTime:2,    latest:25000000},
-  {key:'bsc',  name:'BSC',  color:'#f0b90b', rpcId:'rpc-bsc', onId:'on-bsc',
-   blockTime:3,    latest:58000000, provider:'meganode'},
-  {key:'polygon', name:'POL', color:'#8247e5', rpcId:'rpc-polygon', onId:'on-polygon',
-   blockTime:2,   latest:68000000},
+var CHAINS = [
+  {key:'eth',     name:'ETH', color:'#4fa3ff', blockTime:12,   placeholder:'https://eth-mainnet.g.alchemy.com/v2/...'},
+  {key:'arb',     name:'ARB', color:'#28a0f0', blockTime:0.25, placeholder:'https://arb-mainnet.g.alchemy.com/v2/...'},
+  {key:'op',      name:'OP',  color:'#ff5a57', blockTime:2,    placeholder:'https://opt-mainnet.g.alchemy.com/v2/...'},
+  {key:'base',    name:'BSE', color:'#3a7bff', blockTime:2,    placeholder:'https://base-mainnet.g.alchemy.com/v2/...'},
+  {key:'polygon', name:'POL', color:'#8247e5', blockTime:2,    placeholder:'https://polygon-mainnet.g.alchemy.com/v2/...'},
+  {key:'bsc',     name:'BSC', color:'#f0b90b', blockTime:3,    placeholder:'https://bsc-mainnet.nodereal.io/v1/...', provider:'meganode'},
 ];
 
 var STEPS_DEF = [
@@ -701,49 +601,41 @@ var STEPS_DEF = [
 ];
 
 // ══════════════════════════════════════════════════════════════════════
-// 섹션 3: 전역 상태 (var — hoisting 안전)
+// 섹션 2: 전역 상태
 // ══════════════════════════════════════════════════════════════════════
-var gSeeds    = SEEDS_RAW.map(function(a){return a.toLowerCase();});
-var gSelected = {};   // addr → bool
-var gEdges    = [];   // [{wallet,deposit,exchange,chain,_cluster}]
-var gApiCalls = 0;
-var gAborted  = false;
-
-// Rate Limiter 상태
-var gRateQueue   = [];
-var gRateRunning = false;
-var gRateLastTs  = 0;
-var gRateRPS     = 2;
+var gSeeds      = SEEDS_RAW.map(function(a){return a.toLowerCase();});
+var gSelected   = {};
+var gEdges      = [];
+var gApiCalls   = 0;
+var gAborted    = false;
+var gMode       = 'auto';
+var gDirectDeps = [];
+var gDepFilters = [];
+var gTokenFilters = [];
+var gBlockCache = {};   // rpcUrl → current block number
+var gRateQueue  = [];
+var gRateRun    = false;
+var gRateTs     = 0;
+var gRateRPS    = 2;
 
 gSeeds.forEach(function(a){gSelected[a]=true;});
 
-// 입금주소 필터: [{addr, label, mode}]
-var gDepFilters = [];
-
-// 분석 모드: 'auto' | 'direct'
-var gMode = 'auto';
-// 토큰 필터: [{chainKey, addr, name}]  chainKey=''이면 모든 체인
-var gTokenFilters = [];
-// 직접 입력 입금주소: [{addr, label, chainKey}]
-var gDirectDeps = [];
-
 // ══════════════════════════════════════════════════════════════════════
-// 섹션 4: 유틸 함수
+// 섹션 3: 유틸
 // ══════════════════════════════════════════════════════════════════════
 function gel(id){return document.getElementById(id);}
 function sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
 function ts(){return new Date().toISOString().substr(11,8);}
 function short(a){return a?a.substr(0,6)+'…'+a.substr(-4):'';}
 function arkUrl(a){return 'https://intel.arkm.com/explorer/address/'+a;}
-function fmtUsd(v){return v>0?'$'+Math.round(v).toLocaleString():'—';}
-function num(id,def){return parseInt(gel(id)?gel(id).value:'') || def;}
+function num(id,def){return parseInt((gel(id)&&gel(id).value)||'') || def;}
+function pnum(id,def){return parseFloat((gel(id)&&gel(id).value)||'') || def;}
 
 function addLog(msg,type){
   var el=gel('log'),d=document.createElement('div');
   d.className='ll';
   d.innerHTML='<span class="lt">'+ts()+'</span><span class="lm '+(type||'')+'">'+msg+'</span>';
-  el.appendChild(d);
-  el.scrollTop=el.scrollHeight;
+  el.appendChild(d); el.scrollTop=el.scrollHeight;
 }
 
 function toggleEl(bodyId,arrowId){
@@ -753,273 +645,242 @@ function toggleEl(bodyId,arrowId){
 }
 
 function applyPeriod(v){
-  if(v==='0') gel('period-days').value='';
-  else if(v) gel('period-days').value=v;
+  if(v==='0')gel('p-period-days').value='';
+  else if(v)gel('p-period-days').value=v;
 }
 
-var gBlockNumCache={};
+function download(name,content,mime){
+  var blob=new Blob([content],{type:mime});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+}
 
+// 활성 체인 목록 (체크 + URL 입력된 것만)
+function getActiveChains(){
+  return CHAINS.filter(function(c){
+    var chk=gel('on-'+c.key), url=gel('rpc-'+c.key);
+    return chk&&chk.checked && url&&url.value.trim();
+  }).map(function(c){
+    return {key:c.key, name:c.name, rpc:gel('rpc-'+c.key).value.trim(),
+            blockTime:c.blockTime, provider:c.provider||''};
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 섹션 4: Rate Limiter
+// ══════════════════════════════════════════════════════════════════════
+function rateCall(fn){
+  return new Promise(function(res,rej){
+    gRateQueue.push({fn:fn,res:res,rej:rej});
+    if(!gRateRun) drainQueue();
+  });
+}
+
+async function drainQueue(){
+  gRateRun=true;
+  while(gRateQueue.length){
+    var item=gRateQueue.shift();
+    var gap=Math.max(0, 1000/gRateRPS-(Date.now()-gRateTs));
+    if(gap>0) await sleep(gap);
+    gRateTs=Date.now();
+    try{item.res(await item.fn());}catch(e){item.rej(e);}
+  }
+  gRateRun=false;
+}
+
+async function runParallel(items,asyncFn,concurrency){
+  var idx=0;
+  async function worker(){while(idx<items.length){var i=idx++;try{await asyncFn(items[i],i);}catch(e){}}}
+  var ws=[];
+  for(var w=0;w<Math.min(concurrency,items.length);w++) ws.push(worker());
+  await Promise.all(ws);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 섹션 5: Alchemy / MegaNode API
+// ══════════════════════════════════════════════════════════════════════
+// 실시간 현재 블록 조회 (캐시)
 async function getCurrentBlock(rpcUrl){
-  if(gBlockNumCache[rpcUrl]) return gBlockNumCache[rpcUrl];
+  if(gBlockCache[rpcUrl]) return gBlockCache[rpcUrl];
   try{
     var r=await fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_blockNumber',params:[]})});
     var d=await r.json();
     var n=parseInt(d.result,16);
-    if(n>0) gBlockNumCache[rpcUrl]=n;
+    if(n>0) gBlockCache[rpcUrl]=n;
     return n||0;
   }catch(e){return 0;}
 }
 
-async function daysToFromBlock(rpcUrl,chainDef,days){
+// 기간(일) → fromBlock hex (실제 블록번호 기반)
+async function toFromBlock(rpcUrl,blockTime,days){
   var d=parseInt(days);
   if(!d||d<=0) return '0x0';
   var cur=await getCurrentBlock(rpcUrl);
-  if(!cur) cur=chainDef.latest;
-  var blocks=Math.floor(d*86400/chainDef.blockTime);
-  var from=cur-blocks;
-  return from<=0?'0x0':('0x'+from.toString(16));
+  if(!cur) return '0x0';
+  var from=cur-Math.floor(d*86400/blockTime);
+  return from>0 ? '0x'+from.toString(16) : '0x0';
 }
 
-function getActiveChains(){
-  return CHAIN_DEFS.filter(function(c){
-    var onEl=gel(c.onId), urlEl=gel(c.rpcId);
-    return onEl&&onEl.checked && urlEl&&urlEl.value.trim();
-  }).map(function(c){
-    return {key:c.key, name:c.name, rpc:gel(c.rpcId).value.trim(), def:c};
+// 토큰 필터에서 특정 체인에 맞는 컨트랙트 배열 반환
+function getContracts(chainKey){
+  var contracts=[],hasNative=false;
+  gTokenFilters.forEach(function(f){
+    if(f.chainKey&&f.chainKey!==chainKey)return;
+    if(f.addr==='native')hasNative=true;
+    else contracts.push(f.addr);
   });
+  return {contracts:contracts,hasNative:hasNative};
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// 섹션 5: Rate Limiter + 병렬 처리
-// ══════════════════════════════════════════════════════════════════════
-function rateCall(fn){
-  return new Promise(function(res,rej){
-    gRateQueue.push({fn:fn,res:res,rej:rej});
-    if(!gRateRunning) drainQueue();
-  });
-}
-
-async function drainQueue(){
-  gRateRunning=true;
-  while(gRateQueue.length){
-    var item=gRateQueue.shift();
-    var gap=Math.max(0, 1000/gRateRPS-(Date.now()-gRateLastTs));
-    if(gap>0) await sleep(gap);
-    gRateLastTs=Date.now();
-    try{item.res(await item.fn());}catch(e){item.rej(e);}
-  }
-  gRateRunning=false;
-}
-
-async function runParallel(items, asyncFn, concurrency){
-  var idx=0;
-  async function worker(){
-    while(idx<items.length){
-      var i=idx++;
-      try{await asyncFn(items[i],i);}catch(e){}
-    }
-  }
-  var workers=[];
-  for(var w=0;w<Math.min(concurrency,items.length);w++) workers.push(worker());
-  await Promise.all(workers);
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// 섹션 6: Alchemy API
-// ══════════════════════════════════════════════════════════════════════
-async function alchemyGetTx(rpcUrl, address, direction, pageKey, chainDef, withMeta){
+async function alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,withMeta,blockTime,periodDays){
   if(gAborted) throw new Error('중지됨');
-  gApiCalls++;
-  updateStats();
+  gApiCalls++; updateStats();
 
-  var days=gel('period-days')?gel('period-days').value:'';
-  var fromBlock=days?(await daysToFromBlock(rpcUrl,chainDef,days)):'0x0';
-
-  // 토큰 필터 적용
-  var tokenInfo = getContractsForChain(chainDef ? chainDef.key : '');
-  var isMegaNode = chainDef && chainDef.provider === 'meganode';
-
-  // category 형식: Alchemy=문자열, MegaNode=숫자문자열
-  var useCategory;
-  if (gTokenFilters.length === 0) {
-    useCategory = isMegaNode
-      ? ['external','20','721','1155']
-      : ['external','erc20','erc721','erc1155'];
-  } else if (tokenInfo.hasNative && !tokenInfo.contracts.length) {
-    useCategory = ['external'];
-  } else if (!tokenInfo.hasNative && tokenInfo.contracts.length) {
-    useCategory = isMegaNode ? ['20','721','1155'] : ['erc20','erc721','erc1155'];
+  var isMega=provider==='meganode';
+  var method=isMega?'nr_getAssetTransfers':'alchemy_getAssetTransfers';
+  var fromBlock=periodDays?(await toFromBlock(rpcUrl,blockTime,periodDays)):'0x0';
+  var tf=getContracts(chainKey);
+  var cat;
+  if(!gTokenFilters.length){
+    cat=isMega?['external','20','721','1155']:['external','erc20','erc721','erc1155'];
+  } else if(tf.hasNative&&!tf.contracts.length){
+    cat=['external'];
   } else {
-    useCategory = isMegaNode
-      ? ['external','20','721','1155']
-      : ['external','erc20','erc721','erc1155'];
+    cat=isMega?['20','721','1155']:['erc20','erc721','erc1155'];
   }
-
-  var params={
-    fromBlock:fromBlock, toBlock:'latest',
-    withMetadata:!!withMeta, excludeZeroValue:true,
-    maxCount:'0x64',
-    category:useCategory,
-  };
-  if (tokenInfo.contracts.length) params.contractAddresses = tokenInfo.contracts;
-  if(direction==='out') params.fromAddress=address;
+  var params={fromBlock:fromBlock,toBlock:'latest',withMetadata:!!withMeta,
+    excludeZeroValue:true,maxCount:'0x64',category:cat};
+  if(direction==='out')params.fromAddress=address;
   else params.toAddress=address;
-  if(pageKey) params.pageKey=pageKey;
+  if(pageKey)params.pageKey=pageKey;
+  if(tf.contracts.length)params.contractAddresses=tf.contracts;
 
-  var body=JSON.stringify({id:1,jsonrpc:'2.0',method:(chainDef&&chainDef.provider==='meganode'?'nr_getAssetTransfers':'alchemy_getAssetTransfers'),params:[params]});
-
+  var body=JSON.stringify({id:1,jsonrpc:'2.0',method:method,params:[params]});
   var resp=await rateCall(function(){
     return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:body});
   });
-
-  if(resp.status===429){
-    addLog('⚠ 429 — 3초 대기','warn');
-    await sleep(3000);
-    return alchemyGetTx(rpcUrl,address,direction,pageKey,chainDef,withMeta);
-  }
-  if(!resp.ok){
-    var t=await resp.text().catch(function(){return '';});
-    throw new Error('HTTP '+resp.status+' '+t.slice(0,80));
-  }
+  if(resp.status===429){addLog('⚠ 429 — 3초 대기','warn');await sleep(3000);return alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,withMeta,blockTime,periodDays);}
+  if(!resp.ok){var t=await resp.text().catch(function(){return '';});throw new Error('HTTP '+resp.status+' '+t.slice(0,80));}
   var data=await resp.json();
-  if(data.error) throw new Error(data.error.message||JSON.stringify(data.error));
-  var result = data.result || {};
-  // MegaNode 응답: result.transfers 또는 result 직접
-  if(Array.isArray(result)) return {transfers:result, pageKey:null};
-  return result.transfers !== undefined ? result : {transfers:[], pageKey:null};
+  if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
+  var result=data.result||{};
+  if(Array.isArray(result))return{transfers:result,pageKey:null};
+  return result;
 }
 
-async function fetchAll(rpcUrl, address, direction, chainDef, onPage){
-  var all=[], pageKey=null, page=0;
+async function fetchAll(rpcUrl,chainKey,provider,direction,address,blockTime,periodDays,onPage){
+  var all=[],pageKey=null,page=0;
   while(!gAborted){
-    var result=await alchemyGetTx(rpcUrl,address,direction,pageKey,chainDef,false);
+    var result=await alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,false,blockTime,periodDays);
     var batch=result.transfers||[];
-    all=all.concat(batch);
-    page++;
-    if(onPage) onPage(page,batch.length,all.length);
+    all=all.concat(batch);page++;
+    if(onPage)onPage(page,batch.length,all.length);
     pageKey=result.pageKey;
-    if(!pageKey||!batch.length) break;
+    if(!pageKey||!batch.length)break;
   }
   return all;
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// 섹션 7: Union-Find 클러스터링
+// 섹션 6: Union-Find 클러스터링
 // ══════════════════════════════════════════════════════════════════════
 function clusterEdges(edges){
   var parent={};
-  function find(x){
-    if(!parent[x]) parent[x]=x;
-    if(parent[x]!==x) parent[x]=find(parent[x]);
-    return parent[x];
-  }
+  function find(x){if(!parent[x])parent[x]=x;if(parent[x]!==x)parent[x]=find(parent[x]);return parent[x];}
   function union(a,b){var pa=find(a),pb=find(b);if(pa!==pb)parent[pa]=pb;}
   var d2w={};
-  edges.forEach(function(e){
-    if(!d2w[e.deposit]) d2w[e.deposit]=[];
-    d2w[e.deposit].push(e.wallet);
-  });
-  Object.keys(d2w).forEach(function(dep){
-    var ws=d2w[dep];
-    for(var i=1;i<ws.length;i++) union(ws[0],ws[i]);
-  });
+  edges.forEach(function(e){if(!d2w[e.deposit])d2w[e.deposit]=[];d2w[e.deposit].push(e.wallet);});
+  Object.keys(d2w).forEach(function(dep){var ws=d2w[dep];for(var i=1;i<ws.length;i++)union(ws[0],ws[i]);});
   var cm={},ctr=0;
-  edges.forEach(function(e){
-    var r=find(e.wallet);
-    if(!cm[r]) cm[r]='C'+String(++ctr).padStart(3,'0');
-    e._cluster=cm[r];
-  });
+  edges.forEach(function(e){var r=find(e.wallet);if(!cm[r])cm[r]='C'+String(++ctr).padStart(3,'0');e._cluster=cm[r];});
   return Object.keys(cm).length;
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// 섹션 8: 분석 파이프라인
+// 섹션 7: 분석 파이프라인
 // ══════════════════════════════════════════════════════════════════════
-async function startAnalysis(){
-  // 1. 설정 읽기 — 함수 최상단에서 모두 선언
+async function runAnalysis(){
   var chains=getActiveChains();
-
-  // 직접 모드: STEP 3부터 바로 시작
-  if(gMode==='direct'){
-    startDirectAnalysis(chains);
-    return;
-  }
-
-  var runSeeds=Object.keys(gSelected).filter(function(a){return gSelected[a];});
-  var exchMin=num('exch-min',10);
-  var exchMax=num('exch-max',100);
-  var maxSenders=num('max-senders',50);
-  var minSpreadH=num('min-spread-h',24);
-  var concurrency=num('concur-sel',3);
-  var usdMin=parseFloat(gel('usd-min')?gel('usd-min').value:'0')||0;
-  var usdMax=parseFloat(gel('usd-max')?gel('usd-max').value:'0')||0;
+  var days=(gel('p-period-days')&&gel('p-period-days').value)||'';
+  var exchMin=num('p-exch-min',10), exchMax=num('p-exch-max',100);
+  var maxSenders=num('p-max-senders',50), spreadH=num('p-spread-h',24);
+  var usdMin=pnum('p-usd-min',0), usdMax=pnum('p-usd-max',0);
 
   if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 선택하세요','err');return;}
-  if(!runSeeds.length) runSeeds=gSeeds.slice();
 
-  // 2. 초기화 — gAborted 맨 먼저
-  gAborted=false; gEdges=[]; gApiCalls=0; gBlockNumCache={};
-  gRateRPS=num('rps-sel',2);
-
+  gAborted=false; gEdges=[]; gApiCalls=0; gBlockCache={};
+  gRateRPS=num('p-rps',2);
   gel('btn-run').disabled=true; gel('btn-stop').disabled=false;
-  gel('tbody').innerHTML=''; gel('no-res').style.display='';
-  gel('res-cnt').textContent='0';
+  gel('tbody').innerHTML=''; gel('no-res').style.display=''; gel('res-cnt').textContent='0';
   updateStats(); renderTable();
 
-  addLog('=== 분석 시작 ===','info');
+  if(gMode==='direct'){
+    await runDirectMode(chains,maxSenders,usdMin,usdMax,days);
+  } else {
+    await runAutoMode(chains,days,exchMin,exchMax,spreadH,maxSenders,usdMin,usdMax,num('p-concur',3));
+  }
+  gel('btn-run').disabled=false; gel('btn-stop').disabled=true;
+}
+
+function stopAnalysis(){gAborted=true;addLog('⬛ 중지','warn');gel('btn-run').disabled=false;gel('btn-stop').disabled=true;}
+
+// 자동 모드
+async function runAutoMode(chains,days,exchMin,exchMax,spreadH,maxSenders,usdMin,usdMax,concurrency){
+  var runSeeds=Object.keys(gSelected).filter(function(a){return gSelected[a];});
+  if(!runSeeds.length)runSeeds=gSeeds.slice();
+  addLog('=== 자동 분석 시작 ===','info');
   addLog('시드: '+runSeeds.length+'개 · 체인: '+chains.map(function(c){return c.name;}).join(','),'info');
 
-  // ── STEP 1: 시드 × 체인 아웃바운드 TX → 목적지 수집 ──────────────
+  // STEP 1: 시드 아웃바운드 → 목적지 수집
   setStep(1);
-  var destMap={};  // "addr::chainKey" → {addr,chainKey,chain}
-
+  var destMap={};
   for(var si=0;si<runSeeds.length;si++){
-    if(gAborted) break;
+    if(gAborted)break;
     var seed=runSeeds[si];
     for(var ci=0;ci<chains.length;ci++){
-      if(gAborted) break;
-      var chain=chains[ci];
-      addLog('[STEP 1] '+short(seed)+' → '+chain.name,'dim');
-      var txs=await fetchAll(chain.rpc,seed,'out',chain.def,
-        function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+'건)','dim');});
-      addLog('[STEP 1] '+chain.name+' → '+txs.length+'건','ok');
+      if(gAborted)break;
+      var ch=chains[ci];
+      addLog('[STEP 1] '+short(seed)+' ('+ch.name+')','dim');
+      var txs=await fetchAll(ch.rpc,ch.key,ch.provider,'out',seed,ch.blockTime,days,
+        function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+')','dim');});
+      addLog('[STEP 1] → '+txs.length+'건','ok');
       txs.forEach(function(tx){
         var to=(tx.to||'').toLowerCase();
-        if(!to||to===seed) return;
-        var k=to+'::'+chain.key;
-        if(!destMap[k]) destMap[k]={addr:to,chainKey:chain.key,chain:chain};
+        if(!to||to===seed)return;
+        var k=to+'::'+ch.key;
+        if(!destMap[k])destMap[k]={addr:to,chain:ch};
       });
     }
   }
-  // 화이트리스트 주소 → 목적지 맵에 강제 추가 (발신자 수 샘플링 없이 바로 포함)
-  gDepFilters.filter(function(f){return f.mode==='include';}).forEach(function(f){
-    chains.forEach(function(chain){
-      var k=f.addr+'::'+chain.key;
-      if(!destMap[k]) destMap[k]={addr:f.addr,chainKey:chain.key,chain:chain};
-    });
-  });
-  addLog('[STEP 1] 목적지 '+Object.keys(destMap).length+'개 (화이트리스트 포함)','info');
+  addLog('[STEP 1] 목적지 '+Object.keys(destMap).length+'개','info');
 
-  // ── STEP 2: 병렬 샘플링 → 거래소 추정 ───────────────────────────
+  // STEP 2: 병렬 샘플링 → 거래소 추정
   setStep(2);
-  var depMap={};  // k → {addr,chainKey,chain,label}
+  var depMap={};
   var destKeys=Object.keys(destMap);
   addLog('[STEP 2] '+destKeys.length+'개 병렬 샘플링 (동시 '+concurrency+'개)…','info');
 
-  await runParallel(destKeys, async function(k){
-    if(gAborted) return;
-    var d=destMap[k];
-    var result,txs;
-    try{
-      result=await alchemyGetTx(d.chain.rpc,d.addr,'in',null,d.chain.def,minSpreadH>0);
-      txs=result.transfers||[];
-    }catch(e){
-      addLog('[STEP 2] ⚠ '+short(d.addr)+': '+String(e.message||e),'warn');
-      return;
+  await runParallel(destKeys,async function(k){
+    if(gAborted)return;
+    var d=destMap[k],ch=d.chain;
+
+    // 입금주소 필터 제외
+    var flt=gDepFilters.find(function(f){return f.addr===d.addr;});
+    if(flt&&flt.mode==='exclude'){addLog('[STEP 2] ✗ '+short(d.addr)+' [제외필터]','dim');return;}
+
+    // 화이트리스트는 샘플링 없이 바로 추가
+    if(flt&&flt.mode==='include'){
+      depMap[k]={addr:d.addr,chain:ch,label:'['+flt.label+'] 강제포함'};
+      addLog('[STEP 2] ✓ '+short(d.addr)+' 강제포함','ok');return;
     }
 
-    // 고유 발신자 수 카운트
+    // 샘플링
+    var result,txs;
+    try{
+      result=await alchemyCall(ch.rpc,ch.key,ch.provider,'in',d.addr,null,spreadH>0,ch.blockTime,days);
+      txs=result.transfers||[];
+    }catch(e){addLog('[STEP 2] ⚠ '+short(d.addr)+': '+String(e.message||e),'warn');return;}
+
     var senders={};
     txs.forEach(function(tx){var f=(tx.from||'').toLowerCase();if(f)senders[f]=true;});
     var cnt=Object.keys(senders).length;
@@ -1028,198 +889,75 @@ async function startAnalysis(){
     if(cnt>exchMax){addLog('[STEP 2] '+short(d.addr)+' '+cnt+'명 → DeFi 스킵','dim');return;}
 
     // 시간 분산 체크
-    if(minSpreadH>0 && txs.length>=2){
-      var times=txs
-        .map(function(tx){return tx.metadata&&tx.metadata.blockTimestamp?new Date(tx.metadata.blockTimestamp).getTime():0;})
-        .filter(function(t){return t>0;})
-        .sort(function(a,b){return a-b;});
-      if(times.length>=2){
-        var spreadH=(times[times.length-1]-times[0])/3600000;
-        if(spreadH<minSpreadH){
-          addLog('[STEP 2] '+short(d.addr)+' 간격 '+Math.round(spreadH)+'h → 단기집중 스킵','dim');
-          return;
-        }
+    if(spreadH>0&&txs.length>=2){
+      var times=txs.map(function(tx){return tx.metadata&&tx.metadata.blockTimestamp?new Date(tx.metadata.blockTimestamp).getTime():0;}).filter(function(t){return t>0;}).sort(function(a,b){return a-b;});
+      if(times.length>=2&&(times[times.length-1]-times[0])/3600000<spreadH){
+        addLog('[STEP 2] '+short(d.addr)+' 단기집중 스킵','dim');return;
       }
     }
 
-    // 입금주소 필터 적용
-    var depFilterHit=gDepFilters.find(function(f){return f.addr===d.addr;});
-    if(depFilterHit && depFilterHit.mode==='exclude'){
-      addLog('[STEP 2] ✗ '+short(d.addr)+' ['+depFilterHit.label+'] → 제외 필터','warn');
-      return;
-    }
-    var label=depFilterHit?('['+depFilterHit.label+'] 강제포함'):'추정거래소('+cnt+'명)';
-    depMap[k]={addr:d.addr,chainKey:d.chainKey,chain:d.chain,label:label};
-    addLog('[STEP 2] ✓ '+short(d.addr)+' '+cnt+'명 ('+d.chain.name+')'+(depFilterHit?' [강제포함]':''),'ok');
-  }, concurrency);
+    depMap[k]={addr:d.addr,chain:ch,label:'추정거래소('+cnt+'명)'};
+    addLog('[STEP 2] ✓ '+short(d.addr)+' '+cnt+'명 ('+ch.name+')','ok');
+  },concurrency);
 
   addLog('[STEP 2] 거래소 추정 입금주소 '+Object.keys(depMap).length+'개','info');
-  updateStats();
+  await collectInbound(depMap,maxSenders,usdMin,usdMax,days);
+}
 
-  // ── STEP 3: 거래소 추정 주소 → 인바운드 발신자 수집 ─────────────
+// 직접 모드
+async function runDirectMode(chains,maxSenders,usdMin,usdMax,days){
+  if(!gDirectDeps.length){addLog('⚠ 입금주소를 먼저 추가하세요','err');gel('btn-run').disabled=false;gel('btn-stop').disabled=true;return;}
+  addLog('=== 직접 입금주소 분석 시작 (STEP 3~4) ===','info');
+  var depMap={};
+  gDirectDeps.forEach(function(d){
+    var targetChains=d.chainKey?chains.filter(function(c){return c.key===d.chainKey;}):chains;
+    targetChains.forEach(function(ch){depMap[d.addr+'::'+ch.key]={addr:d.addr,chain:ch,label:d.label};});
+  });
+  await collectInbound(depMap,maxSenders,usdMin,usdMax,days);
+}
+
+// STEP 3+4 공통
+async function collectInbound(depMap,maxSenders,usdMin,usdMax,days){
+  var STABLE={usdc:1,usdt:1,dai:1,busd:1,tusd:1,frax:1,lusd:1};
   setStep(3);
   var depKeys=Object.keys(depMap);
   for(var di=0;di<depKeys.length;di++){
-    if(gAborted) break;
-    var dm=depMap[depKeys[di]];
-    addLog('[STEP 3] '+short(dm.addr)+' ('+dm.chain.name+') 인바운드 전수 조회','info');
-    var inTxs=await fetchAll(dm.chain.rpc,dm.addr,'in',dm.chain.def,
-      function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+'건)','dim');});
+    if(gAborted)break;
+    var dm=depMap[depKeys[di]],ch=dm.chain;
+    addLog('[STEP 3] '+short(dm.addr)+' ('+dm.label+' · '+ch.name+') 인바운드 조회','info');
+    var txs=await fetchAll(ch.rpc,ch.key,ch.provider,'in',dm.addr,ch.blockTime,days,
+      function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+')','dim');});
+    addLog('[STEP 3] → '+txs.length+'건','ok');
 
-    var STABLE = {usdc:1,usdt:1,dai:1,busd:1,tusd:1,usdp:1,gusd:1,frax:1,lusd:1,usdd:1};
-    var fromMap={};  // addr → 스테이블코인 누적 USD
-    inTxs.forEach(function(tx){
-      var f=(tx.from||'').toLowerCase();
-      if(!f||f===dm.addr) return;
-      if(!fromMap[f]) fromMap[f]=0;
-      // 스테이블코인이면 value를 USD로 간주
-      var asset=(tx.asset||'').toLowerCase();
-      if(STABLE[asset]) fromMap[f]+=parseFloat(tx.value||0);
-    });
-
-    // USD 금액 필터: stablecoin(USDC/USDT/DAI 등) value는 USD 근사값
-    // ETH/기타 토큰은 필터 적용 안 함 (USD 환산 불가)
-    if(usdMin>0||usdMax>0){
-      Object.keys(fromMap).forEach(function(addr){
-        var totalStable=fromMap[addr];
-        if(usdMin>0 && totalStable<usdMin) delete fromMap[addr];
-        if(usdMax>0 && totalStable>usdMax) delete fromMap[addr];
-      });
-    }
-
-    var fromKeys=Object.keys(fromMap);
-    if(fromKeys.length>maxSenders){
-      addLog('[STEP 3] ⚠ 발신자 '+fromKeys.length+'명 > '+maxSenders+' → 스킵','warn');
-      continue;
-    }
-
-    fromKeys.forEach(function(from){
-      gEdges.push({wallet:from,deposit:dm.addr,exchange:dm.label,chain:dm.chain.name});
-    });
-    updateStats();
-    renderTable();
-  }
-
-  // ── STEP 4: 클러스터 계산 ────────────────────────────────────────
-  setStep(4);
-  clusterEdges(gEdges);
-  updateStats();
-  renderTable();
-
-  STEPS_DEF.forEach(function(s){
-    var n=gel('sn'+s.id);if(!n)return;
-    n.className='snum done';gel('sl'+s.id).className='slbl done';
-  });
-  addLog('=== 완료 · API '+gApiCalls+'회 · 연결 '+gEdges.length+'개 ===','ok');
-  gel('btn-run').disabled=false;
-  gel('btn-stop').disabled=true;
-}
-
-function stopAnalysis(){
-  gAborted=true;
-  addLog('⬛ 중지','warn');
-  gel('btn-run').disabled=false;
-  gel('btn-stop').disabled=true;
-}
-
-// ── 직접 모드 분석 (STEP 3~4만) ─────────────────────────────────
-async function startDirectAnalysis(chains) {
-  var maxSenders=num('max-senders',50);
-  var usdMin=parseFloat(gel('usd-min')?gel('usd-min').value:'0')||0;
-  var usdMax=parseFloat(gel('usd-max')?gel('usd-max').value:'0')||0;
-
-  if(!gDirectDeps.length){addLog('⚠ 입금주소를 먼저 추가하세요','err');return;}
-  if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 선택하세요','err');return;}
-
-  gAborted=false; gEdges=[]; gApiCalls=0; gBlockNumCache={};
-  gRateRPS=num('rps-sel',2);
-  gel('btn-run').disabled=true; gel('btn-stop').disabled=false;
-  gel('tbody').innerHTML=''; gel('no-res').style.display='';
-  gel('res-cnt').textContent='0';
-  updateStats(); renderTable();
-
-  addLog('=== 직접 입금주소 분석 시작 (STEP 3~4) ===','info');
-  addLog('입금주소: '+gDirectDeps.length+'개','info');
-
-  // STEP 3: 각 입금주소 인바운드 발신자 수집
-  setStep(3);
-  for(var di=0;di<gDirectDeps.length;di++){
-    if(gAborted) break;
-    var dm=gDirectDeps[di];
-
-    // 해당 체인 RPC 찾기 — 전체 체인이면 활성 체인 모두 순회
-    var targetChains = dm.chainKey
-      ? chains.filter(function(c){return c.key===dm.chainKey;})
-      : chains;
-    if(!targetChains.length){
-      addLog('[STEP 3] ⚠ '+dm.addr+' — RPC 미설정된 체인 스킵','warn');
-      continue;
-    }
-
-    var inTxs=[];
-    for(var ci2=0;ci2<targetChains.length;ci2++){
-      var chainObj=targetChains[ci2];
-      addLog('[STEP 3] '+short(dm.addr)+' ('+dm.label+' · '+chainObj.name+') 인바운드 전수 조회','info');
-      var chainTxs=await fetchAll(chainObj.rpc,dm.addr,'in',chainObj.def,
-        function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+'건)','dim');});
-      addLog('[STEP 3] → '+chainTxs.length+'건 ('+chainObj.name+')','ok');
-      inTxs=inTxs.concat(chainTxs);
-    }
-
-    var STABLE={usdc:1,usdt:1,dai:1,busd:1,tusd:1,usdp:1,gusd:1,frax:1,lusd:1};
     var fromMap={};
-    inTxs.forEach(function(tx){
+    txs.forEach(function(tx){
       var f=(tx.from||'').toLowerCase();
-      if(!f||f===dm.addr) return;
-      if(!fromMap[f]) fromMap[f]=0;
+      if(!f||f===dm.addr)return;
+      if(!fromMap[f])fromMap[f]=0;
       var asset=(tx.asset||'').toLowerCase();
-      if(STABLE[asset]) fromMap[f]+=parseFloat(tx.value||0);
+      if(STABLE[asset])fromMap[f]+=parseFloat(tx.value||0);
     });
-
     if(usdMin>0||usdMax>0){
-      Object.keys(fromMap).forEach(function(addr){
-        var v=fromMap[addr];
-        if(usdMin>0&&v<usdMin) delete fromMap[addr];
-        if(usdMax>0&&v>usdMax) delete fromMap[addr];
+      Object.keys(fromMap).forEach(function(a){
+        var v=fromMap[a];
+        if(usdMin>0&&v<usdMin)delete fromMap[a];
+        if(usdMax>0&&v>usdMax)delete fromMap[a];
       });
     }
-
     var fromKeys=Object.keys(fromMap);
-    if(fromKeys.length>maxSenders){
-      addLog('[STEP 3] ⚠ 발신자 '+fromKeys.length+'명 > '+maxSenders+' → 스킵','warn');
-      continue;
-    }
-    fromKeys.forEach(function(from){
-      gEdges.push({wallet:from,deposit:dm.addr,exchange:dm.label,chain:dm.chainKey});
-    });
-    addLog('[STEP 3] 발신자 '+fromKeys.length+'명 수집','ok');
-    updateStats(); renderTable();
+    if(fromKeys.length>maxSenders){addLog('[STEP 3] ⚠ 발신자 '+fromKeys.length+'명 초과 → 스킵','warn');continue;}
+    fromKeys.forEach(function(from){gEdges.push({wallet:from,deposit:dm.addr,exchange:dm.label,chain:ch.name});});
+    updateStats();renderTable();
   }
-
-  // STEP 4: 클러스터 계산
-  setStep(4);
-  clusterEdges(gEdges);
-  updateStats(); renderTable();
-
-  STEPS_DEF.forEach(function(s){
-    var n=gel('sn'+s.id);if(!n)return;
-    n.className='snum'+(s.id>=3?'done':'');
-    gel('sl'+s.id).className='slbl'+(s.id>=3?'done':'');
-  });
+  setStep(4);clusterEdges(gEdges);updateStats();renderTable();
+  STEPS_DEF.forEach(function(s){var n=gel('sn'+s.id);if(n){n.className='snum done';gel('sl'+s.id).className='slbl done';}});
   addLog('=== 완료 · API '+gApiCalls+'회 · 연결 '+gEdges.length+'개 ===','ok');
-  gel('btn-run').disabled=false; gel('btn-stop').disabled=true;
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// 섹션 9: UI 업데이트 함수
+// 섹션 8: UI 함수들
 // ══════════════════════════════════════════════════════════════════════
-function setStep(n){
-  STEPS_DEF.forEach(function(s){
-    var el=gel('sn'+s.id);if(!el)return;
-    el.className='snum'+(s.id<n?' done':s.id===n?' act':'');
-    gel('sl'+s.id).className='slbl'+(s.id<n?' done':s.id===n?' act':'');
-  });
-}
+function setStep(n){STEPS_DEF.forEach(function(s){var el=gel('sn'+s.id);if(!el)return;el.className='snum'+(s.id<n?' done':s.id===n?' act':'');gel('sl'+s.id).className='slbl'+(s.id<n?' done':s.id===n?' act':'');});}
 
 function updateStats(){
   var deps={},wallets={};
@@ -1232,18 +970,15 @@ function updateStats(){
 }
 
 function renderTable(){
-  var fw=gel('fw').value.toLowerCase();
-  var fe=gel('fe').value.toLowerCase();
-  var fc=gel('fc').value.toLowerCase();
+  var fw=gel('fw').value.toLowerCase(),fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
   var seedSet={};gSeeds.forEach(function(a){seedSet[a]=1;});
   clusterEdges(gEdges);
   var seen={},rows=[];
   gEdges.forEach(function(e){
-    if(fw&&e.wallet.indexOf(fw)<0&&e.deposit.indexOf(fw)<0) return;
-    if(fe&&e.exchange.toLowerCase().indexOf(fe)<0) return;
-    if(fc&&(e._cluster||'').toLowerCase().indexOf(fc)<0) return;
-    var k=e.wallet+'::'+e.deposit;if(seen[k])return;seen[k]=1;
-    rows.push(e);
+    if(fw&&e.wallet.indexOf(fw)<0&&e.deposit.indexOf(fw)<0)return;
+    if(fe&&e.exchange.toLowerCase().indexOf(fe)<0)return;
+    if(fc&&(e._cluster||'').toLowerCase().indexOf(fc)<0)return;
+    var k=e.wallet+'::'+e.deposit;if(seen[k])return;seen[k]=1;rows.push(e);
   });
   gel('res-cnt').textContent=rows.length;
   if(!rows.length){gel('tbody').innerHTML='';gel('no-res').style.display='';return;}
@@ -1263,8 +998,154 @@ function renderTable(){
   }).join('');
 }
 
+// 모드 전환
+function setMode(mode){
+  gMode=mode;
+  var isAuto=mode==='auto';
+  gel('tab-auto').className='tab-btn'+(isAuto?' active':'');
+  gel('tab-direct').className='tab-btn'+(isAuto?'':' active');
+  gel('panel-direct').style.display=isAuto?'none':'';
+  gel('panel-seed').style.display=isAuto?'':'none';
+  gel('panel-dep-filter').style.display=isAuto?'':'none';
+  // 자동 모드 전용 항목 dim
+  ['p-exch-min','p-exch-max','p-spread-h'].forEach(function(id){
+    var el=gel(id);if(!el)return;
+    el.parentElement.style.opacity=isAuto?'1':'0.35';
+    el.parentElement.style.pointerEvents=isAuto?'':'none';
+  });
+}
+
+// 시드 UI
+function renderSeeds(){
+  var q=(gel('seed-q').value||'').toLowerCase();
+  var filtered=gSeeds.filter(function(a){var name=(PERSON_ADDRESSES[a]||'').toLowerCase();return !q||name.indexOf(q)>=0||a.indexOf(q)>=0;});
+  var html='';
+  filtered.forEach(function(a){
+    var name=PERSON_ADDRESSES[a]||'';
+    var tag=WALLET_TAGS[a]?('<span style="background:rgba(0,255,157,.1);color:var(--g);border-radius:2px;font-size:9px;padding:1px 4px">'+WALLET_TAGS[a]+'</span>'):'';
+    html+='<div style="display:flex;align-items:center;gap:6px;padding:2px 0">'
+      +'<input type="checkbox" '+(gSelected[a]?'checked':'')+' data-a="'+a+'" onchange="gSelected[this.dataset.a]=this.checked;updateSelLbl()" style="accent-color:var(--g);cursor:pointer;flex-shrink:0">'
+      +'<span style="color:var(--a);min-width:110px;font-size:11px">'+name+'</span>'+tag
+      +'<span style="color:#3a6a9a;font-size:10px">'+a+'</span>'
+      +'</div>';
+  });
+  gel('seed-list').innerHTML=html;
+  gel('seed-cnt-lbl').textContent=gSeeds.length;
+  updateSelLbl();
+}
+function updateSelLbl(){gel('sel-lbl').textContent='선택: '+Object.keys(gSelected).filter(function(a){return gSelected[a];}).length+'개';}
+function selAll(){gSeeds.forEach(function(a){gSelected[a]=true;});renderSeeds();}
+function selNone(){gSeeds.forEach(function(a){gSelected[a]=false;});renderSeeds();}
+function selInvert(){gSeeds.forEach(function(a){gSelected[a]=!gSelected[a];});renderSeeds();}
+function addSeed(){var el=gel('add-addr'),v=el.value.trim().toLowerCase();if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}if(gSeeds.indexOf(v)<0){gSeeds.push(v);gSelected[v]=true;renderSeeds();addLog('추가: '+v,'ok');}el.value='';}
+function resetSeeds(){gSeeds=SEEDS_RAW.map(function(a){return a.toLowerCase();});gSelected={};gSeeds.forEach(function(a){gSelected[a]=true;});renderSeeds();addLog('시드 초기화','warn');}
+
+// 직접 모드 UI
+function addDirectDep(){
+  var a=gel('direct-addr'),l=gel('direct-label'),c=gel('direct-chain-sel');
+  var v=a.value.trim().toLowerCase();
+  if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}
+  if(gDirectDeps.find(function(d){return d.addr===v;})){addLog('이미 추가됨','warn');return;}
+  gDirectDeps.push({addr:v,label:l.value.trim()||'입금주소',chainKey:c.value});
+  a.value='';l.value='';
+  renderDirectDeps();addLog('입금주소 추가: '+v,'ok');
+}
+function clearDirectDeps(){gDirectDeps=[];renderDirectDeps();}
+function renderDirectDeps(){
+  var el=gel('direct-dep-list');
+  if(!gDirectDeps.length){el.innerHTML='<span style="color:#2a4a6a;font-size:10px">추가된 입금주소 없음</span>';return;}
+  el.innerHTML=gDirectDeps.map(function(d,i){
+    return '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;font-size:10px">'
+      +'<span style="background:rgba(0,255,157,.1);color:var(--g);border-radius:2px;padding:1px 5px;font-weight:700">'+(d.chainKey||'전체')+'</span>'
+      +'<span style="color:var(--a);min-width:100px">'+d.label+'</span>'
+      +'<span style="color:#3a6a9a;font-family:monospace">'+d.addr+'</span>'
+      +'<button data-i="'+i+'" onclick="gDirectDeps.splice(+this.dataset.i,1);renderDirectDeps()" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button>'
+      +'</div>';
+  }).join('');
+}
+
+// 입금주소 필터
+function addDepFilter(){
+  var a=gel('dep-filter-addr'),l=gel('dep-filter-label'),m=gel('dep-filter-mode');
+  var v=a.value.trim().toLowerCase();
+  if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}
+  if(gDepFilters.find(function(f){return f.addr===v;})){addLog('이미 등록됨','warn');return;}
+  gDepFilters.push({addr:v,label:l.value.trim()||v.slice(0,10)+'…',mode:m.value});
+  a.value='';l.value='';renderDepFilters();addLog('필터 등록: '+v,'ok');
+}
+function clearDepFilters(){gDepFilters=[];renderDepFilters();}
+function renderDepFilters(){
+  gel('dep-filter-cnt').textContent=gDepFilters.length;
+  var el=gel('dep-filter-list');
+  if(!gDepFilters.length){el.innerHTML='<span style="color:#2a4a6a;font-size:10px">없음</span>';return;}
+  el.innerHTML=gDepFilters.map(function(f,i){
+    var c=f.mode==='exclude'?'var(--r)':'var(--g)';
+    return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px">'
+      +'<span style="background:rgba(255,255,255,.05);border-radius:2px;font-size:9px;font-weight:700;padding:1px 5px;color:'+c+'">'+(f.mode==='exclude'?'제외':'포함')+'</span>'
+      +'<span style="color:var(--a);min-width:100px">'+f.label+'</span>'
+      +'<span style="color:#3a6a9a;font-family:monospace">'+f.addr+'</span>'
+      +'<button data-i="'+i+'" onclick="gDepFilters.splice(+this.dataset.i,1);renderDepFilters()" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button>'
+      +'</div>';
+  }).join('');
+}
+function saveDepFiltersCsv(){
+  if(!gDepFilters.length){addLog('저장할 주소 없음','warn');return;}
+  var lines=['addr,label,mode'];
+  gDepFilters.forEach(function(f){lines.push([f.addr,'"'+(f.label||'').replace(/"/g,'""')+'"',f.mode||'exclude'].join(','));});
+  download('dep-filters-'+new Date().toISOString().slice(0,10)+'.csv',lines.join('\n'),'text/csv;charset=utf-8');
+  addLog('CSV 저장 완료','ok');
+}
+function loadDepFiltersCsv(input){
+  var file=input.files[0];if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      var lines=e.target.result.split(/\r?\n/).filter(function(l){return l.trim();});
+      var start=lines[0].toLowerCase().includes('addr')?1:0;
+      var added=0;
+      for(var i=start;i<lines.length;i++){
+        var cols=lines[i].split(',');
+        var addr=(cols[0]||'').trim().toLowerCase();
+        var label=(cols[1]||'').trim().replace(/^"|"$/g,'');
+        var mode=(cols[2]||'exclude').trim().toLowerCase();
+        if(!addr||!addr.startsWith('0x')||addr.length!==42)continue;
+        if(gDepFilters.find(function(x){return x.addr===addr;}))continue;
+        gDepFilters.push({addr:addr,label:label||addr.slice(0,10)+'…',mode:mode==='include'?'include':'exclude'});
+        added++;
+      }
+      renderDepFilters();addLog('불러오기: '+added+'개 추가','ok');
+    }catch(err){addLog('파일 오류: '+err.message,'err');}
+    input.value='';
+  };
+  reader.readAsText(file);
+}
+
+// 토큰 필터
+function addTokenFilter(){
+  var c=gel('p-tf-chain').value,a=gel('p-tf-addr').value.trim().toLowerCase(),n=gel('p-tf-name').value.trim();
+  if(!a){addLog('컨트랙트 주소 입력 필요','warn');return;}
+  if(a!=='native'&&(!a.startsWith('0x')||a.length!==42)){addLog("유효한 0x 주소 또는 'native' 입력","warn");return;}
+  gTokenFilters.push({chainKey:c,addr:a,name:n||a.slice(0,8)+'…'});
+  gel('p-tf-addr').value='';gel('p-tf-name').value='';
+  renderTokenFilters();addLog('토큰 필터 추가: '+(c||'전체')+' · '+(n||a),'ok');
+}
+function quickToken(c,a,n){gel('p-tf-chain').value=c;gel('p-tf-addr').value=a;gel('p-tf-name').value=n;addTokenFilter();}
+function clearTokenFilters(){gTokenFilters=[];renderTokenFilters();}
+function renderTokenFilters(){
+  var el=gel('token-filter-list');
+  if(!gTokenFilters.length){el.innerHTML='<span style="font-size:10px;color:#2a4a6a">없음 (전체 토큰)</span>';return;}
+  el.innerHTML=gTokenFilters.map(function(f,i){
+    return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px">'
+      +'<span style="background:rgba(79,163,255,.12);color:var(--b);border-radius:2px;padding:1px 5px">'+(f.chainKey||'전체')+'</span>'
+      +'<span style="color:var(--g);font-weight:700">'+f.name+'</span>'
+      +'<span style="color:#3a6a9a;font-family:monospace">'+f.addr+'</span>'
+      +'<button data-i="'+i+'" onclick="gTokenFilters.splice(+this.dataset.i,1);renderTokenFilters()" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button>'
+      +'</div>';
+  }).join('');
+}
+
 // ══════════════════════════════════════════════════════════════════════
-// 섹션 10: CSV / 리포트 내보내기
+// 섹션 9: 내보내기
 // ══════════════════════════════════════════════════════════════════════
 function exportCSV(){
   if(!gEdges.length){addLog('결과 없음','warn');return;}
@@ -1274,12 +1155,10 @@ function exportCSV(){
   var hdr='cluster,wallet,name,type,deposit_address,exchange,chain,arkham_wallet,arkham_deposit';
   gEdges.forEach(function(e){
     var k=e.wallet+'::'+e.deposit;if(seen[k])return;seen[k]=1;
-    rows.push([e._cluster||'',e.wallet,PERSON_ADDRESSES[e.wallet]||'',
-      seedSet[e.wallet]?'seed':'new',e.deposit,'"'+e.exchange+'"',
-      e.chain,arkUrl(e.wallet),arkUrl(e.deposit)].join(','));
+    rows.push([e._cluster||'',e.wallet,PERSON_ADDRESSES[e.wallet]||'',seedSet[e.wallet]?'seed':'new',e.deposit,'"'+e.exchange+'"',e.chain,arkUrl(e.wallet),arkUrl(e.deposit)].join(','));
   });
   download('wallet-clusters.csv',hdr+'\n'+rows.join('\n'),'text/csv');
-  addLog('CSV 내보내기 완료','ok');
+  addLog('CSV 완료','ok');
 }
 
 function exportReport(){
@@ -1288,388 +1167,95 @@ function exportReport(){
   var seedSet={};gSeeds.forEach(function(a){seedSet[a]=1;});
   var D='═'.repeat(63),d='─'.repeat(63);
   var L=[D,'  WALLET CLUSTER ANALYZER — 리포트','  생성: '+new Date().toLocaleString('ko-KR'),D];
-
   var wInfo={};
-  gEdges.forEach(function(e){
-    if(!wInfo[e.wallet]) wInfo[e.wallet]={deps:{},cluster:e._cluster};
-    wInfo[e.wallet].deps[e.deposit]={exchange:e.exchange,chain:e.chain};
-  });
-
+  gEdges.forEach(function(e){if(!wInfo[e.wallet])wInfo[e.wallet]={deps:{},cluster:e._cluster};wInfo[e.wallet].deps[e.deposit]={exchange:e.exchange,chain:e.chain};});
   var allW=Object.keys(wInfo);
   var seedW=allW.filter(function(w){return !!seedSet[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
   var newW=allW.filter(function(w){return !seedSet[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
   var clCnt=new Set(allW.map(function(w){return wInfo[w].cluster;})).size;
   L.push('  지갑: '+allW.length+'개  |  클러스터: '+clCnt+'개  |  API: '+gApiCalls+'회',D,'');
-
-  // 시드 섹션
   L.push('■ 시드 지갑 — '+seedW.length+'명',d);
   seedW.forEach(function(w,i){
-    var info=wInfo[w],name=PERSON_ADDRESSES[w]||w.slice(0,10)+'…';
-    var deps=Object.keys(info.deps);
+    var info=wInfo[w],name=PERSON_ADDRESSES[w]||w.slice(0,10)+'…',deps=Object.keys(info.deps);
     L.push('  '+(i+1)+'위.  '+name,'       지갑: '+w,'       거래소 추정 입금주소 ('+deps.length+'개):');
     deps.forEach(function(dep){L.push('         '+dep+'  ['+info.deps[dep].exchange+' · '+info.deps[dep].chain+']');});
     L.push('       클러스터: '+info.cluster,'');
   });
-
-  // 신규 지갑 — 시드별 그룹핑
   var w2seeds={};
-  newW.forEach(function(nw){
-    var cs={};
-    Object.keys(wInfo[nw].deps).forEach(function(dep){
-      seedW.forEach(function(sw){if(wInfo[sw]&&wInfo[sw].deps[dep])cs[PERSON_ADDRESSES[sw]||sw.slice(0,8)+'…']=1;});
-    });
-    w2seeds[nw]=Object.keys(cs);
-  });
-
+  newW.forEach(function(nw){var cs={};Object.keys(wInfo[nw].deps).forEach(function(dep){seedW.forEach(function(sw){if(wInfo[sw]&&wInfo[sw].deps[dep])cs[PERSON_ADDRESSES[sw]||sw.slice(0,8)+'…']=1;});});w2seeds[nw]=Object.keys(cs);});
   var groups={},multi=[],noSeed=[];
-  newW.forEach(function(nw){
-    var cs=w2seeds[nw];
-    if(!cs.length) noSeed.push(nw);
-    else if(cs.length===1){if(!groups[cs[0]])groups[cs[0]]=[];groups[cs[0]].push(nw);}
-    else multi.push(nw);
-  });
-
+  newW.forEach(function(nw){var cs=w2seeds[nw];if(!cs.length)noSeed.push(nw);else if(cs.length===1){if(!groups[cs[0]])groups[cs[0]]=[];groups[cs[0]].push(nw);}else multi.push(nw);});
   L.push(d,'■ 신규 발견 지갑 — 시드별 연결',d);
   Object.keys(groups).forEach(function(sn){
     L.push('◆ '+sn+'  관련 지갑 ('+groups[sn].length+'개)','─'.repeat(50));
-    groups[sn].forEach(function(nw,i){
-      var info=wInfo[nw],deps=Object.keys(info.deps);
-      L.push('  '+(i+1)+'위.  '+nw,'       입금주소 ('+deps.length+'개):');
-      deps.forEach(function(dep){L.push('         '+dep+'  ['+info.deps[dep].exchange+' · '+info.deps[dep].chain+']');});
-      L.push('       클러스터: '+info.cluster,'');
-    });
+    groups[sn].forEach(function(nw,i){var info=wInfo[nw],deps=Object.keys(info.deps);L.push('  '+(i+1)+'위.  '+nw,'       입금주소 ('+deps.length+'개):');deps.forEach(function(dep){L.push('         '+dep+'  ['+info.deps[dep].exchange+' · '+info.deps[dep].chain+']');});L.push('       클러스터: '+info.cluster,'');});
   });
-  if(multi.length){
-    L.push('◆ 복수 시드 공통 연결','─'.repeat(50));
-    multi.forEach(function(nw,i){
-      L.push('  '+(i+1)+'위.  '+nw,'       연결시드: '+w2seeds[nw].join(', '));
-      Object.keys(wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+']');});
-      L.push('       클러스터: '+wInfo[nw].cluster,'');
-    });
-  }
-  if(noSeed.length){
-    L.push('◆ 시드 연결 없음 ('+noSeed.length+'개)','─'.repeat(50));
-    noSeed.forEach(function(nw,i){
-      L.push('  '+(i+1)+'위.  '+nw);
-      Object.keys(wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+']');});
-      L.push('       클러스터: '+wInfo[nw].cluster,'');
-    });
-  }
-
-  L.push('',D,'■ 클러스터별 구성',d);
-  var clMap={};
-  allW.forEach(function(w){
-    var c=wInfo[w].cluster||'—';
-    if(!clMap[c]) clMap[c]={wallets:[],deps:{}};
-    clMap[c].wallets.push(w);
-    Object.keys(wInfo[w].deps).forEach(function(dep){clMap[c].deps[dep]=wInfo[w].deps[dep];});
-  });
-  Object.keys(clMap).sort().forEach(function(cid){
-    var cv=clMap[cid];
-    var depKeys=Object.keys(cv.deps);
-    var exchStr=depKeys.map(function(dep){return cv.deps[dep].exchange+'·'+cv.deps[dep].chain;}).join(' / ');
-    L.push('  '+cid+'  ('+cv.wallets.length+'개)  |  '+exchStr);
-    depKeys.forEach(function(dep){L.push('       입금주소: '+dep);});
-    cv.wallets.forEach(function(w){L.push('    └ '+w+(PERSON_ADDRESSES[w]?' ['+PERSON_ADDRESSES[w]+']':'')+(seedSet[w]?' [seed]':''));});
-    L.push('');
-  });
+  if(multi.length){L.push('◆ 복수 시드 공통 연결','─'.repeat(50));multi.forEach(function(nw,i){L.push('  '+(i+1)+'위.  '+nw,'       연결시드: '+w2seeds[nw].join(', '));Object.keys(wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+']');});L.push('       클러스터: '+wInfo[nw].cluster,'');});}
+  if(noSeed.length){L.push('◆ 시드 연결 없음 ('+noSeed.length+'개)','─'.repeat(50));noSeed.forEach(function(nw,i){L.push('  '+(i+1)+'위.  '+nw);Object.keys(wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+']');});L.push('       클러스터: '+wInfo[nw].cluster,'');});}
   L.push(D,'  END OF REPORT',D);
   download('wallet-report-'+new Date().toISOString().slice(0,10)+'.txt',L.join('\n'),'text/plain;charset=utf-8');
   addLog('리포트 완료','ok');
 }
 
-function download(name,content,mime){
-  var blob=new Blob([content],{type:mime});
-  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
-}
-
 // ══════════════════════════════════════════════════════════════════════
-// 섹션 11: 시드 UI
+// 섹션 10: 체인 UI 자동 생성 (CHAINS 배열 기반)
 // ══════════════════════════════════════════════════════════════════════
-// ── 입금주소 필터 함수 ─────────────────────────────────────────────
-function addDepFilter(){
-  var addrEl=gel('dep-filter-addr'), lblEl=gel('dep-filter-label');
-  var v=addrEl.value.trim().toLowerCase();
-  if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}
-  if(gDepFilters.find(function(f){return f.addr===v;})){addLog('이미 등록된 주소','warn');return;}
-  var mode=gel('dep-filter-mode').value;
-  gDepFilters.push({addr:v, label:lblEl.value.trim()||v.slice(0,10)+'…', mode:mode});
-  addrEl.value=''; lblEl.value='';
-  renderDepFilters();
-  addLog((mode==='exclude'?'제외':'포함')+'으로 등록: '+v,'ok');
-}
-
-function removeDepFilter(addr){
-  gDepFilters=gDepFilters.filter(function(f){return f.addr!==addr;});
-  renderDepFilters();
-}
-
-function clearDepFilter(){gDepFilters=[];renderDepFilters();}
-
-function saveDepFilters(){
-  if(!gDepFilters.length){addLog('저장할 주소 없음','warn');return;}
-  var lines=['addr,label,mode'];
-  gDepFilters.forEach(function(f){
-    lines.push([f.addr,'"'+(f.label||'').replace(/"/g,'""')+'"',f.mode||'exclude'].join(','));
-  });
-  var blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'});
-  var a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download='dep-filters-'+new Date().toISOString().slice(0,10)+'.csv';a.click();
-  addLog('입금주소 필터 '+gDepFilters.length+'개 CSV 저장 완료','ok');
-}
-
-function loadDepFilters(input){
-  var file=input.files[0];if(!file)return;
-  var reader=new FileReader();
-  reader.onload=function(e){
-    try{
-      var lines=e.target.result.split(/\r?\n/).filter(function(l){return l.trim();});
-      if(!lines.length)throw new Error('빈 파일');
-      // 첫 줄 헤더 확인
-      var header=lines[0].toLowerCase();
-      var startIdx=header.includes('addr')?1:0;
-      var added=0;
-      for(var i=startIdx;i<lines.length;i++){
-        var cols=lines[i].split(',');
-        var addr=(cols[0]||'').trim().toLowerCase();
-        var label=(cols[1]||'').trim().replace(/^"|"$/g,'');
-        var mode=(cols[2]||'exclude').trim().toLowerCase();
-        if(!addr||!addr.startsWith('0x')||addr.length!==42)continue;
-        if(gDepFilters.find(function(x){return x.addr===addr;}))continue;
-        if(mode!=='include')mode='exclude';
-        gDepFilters.push({addr:addr,label:label||addr.slice(0,10)+'…',mode:mode});
-        added++;
-      }
-      renderDepFilters();
-      addLog('불러오기 완료: '+added+'개 추가 (총 '+gDepFilters.length+'개)','ok');
-    }catch(err){addLog('파일 오류: '+err.message,'err');}
-    input.value='';
-  };
-  reader.readAsText(file);
-}
-
-// ── 토큰 필터 함수 ──────────────────────────────────────────────
-function addTokenFilter() {
-  var chainKey = gel('tf-chain').value;
-  var addr = gel('tf-addr').value.trim().toLowerCase();
-  var name = gel('tf-name').value.trim() || addr.slice(0,8)+'…';
-  if (!addr) { addLog('컨트랙트 주소를 입력하세요','warn'); return; }
-  if (addr !== 'native' && (!addr.startsWith('0x') || addr.length !== 42)) {
-    addLog("유효한 0x 주소 또는 'native' 입력","warn"); return;
-  }
-  gTokenFilters.push({chainKey:chainKey, addr:addr, name:name});
-  gel('tf-addr').value = ''; gel('tf-name').value = '';
-  renderTokenFilters();
-  addLog('토큰 필터 추가: '+(chainKey||'전체')+' · '+name,'ok');
-}
-
-function quickToken(chainKey, addr, name) {
-  gel('tf-chain').value = chainKey;
-  gel('tf-addr').value = addr;
-  gel('tf-name').value = name;
-  addTokenFilter();
-}
-
-function clearTokenFilters() { gTokenFilters = []; renderTokenFilters(); }
-
-function removeTokenFilter(idx) {
-  gTokenFilters.splice(idx, 1);
-  renderTokenFilters();
-}
-
-function renderTokenFilters() {
-  var el = gel('token-filter-list');
-  if (!gTokenFilters.length) {
-    el.innerHTML = '<span style="font-size:10px;color:#2a4a6a">없음 (전체 토큰 조회)</span>';
-    return;
-  }
-  el.innerHTML = gTokenFilters.map(function(f, i) {
-    return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px">'
-      + '<span style="background:rgba(79,163,255,.12);color:var(--b);border-radius:2px;padding:1px 5px">'+(f.chainKey||'전체')+'</span>'
-      + '<span style="color:var(--g);font-weight:700">'+f.name+'</span>'
-      + '<span style="color:#3a6a9a;font-family:monospace">'+f.addr+'</span>'
-      + '<button data-i="'+i+'" onclick="removeTokenFilter(+this.dataset.i)" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button>'
-      + '</div>';
-  }).join('');
-}
-
-// 특정 체인+주소에 맞는 토큰 컨트랙트 배열 반환
-function getContractsForChain(chainKey) {
-  var contracts = [];
-  var hasNative = false;
-  gTokenFilters.forEach(function(f) {
-    if (f.chainKey && f.chainKey !== chainKey) return; // 다른 체인 스킵
-    if (f.addr === 'native') { hasNative = true; return; }
-    contracts.push(f.addr);
-  });
-  return {contracts: contracts, hasNative: hasNative};
-}
-
-// ── 모드 전환 ──────────────────────────────────────────────────────
-function setMode(mode) {
-  gMode = mode;
-  var isAuto = mode === 'auto';
-  // 탭 스타일
-  gel('tab-auto').style.background   = isAuto ? 'var(--bg2)' : 'var(--bg3)';
-  gel('tab-auto').style.color        = isAuto ? 'var(--g)'   : '#4a6a8a';
-  gel('tab-auto').style.borderBottom = isAuto ? 'none'       : '1px solid var(--bd)';
-  gel('tab-direct').style.background   = !isAuto ? 'var(--bg2)' : 'var(--bg3)';
-  gel('tab-direct').style.color        = !isAuto ? 'var(--g)'   : '#4a6a8a';
-  gel('tab-direct').style.borderBottom = !isAuto ? 'none'       : '1px solid var(--bd)';
-  // 패널 표시
-  gel('direct-panel').style.display    = isAuto ? 'none'  : '';
-  gel('seed-panel-wrap').style.display = isAuto ? ''      : 'none';
-  gel('dep-filter-wrap') && (gel('dep-filter-wrap').style.display = isAuto ? '' : 'none');
-  // 자동 모드 전용 항목 dim 처리
-  var autoOnly = ['row-exch-range','row-spread'];
-  autoOnly.forEach(function(id){
-    var el=gel(id); if(!el) return;
-    el.style.opacity = isAuto ? '1' : '0.35';
-    el.style.pointerEvents = isAuto ? '' : 'none';
-  });
-}
-
-// ── 직접 입금주소 UI ──────────────────────────────────────────────
-function addDirectDep() {
-  var addrEl=gel('direct-addr'), lblEl=gel('direct-label'), chainEl=gel('direct-chain');
-  var v=addrEl.value.trim().toLowerCase();
-  if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}
-  if(gDirectDeps.find(function(d){return d.addr===v;})){addLog('이미 추가됨','warn');return;}
-  var label=lblEl.value.trim()||'입금주소';
-  var chainKey=chainEl.value;
-  gDirectDeps.push({addr:v, label:label, chainKey:chainKey});
-  addrEl.value=''; lblEl.value='';
-  renderDirectDeps();
-  addLog('입금주소 추가: '+v+' ('+label+' · '+chainKey+')','ok');
-}
-
-function clearDirectDep(){gDirectDeps=[];renderDirectDeps();}
-function removeDirectDep(addr){gDirectDeps=gDirectDeps.filter(function(d){return d.addr!==addr;});renderDirectDeps();}
-
-function renderDirectDeps(){
-  var el=gel('direct-dep-list');
-  if(!gDirectDeps.length){el.innerHTML='<div style="font-size:10px;color:#2a4a6a;padding:4px 0">추가된 입금주소 없음</div>';return;}
-  el.innerHTML=gDirectDeps.map(function(d){
-    return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:10px">'
-      +'<span style="background:rgba(0,255,157,.1);color:var(--g);border-radius:2px;padding:1px 5px;font-weight:700">'+d.chainKey.toUpperCase()+'</span>'
-      +'<span style="color:var(--a);min-width:100px">'+d.label+'</span>'
-      +'<span style="color:#3a6a9a;font-family:monospace">'+d.addr+'</span>'
-      +'<button data-addr="'+d.addr+'" onclick="removeDirectDep(this.dataset.addr)" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button>'
-      +'</div>';
-  }).join('');
-}
-
-function renderDepFilters(){
-  gel('dep-filter-cnt').textContent=gDepFilters.length;
-  if(!gDepFilters.length){
-    gel('dep-filter-list').innerHTML='<span style="color:#2a4a6a">등록된 주소 없음</span>';
-    return;
-  }
-  gel('dep-filter-list').innerHTML=gDepFilters.map(function(f){
-    var color=f.mode==='exclude'?'var(--r)':'var(--g)';
-    var badge=f.mode==='exclude'?'제외':'포함';
-    return '<div style="display:flex;align-items:center;gap:8px;padding:2px 0">'
-      +'<span style="background:rgba(255,255,255,.05);border-radius:2px;font-size:9px;font-weight:700;padding:1px 5px;color:'+color+'">'+badge+'</span>'
-      +'<span style="color:var(--a);font-size:10px;min-width:100px">'+f.label+'</span>'
-      +'<span style="color:#3a6a9a;font-size:10px">'+f.addr+'</span>'
-      +'<button data-addr="'+f.addr+'" onclick="removeDepFilter(this.dataset.addr)" style="background:none;border:none;color:var(--r);cursor:pointer;font-size:10px;margin-left:auto">✕</button>'
-      +'</div>';
-  }).join('');
-}
-
-function renderSeeds(){
-  var q=(gel('seed-q').value||'').toLowerCase();
-  var filtered=gSeeds.filter(function(a){
-    var name=(PERSON_ADDRESSES[a]||'').toLowerCase();
-    return !q||name.indexOf(q)>=0||a.indexOf(q)>=0;
-  });
-  var html='';
-  filtered.forEach(function(a){
-    var name=PERSON_ADDRESSES[a]||'';
-    var chk=gSelected[a]?'checked':'';
-    var tag=WALLET_TAGS[a]?('<span style="background:rgba(0,255,157,.1);color:var(--g);border-radius:2px;font-size:9px;padding:1px 4px">'+WALLET_TAGS[a]+'</span>'):'';
-    html+='<div style="display:flex;align-items:center;gap:6px;padding:2px 0">'
-      +'<input type="checkbox" '+chk+' data-a="'+a+'" onchange="gSelected[this.dataset.a]=this.checked;updateSelLbl()" style="accent-color:var(--g);cursor:pointer;flex-shrink:0">'
-      +'<span style="color:var(--a);min-width:110px;font-size:11px">'+name+'</span>'
-      +tag
-      +'<span style="color:#3a6a9a;font-size:10px">'+a+'</span>'
+function buildChainUI(){
+  // RPC 입력 행
+  var rpcHtml='';
+  CHAINS.forEach(function(c){
+    rpcHtml+='<div class="chain-row">'
+      +'<input type="checkbox" id="on-'+c.key+'" style="accent-color:var(--g);cursor:pointer">'
+      +'<span class="chain-lbl" style="color:'+c.color+'">'+c.name+'</span>'
+      +'<input type="text" id="rpc-'+c.key+'" style="width:100%" placeholder="'+c.placeholder+'">'
       +'</div>';
   });
-  gel('seed-list').innerHTML=html;
-  gel('seed-cnt-lbl').textContent=gSeeds.length;
-  updateSelLbl();
-}
+  gel('chain-rpc-rows').innerHTML=rpcHtml;
 
-function updateSelLbl(){
-  var n=Object.keys(gSelected).filter(function(a){return gSelected[a];}).length;
-  gel('sel-lbl').textContent='선택: '+n+'개';
-}
-function selAll(){gSeeds.forEach(function(a){gSelected[a]=true;});renderSeeds();}
-function selNone(){gSeeds.forEach(function(a){gSelected[a]=false;});renderSeeds();}
-function selInvert(){gSeeds.forEach(function(a){gSelected[a]=!gSelected[a];});renderSeeds();}
-function addSeed(){
-  var el=gel('add-addr'),v=el.value.trim().toLowerCase();
-  if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}
-  if(gSeeds.indexOf(v)<0){gSeeds.push(v);gSelected[v]=true;renderSeeds();addLog('추가: '+v,'ok');}
-  el.value='';
-}
-function resetSeeds(){
-  gSeeds=SEEDS_RAW.map(function(a){return a.toLowerCase();});
-  gSelected={};gSeeds.forEach(function(a){gSelected[a]=true;});
-  renderSeeds();addLog('시드 초기화','warn');
+  // 토큰 필터 / 직접 모드 체인 select 자동 생성
+  var opts='<option value="">전체</option>';
+  var dOpts='<option value="">전체 체인</option>';
+  CHAINS.forEach(function(c){
+    opts+='<option value="'+c.key+'">'+c.name+'</option>';
+    dOpts+='<option value="'+c.key+'">'+c.name+'</option>';
+  });
+  gel('p-tf-chain').innerHTML=opts;
+  gel('direct-chain-sel').innerHTML=dOpts;
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// 섹션 12: localStorage 자동 저장/복원
+// 섹션 11: localStorage 자동 저장/복원
 // ══════════════════════════════════════════════════════════════════════
-var LS_FIELDS=[
-  {id:'rpc-eth',type:'text'},{id:'rpc-arb',type:'text'},
-  {id:'rpc-op',type:'text'},{id:'rpc-base',type:'text'},{id:'rpc-bsc',type:'text'},{id:'rpc-polygon',type:'text'},
-  {id:'on-eth',type:'check'},{id:'on-arb',type:'check'},
-  {id:'on-op',type:'check'},{id:'on-base',type:'check'},{id:'on-bsc',type:'check'},{id:'on-polygon',type:'check'},
-  {id:'exch-min',type:'text'},{id:'exch-max',type:'text'},
-  {id:'min-spread-h',type:'text'},{id:'max-senders',type:'text'},
-  {id:'period-days',type:'text'},{id:'rps-sel',type:'text'},
-  {id:'concur-sel',type:'text'},
-  {id:'usd-min',type:'text'},{id:'usd-max',type:'text'},
-];
-
+function lsSave(id,type){
+  var el=gel(id);if(!el)return;
+  localStorage.setItem('wca_'+id, type==='check'?(el.checked?'1':'0'):el.value);
+}
 function lsLoad(){
-  LS_FIELDS.forEach(function(f){
-    var el=gel(f.id); if(!el) return;
-    var v=localStorage.getItem('wca_'+f.id);
-    if(v===null) return;
-    if(f.type==='check') el.checked=(v==='1');
-    else el.value=v;
+  CHAINS.forEach(function(c){
+    var rpcEl=gel('rpc-'+c.key),onEl=gel('on-'+c.key);
+    if(rpcEl){var v=localStorage.getItem('wca_rpc-'+c.key)||'';rpcEl.value=v;rpcEl.addEventListener('input',function(){lsSave('rpc-'+c.key,'text');});}
+    if(onEl){var v=localStorage.getItem('wca_on-'+c.key);onEl.checked=v===null?false:(v==='1');onEl.addEventListener('change',function(){lsSave('on-'+c.key,'check');});}
   });
-}
-function lsListen(){
-  LS_FIELDS.forEach(function(f){
-    var el=gel(f.id); if(!el) return;
-    var evt=f.type==='check'?'change':'input';
-    el.addEventListener(evt,function(){
-      localStorage.setItem('wca_'+f.id, f.type==='check'?(el.checked?'1':'0'):el.value);
-    });
+  var textFields=['p-exch-min','p-exch-max','p-spread-h','p-max-senders','p-usd-min','p-usd-max','p-period-days','p-rps','p-concur'];
+  textFields.forEach(function(id){
+    var el=gel(id);if(!el)return;
+    var v=localStorage.getItem('wca_'+id);if(v!==null)el.value=v;
+    el.addEventListener('input',function(){lsSave(id,'text');});
+    el.addEventListener('change',function(){lsSave(id,'text');});
   });
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// 섹션 13: 초기화 (실행 순서 명확)
+// 섹션 12: 초기화
 // ══════════════════════════════════════════════════════════════════════
 (function init(){
-  lsLoad();
-  lsListen();
-  // 파이프라인 렌더
-  gel('steps').innerHTML=STEPS_DEF.map(function(s){
-    return '<div class="srow"><div class="snum" id="sn'+s.id+'">'+s.id+'</div><div class="slbl" id="sl'+s.id+'">'+s.label+'</div></div>';
-  }).join('');
-  renderSeeds();
-  updateStats();
-  renderDepFilters();
-  renderDirectDeps();
-  renderTokenFilters();
-  addLog('준비 완료. Alchemy RPC URL 입력 → 분석 시작','ok');
-  addLog('v12.0 · 완전 재작성 · 섹션별 구조 · var hoisting 안전','info');
+  buildChainUI();  // 체인 UI 먼저 생성
+  lsLoad();        // 그 다음 localStorage 복원
+  gel('steps').innerHTML=STEPS_DEF.map(function(s){return '<div class="srow"><div class="snum" id="sn'+s.id+'">'+s.id+'</div><div class="slbl" id="sl'+s.id+'">'+s.label+'</div></div>';}).join('');
+  renderSeeds();renderDirectDeps();renderDepFilters();renderTokenFilters();updateStats();
+  setMode('auto');
+  addLog('준비 완료. RPC URL 입력 → 분석 시작','ok');
+  addLog('v13.0 · 완전 재작성 · 체인 단일 배열 관리 · 실시간 블록번호','info');
 })();
 
 </script>
