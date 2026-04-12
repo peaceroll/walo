@@ -770,51 +770,83 @@ async function getNonce(rpcUrl,address){
 
 // ══ 섹션 6: 스윕 계산 ═══════════════════════════════════════════════
 // 원칙: 토큰별 그룹핑, 금액 완전 동일, 배치 스윕 포함, 4시간 윈도우
+// computeSweep: 토큰별로 독립 추적 — 가스비 ETH가 비율을 낮추지 않음
+// 설계:
+//   inByAsset[token] = [{t, val}] — 토큰별 입금 큐
+//   sweepByAsset[token]++ — 매칭 성공 시 토큰별 카운트
+//   신뢰도 = max(sweepByAsset[t] / inByAsset[t].length) across non-gas tokens
 function computeSweep(inTxs,outTxs,addrLow){
   var MAX_SEC=14400;
   function getTs(tx){return tx.metadata&&tx.metadata.blockTimestamp?new Date(tx.metadata.blockTimestamp).getTime():0;}
-  var sortedIn=inTxs.slice().sort(function(a,b){return getTs(a)-getTs(b);});
+  var sortedIn =inTxs.slice().sort(function(a,b){return getTs(a)-getTs(b);});
   var sortedOut=outTxs.slice().sort(function(a,b){return getTs(a)-getTs(b);});
-  var inByAsset={};
+
+  // 토큰별 입금 큐 + 입금 수 추적
+  var inByAsset={}, inCntByAsset={};
   sortedIn.forEach(function(tx){
-    var asset=tx.asset||'ETH',val=parseFloat(tx.value||0),t=getTs(tx);
-    if(!inByAsset[asset])inByAsset[asset]=[];
-    inByAsset[asset].push({t:t,val:val});
+    var asset=tx.asset||'ETH', val=parseFloat(tx.value||0), t=getTs(tx);
+    if(!inByAsset[asset])  { inByAsset[asset]=[]; inCntByAsset[asset]=0; }
+    inByAsset[asset].push({t:t, val:val});
+    inCntByAsset[asset]++;
   });
-  var swept=0,targets={};
+
+  var swept=0, targets={}, sweepByAsset={};
+
   sortedOut.forEach(function(tx){
-    var asset=tx.asset||'ETH',val=parseFloat(tx.value||0),t=getTs(tx),to=(tx.to||'').toLowerCase();
+    var asset=tx.asset||'ETH', val=parseFloat(tx.value||0);
+    var t=getTs(tx), to=(tx.to||'').toLowerCase();
     if(!val||to===addrLow)return;
     if((asset==='ETH'||asset==='')&&val<0.01)return; // 가스비 반환 제외
-    var queue=inByAsset[asset];if(!queue||!queue.length)return;
+
+    var queue=inByAsset[asset];
+    if(!queue||!queue.length)return;
+
     var matched=false;
-    // ① 1:1 매칭
+
+    // ① 1:1 정확 매칭
     for(var i=queue.length-1;i>=0;i--){
-      var inn=queue[i],diffSec=(t-inn.t)/1000;
-      if(diffSec<0)break;if(diffSec>MAX_SEC)break;
+      var inn=queue[i], diffSec=(t-inn.t)/1000;
+      if(diffSec<0)break;
+      if(diffSec>MAX_SEC)break;
       if(Math.abs(inn.val-val)<0.000001){
-        swept++;targets[to]=(targets[to]||0)+1;
-        _hotPush(to,addrLow);queue.splice(i,1);matched=true;break;
+        swept++; sweepByAsset[asset]=(sweepByAsset[asset]||0)+1;
+        targets[to]=(targets[to]||0)+1; _hotPush(to,addrLow);
+        queue.splice(i,1); matched=true; break;
       }
     }
-    // ② 배치 스윕: 여러 입금 합산 = 출금 1건
+
+    // ② 배치 스윕: 여러 입금 합산 = 출금 1건 (예: 114.95K+400 → 115.35K)
     if(!matched){
-      var sum=0,idx=[],cutoff=t-MAX_SEC*1000;
+      var sum=0, batchIdx=[], cutoff=t-MAX_SEC*1000;
       for(var j=0;j<queue.length;j++){
         if(queue[j].t<cutoff||queue[j].t>t)continue;
-        sum+=queue[j].val;idx.push(j);
+        sum+=queue[j].val; batchIdx.push(j);
         if(Math.abs(sum-val)<0.000001){
-          swept++;targets[to]=(targets[to]||0)+1;
-          _hotPush(to,addrLow);
-          for(var k=idx.length-1;k>=0;k--)queue.splice(idx[k],1);break;
+          swept++; sweepByAsset[asset]=(sweepByAsset[asset]||0)+1;
+          targets[to]=(targets[to]||0)+1; _hotPush(to,addrLow);
+          for(var k=batchIdx.length-1;k>=0;k--)queue.splice(batchIdx[k],1);
+          matched=true; break;
         }
         if(sum>val+0.000001)break;
       }
     }
   });
-  var total=sortedIn.length,ratio=total>0?swept/total:0;
-  var conf=ratio>=0.7&&swept>=3?'HIGH':ratio>=0.4&&swept>=2?'MEDIUM':'LOW';
-  return {swept:swept,total:total,confidence:conf,targets:targets};
+
+  // 신뢰도: 가스비 ETH 제외한 토큰별 스윕 비율의 최댓값
+  // 예: SENT 2건 중 1건 → 50%, ETH 1건(가스) 0건 → 전체 비율 33%가 아닌 50%로 판단
+  var bestRatio=0;
+  Object.keys(inCntByAsset).forEach(function(a){
+    var isGasOnly=(a==='ETH'||a==='')&&!sweepByAsset[a];
+    if(isGasOnly)return; // 가스비만 있고 스윕 없으면 제외
+    var r=(sweepByAsset[a]||0)/inCntByAsset[a];
+    if(r>bestRatio)bestRatio=r;
+  });
+
+  var conf = bestRatio>=0.6 && swept>=2 ? 'HIGH'
+           : bestRatio>=0.3 && swept>=1 ? 'MEDIUM'
+           : 'LOW';
+
+  return {swept:swept, total:sortedIn.length, confidence:conf, targets:targets};
 }
 function _hotPush(to,source){
   if(!gHotTargets[to])gHotTargets[to]={count:0,sources:[]};
