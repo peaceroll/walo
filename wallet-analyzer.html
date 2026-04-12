@@ -94,8 +94,8 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <span class="hint">이 입금주소로 보낸 TX 건수 · 최댓값 5 권장 · 0=무제한</span>
   </div>
   <div class="row center"><span class="lbl">발신자 nonce 최대</span>
-    <input type="number" id="p-nonce-max" value="10000" min="0" style="width:90px" placeholder="0=무제한">
-    <span class="hint">발신자 평생 총 TX 수 · 개인 지갑은 수백 이하 · 핫월렛은 수만 이상 · 0=무제한</span>
+    <input type="number" id="p-nonce-max" value="5000" min="0" style="width:90px" placeholder="0=무제한">
+    <span class="hint">발신자 평생 총 TX 수 · 개인 지갑은 수백~1천 이하 · 거래소 핫월렛은 수천~수만 · 5000 권장 · 0=무제한</span>
   </div>
   <div class="row center"><span class="lbl">토큰 필터</span>
     <select id="p-tf-chain" style="width:75px"><option value="">전체</option></select>
@@ -187,6 +187,31 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <button class="btn dim" onclick="saveDepFiltersCsv()">💾 CSV 저장</button>
       <button class="btn dim" onclick="gel('dep-filter-file').click()">📂 CSV 불러오기</button>
       <input type="file" id="dep-filter-file" accept=".csv,.txt" style="display:none" onchange="loadDepFiltersCsv(this)">
+    </div>
+  </div>
+</div>
+
+<!-- ── 발신자 블랙리스트 ── -->
+<div class="panel">
+  <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleEl('sender-bl-body','sender-bl-arrow')">
+    <span style="color:var(--r)">✕</span>
+    <h2 style="margin:0">발신자 블랙리스트 &nbsp;<span class="bdg" id="sender-bl-cnt">0</span></h2>
+    <span id="sender-bl-arrow" style="margin-left:auto;color:#2a4a6a;font-size:10px">▼</span>
+  </div>
+  <div id="sender-bl-body" style="display:none;margin-top:12px">
+    <div style="font-size:10px;color:#3a6a8a;margin-bottom:8px">STEP 3에서 발신자로 수집되면 안 되는 주소 (거래소 핫월렛 등) · 재분석 없이 현재 결과에서도 즉시 제거</div>
+    <div class="al" id="sender-bl-list" style="max-height:120px;margin-bottom:8px"></div>
+    <div class="row center">
+      <input type="text" id="sender-bl-addr" placeholder="주소 (0x...)" style="flex:1">
+      <input type="text" id="sender-bl-label" placeholder="메모 (예: 업비트 핫월렛)" style="width:160px">
+      <button class="btn dim" onclick="addSenderBl()">+ 추가</button>
+      <button class="btn dim red" onclick="clearSenderBl()">초기화</button>
+    </div>
+    <div class="row center" style="margin-top:4px">
+      <button class="btn dim" onclick="applySenderBl()">⚡ 현재 결과에 즉시 적용</button>
+      <button class="btn dim" onclick="saveSenderBlCsv()">💾 CSV 저장</button>
+      <button class="btn dim" onclick="gel('sender-bl-file').click()">📂 CSV 불러오기</button>
+      <input type="file" id="sender-bl-file" accept=".csv,.txt" style="display:none" onchange="loadSenderBlCsv(this)">
     </div>
   </div>
 </div>
@@ -605,7 +630,7 @@ var gSeeds=SEEDS_RAW.map(function(a){return a.toLowerCase();});
 var gSelected={};
 var gEdges=[];      // {wallet, deposit, exchange, cssClass, chain, userLabel, _cluster}
 var gApiCalls=0, gAborted=false, gMode='auto';
-var gDirectDeps=[], gDepFilters=[], gTokenFilters=[];
+var gDirectDeps=[], gDepFilters=[], gTokenFilters=[], gSenderBl={};
 var gBlockCache={}, gHotTargets={}, gSnapshot=null;
 var gRateQueue=[], gRateRun=false, gRateTs=0, gRateRPS=2;
 gSeeds.forEach(function(a){gSelected[a]=true;});
@@ -646,7 +671,7 @@ function getOpts(){
     exchMin:num('p-exch-min',3),   exchMax:num('p-exch-max',100),
     spreadH:num('p-spread-h',0),   maxSenders:num('p-max-senders',50),
     txMin:num('p-tx-min',0),       txMax:num('p-tx-max',5),
-    nonceMax:num('p-nonce-max',10000),
+    nonceMax:num('p-nonce-max',5000),
     concurrency:num('p-concur',3),
     days:(gel('p-period-days')&&gel('p-period-days').value)||''
   };
@@ -970,6 +995,7 @@ async function collectInbound(depMap,opts){
       if(seedSet[a])return;
       // gHotTargets 필터
       var h=gHotTargets[a];if(h&&h.sources.length>=1){delete fromMap[a];return;}
+      if(gSenderBl[a]){addLog('[STEP 3] '+short(a)+' 블랙리스트 → 제거','dim');delete fromMap[a];return;}
       // TX 건수 필터
       var v=fromMap[a];
       if(opts.txMin>0&&v.txCount<opts.txMin){delete fromMap[a];return;}
@@ -1336,10 +1362,69 @@ function lsInit(){
     el.addEventListener('input',function(){localStorage.setItem('wca_'+id,el.value);});
   });
 }
+// ══ 발신자 블랙리스트 UI ════════════════════════════════════════
+function addSenderBl(){
+  var a=gel('sender-bl-addr'),l=gel('sender-bl-label');
+  var v=a.value.trim().toLowerCase();
+  if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}
+  gSenderBl[v]=l.value.trim()||v.slice(0,10)+'…';
+  a.value='';l.value='';renderSenderBl();addLog('블랙리스트 추가: '+v,'ok');
+}
+function clearSenderBl(){gSenderBl={};renderSenderBl();addLog('블랙리스트 초기화','warn');}
+function renderSenderBl(){
+  var keys=Object.keys(gSenderBl);
+  gel('sender-bl-cnt').textContent=keys.length;
+  var el=gel('sender-bl-list');
+  if(!keys.length){el.innerHTML='<span style="color:#2a4a6a;font-size:10px">없음</span>';return;}
+  el.innerHTML=keys.map(function(a){
+    return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px">'
+      +'<span style="color:var(--r);font-weight:700">✕</span>'
+      +'<span style="color:var(--a);min-width:140px">'+gSenderBl[a]+'</span>'
+      +'<span style="color:#3a6a9a;font-family:monospace">'+a+'</span>'
+      +'<button data-a="'+a+'" onclick="delete gSenderBl[this.dataset.a];renderSenderBl()" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button>'
+      +'</div>';
+  }).join('');
+}
+function applySenderBl(){
+  // 재분석 없이 현재 gEdges에서 즉시 제거
+  var before=gEdges.length;
+  gEdges=gEdges.filter(function(e){return !gSenderBl[e.wallet];});
+  var removed=before-gEdges.length;
+  clusterEdges(gEdges);updateStats();renderTable();
+  addLog('블랙리스트 적용: '+removed+'개 제거 (재분석 불필요)','ok');
+}
+function saveSenderBlCsv(){
+  var keys=Object.keys(gSenderBl);
+  if(!keys.length){addLog('저장할 주소 없음','warn');return;}
+  var lines=['addr,label'];
+  keys.forEach(function(a){lines.push(a+','+csvQuote(gSenderBl[a]));});
+  download('sender-blacklist-'+new Date().toISOString().slice(0,10)+'.csv',lines.join('\n'),'text/csv;charset=utf-8');
+  addLog('블랙리스트 CSV 저장','ok');
+}
+function loadSenderBlCsv(input){
+  var file=input.files[0];if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      var lines=e.target.result.split(/\r?\n/).filter(function(l){return l.trim();});
+      var start=lines[0].toLowerCase().startsWith('addr')?1:0,added=0;
+      for(var i=start;i<lines.length;i++){
+        var c=lines[i].split(',');
+        var addr=(c[0]||'').trim().toLowerCase(),label=(c[1]||'').trim().replace(/^"|"$/g,'');
+        if(!addr||!addr.startsWith('0x')||addr.length!==42)continue;
+        gSenderBl[addr]=label||addr.slice(0,10)+'…';added++;
+      }
+      renderSenderBl();addLog('블랙리스트 불러오기: '+added+'개','ok');
+    }catch(err){addLog('파일 오류: '+err.message,'err');}
+    input.value='';
+  };
+  reader.readAsText(file);
+}
+
 (function init(){
   buildChainUI();lsInit();
   gel('steps').innerHTML=STEPS_DEF.map(function(s){return '<div class="srow"><div class="snum" id="sn'+s.id+'">'+s.id+'</div><div class="slbl" id="sl'+s.id+'">'+s.label+'</div></div>';}).join('');
-  renderSeeds();renderDirectDeps();renderDepFilters();renderTokenFilters();updateStats();setMode('auto');
+  renderSeeds();renderDirectDeps();renderDepFilters();renderTokenFilters();renderSenderBl();updateStats();setMode('auto');
   addLog('준비 완료. RPC URL 입력 → 분석 시작','ok');
   addLog('v16.1 · toCSV/saveCSV 단일화 · isZero 필터 · _seedMeta 캐시','info');
 })();
