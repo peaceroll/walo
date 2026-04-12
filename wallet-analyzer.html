@@ -100,6 +100,10 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <input type="number" id="p-tx-max" value="5" min="0" style="width:85px" placeholder="최대(0=무제한)">
     <span class="hint">이 입금주소로 보낸 TX 건수 · 최댓값 5 권장: 개인은 1~3번, 초과 시 핫월렛 · 0=무제한</span>
   </div>
+  <div class="row center"><span class="lbl">발신자 잔고 최대</span>
+    <input type="number" id="p-bal-max" value="0" min="0" style="width:90px" placeholder="0=무제한">
+    <span class="hint">ETH 기준 · 이 값 초과하는 발신자는 핫월렛으로 판단하여 제외 · 예: 100 입력 시 100 ETH 초과 주소 제거 · 0=무제한</span>
+  </div>
   <div class="row center"><span class="lbl">토큰 필터</span>
     <select id="p-tf-chain" style="width:75px"><option value="">전체</option></select>
     <input type="text" id="p-tf-addr" placeholder="컨트랙트 (0x...) 또는 native" style="flex:1;min-width:170px">
@@ -684,6 +688,7 @@ function getOpts(){
     spreadH:num('p-spread-h',0),   maxSenders:num('p-max-senders',50),
     usdMin:pnum('p-usd-min',0),    usdMax:pnum('p-usd-max',0),
     txMin:num('p-tx-min',0),       txMax:num('p-tx-max',5),
+    balMax:pnum('p-bal-max',0),
     concurrency:num('p-concur',3),
     days:(gel('p-period-days')&&gel('p-period-days').value)||''
   };
@@ -739,6 +744,48 @@ function getContracts(chainKey){
     if(f.addr==='native')hasNative=true;else contracts.push(f.addr);
   });
   return {contracts:contracts,hasNative:hasNative};
+}
+
+// 발신자 ETH 잔고 조회 (표준 JSON-RPC — 모든 체인 지원)
+async function getEthBalance(rpcUrl, address) {
+  try {
+    var resp = await rateCall(function(){
+      return fetch(rpcUrl, {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getBalance',
+          params:[address,'latest']})});
+    });
+    var data = await resp.json();
+    // 결과: wei 단위 hex → ETH 변환
+    return parseInt(data.result, 16) / 1e18;
+  } catch(e) { return 0; }
+}
+
+// 주소의 nonce 조회 — 0이면 한 번도 출금한 적 없음 → 스윕 불가 → 가짜 입금주소
+async function getNonce(rpcUrl, address) {
+  try {
+    var resp = await rateCall(function(){
+      return fetch(rpcUrl, {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getTransactionCount',
+          params:[address,'latest']})});
+    });
+    var data = await resp.json();
+    return parseInt(data.result, 16) || 0;
+  } catch(e) { return -1; } // 오류 시 -1 (필터 안 함)
+}
+
+// 컨트랙트 여부 확인 — eth_getCode가 '0x' 이상이면 컨트랙트
+// 개인 지갑/거래소 입금주소는 항상 EOA → 컨트랙트면 제거
+async function isContract(rpcUrl, address) {
+  try {
+    var resp = await rateCall(function(){
+      return fetch(rpcUrl, {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getCode',
+          params:[address,'latest']})});
+    });
+    var data = await resp.json();
+    var code = data.result || '0x';
+    return code !== '0x' && code.length > 2; // '0x' = EOA, 그 이상 = 컨트랙트
+  } catch(e) { return false; }
 }
 
 async function alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,withMeta,blockTime,days){
@@ -1024,7 +1071,7 @@ async function runAutoMode(chains,opts,isResume){
     if(gAborted)return;
     var d=destMap[k],ch=d.chain;
 
-    // 입금주소 필터 체크
+    // 입금주소 필터 — 강제 포함/제외
     var flt=gDepFilters.find(function(f){return f.addr===d.addr;});
     if(flt&&flt.mode==='exclude'){
       addLog('[STEP 2] ✗ '+short(d.addr)+' [제외필터]','dim');
@@ -1035,32 +1082,17 @@ async function runAutoMode(chains,opts,isResume){
       setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');return;
     }
 
-    // 인바운드 샘플링 → 발신자 수
-    var sResult,sTxs;
-    try{
-      sResult=await alchemyCall(ch.rpc,ch.key,ch.provider,'in',d.addr,null,opts.spreadH>0,ch.blockTime,opts.days);
-      sTxs=sResult.transfers||[];
-    }catch(e){
+    // analyzeCandidate: 3회 병렬 API → 컨트랙트+nonce+발신자수+시간분산+스윕+핫월렛 모두 판단
+    var assessment;
+    try{ assessment=await analyzeCandidate(ch,d.addr,opts); }
+    catch(e){
       addLog('[STEP 2] ⚠ '+short(d.addr)+': '+String(e.message||e),'warn');
       setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');return;
     }
-
-    var senders={};sTxs.forEach(function(tx){var f=(tx.from||'').toLowerCase();if(f)senders[f]=true;});
-    var cnt=Object.keys(senders).length;
-    if(cnt<opts.exchMin||cnt>opts.exchMax){
+    if(assessment.skip){
+      addLog('[STEP 2] ✗ '+short(d.addr)+' '+assessment.reason,'dim');
       setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');return;
     }
-
-    // TX 시간 분산 체크 (100건 이상일 때만)
-    if(opts.spreadH>0&&sTxs.length>=100){
-      var times=sTxs.map(function(tx){return tx.metadata&&tx.metadata.blockTimestamp?new Date(tx.metadata.blockTimestamp).getTime():0;}).filter(function(t){return t>0;}).sort(function(a,b){return a-b;});
-      if(times.length>=2&&(times[times.length-1]-times[0])/3600000<opts.spreadH){
-        setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');return;
-      }
-    }
-
-    // 스윕 패턴 + 핫월렛 검증
-    var assessment = await assessDepositAddress(ch, d.addr, cnt, opts);
     depMap[k]={addr:d.addr,chain:ch,label:assessment.label,cssClass:assessment.cssClass};
     addLog('[STEP 2] ✓ '+short(d.addr)+' '+assessment.label+' ('+ch.name+')','ok');
     setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');
@@ -1116,10 +1148,35 @@ async function collectInbound(depMap,opts){
     });
     var fromKeys=Object.keys(fromMap);
     if(fromKeys.length>opts.maxSenders){addLog('[STEP 3] ⚠ '+short(dm.addr)+' 발신자 '+fromKeys.length+'명 초과 → 스킵','warn');}
-    else{fromKeys.forEach(function(from){
-      gEdges.push({wallet:from,deposit:dm.addr,exchange:dm.label,
-                   cssClass:dm.cssClass||'',chain:ch.name,userLabel:''});
-    });}
+    else{
+      // 발신자 병렬 필터: 컨트랙트 + 잔고 동시 체크
+      var senderChecks=fromKeys.map(function(addr){
+        var checks=[];
+        // 컨트랙트 체크 (항상 실행 — 컨트랙트는 개인 지갑 아님)
+        checks.push(isContract(ch.rpc,addr).then(function(isCon){
+          if(isCon){
+            addLog('[STEP 3] '+short(addr)+' 컨트랙트 → 제거','dim');
+            delete fromMap[addr];
+          }
+        }));
+        // 잔고 체크 (설정 시만)
+        if(opts.balMax>0&&fromMap[addr]){
+          checks.push(getEthBalance(ch.rpc,addr).then(function(bal){
+            if(fromMap[addr]&&bal>opts.balMax){
+              addLog('[STEP 3] '+short(addr)+' 잔고 '+bal.toFixed(1)+' ETH > '+opts.balMax+' → 핫월렛 제거','dim');
+              delete fromMap[addr];
+            }
+          }));
+        }
+        return Promise.all(checks);
+      });
+      await Promise.all(senderChecks);
+      fromKeys=Object.keys(fromMap); // 필터 후 재계산
+      fromKeys.forEach(function(from){
+        gEdges.push({wallet:from,deposit:dm.addr,exchange:dm.label,
+                     cssClass:dm.cssClass||'',chain:ch.name,userLabel:''});
+      });
+    }
     setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');
     updateStats();renderTable();
   }, opts.concurrency);
@@ -1435,7 +1492,7 @@ function lsInit(){
     if(rEl){var v=localStorage.getItem('wca_rpc-'+c.key)||'';rEl.value=v;rEl.addEventListener('input',function(){localStorage.setItem('wca_rpc-'+c.key,rEl.value);});}
     if(oEl){var v=localStorage.getItem('wca_on-'+c.key);oEl.checked=v===null?false:(v==='1');oEl.addEventListener('change',function(){localStorage.setItem('wca_on-'+c.key,oEl.checked?'1':'0');});}
   });
-  ['p-exch-min','p-exch-max','p-spread-h','p-max-senders','p-usd-min','p-usd-max','p-tx-min','p-tx-max','p-period-days','p-rps','p-concur'].forEach(function(id){
+  ['p-exch-min','p-exch-max','p-spread-h','p-max-senders','p-usd-min','p-usd-max','p-tx-min','p-tx-max','p-bal-max','p-period-days','p-rps','p-concur'].forEach(function(id){
     var el=gel(id);if(!el)return;
     var v=localStorage.getItem('wca_'+id);if(v!==null)el.value=v;
     el.addEventListener('change',function(){localStorage.setItem('wca_'+id,el.value);});
