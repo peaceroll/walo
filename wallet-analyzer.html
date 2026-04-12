@@ -845,26 +845,51 @@ function computeSweep(inTxs, outTxs, addrLow, maxSweepSec) {
   var inByAsset={};
   sortedIn.forEach(function(tx){
     var asset=tx.asset||"ETH",val=parseFloat(tx.value||0),t=getTs(tx);
+    // Gas Supplier 필터: native ETH 소액(0.01 ETH 미만)은 가스비 공급 → 스윕 페어링 제외
+    var isNativeEth=(asset==="ETH"||asset==="");
+    if(isNativeEth&&val<0.01)return;
     if(!inByAsset[asset])inByAsset[asset]=[];
     inByAsset[asset].push({t:t,val:val});
   });
   var swept=0,targets={};
   sortedOut.forEach(function(tx){
     var asset=tx.asset||"ETH",val=parseFloat(tx.value||0),t=getTs(tx),to=(tx.to||"").toLowerCase();
+    // 소액 ETH 출금 제외 (가스비 반환, 더스팅 등)
+    var isNativeEth=(asset==="ETH"||asset==="");
     if(!val||to===addrLow)return;
+    if(isNativeEth&&val<0.01)return;
     var queue=inByAsset[asset];
     if(!queue||!queue.length)return;
+    // ① 1:1 정확 매칭
+    var matched=false;
     for(var i=queue.length-1;i>=0;i--){
       var inn=queue[i];
       var diffSec=(t-inn.t)/1000;
       if(diffSec<0)break;
       if(diffSec>maxSweepSec)break;
-      if(inn.val===val){
+      if(Math.abs(inn.val-val)<0.000001){
         swept++;targets[to]=(targets[to]||0)+1;
         if(!gHotTargets[to])gHotTargets[to]={count:0,sources:[]};
         gHotTargets[to].count++;
         if(gHotTargets[to].sources.indexOf(addrLow)<0)gHotTargets[to].sources.push(addrLow);
-        queue.splice(i,1);break;
+        queue.splice(i,1);matched=true;break;
+      }
+    }
+    // ② 배치 스윕: 여러 입금의 합 = 출금 1건 (10.075K+400 ZKP → 10.475K ZKP)
+    if(!matched){
+      var batchSum=0,batchIdx=[],cutoffT=t-maxSweepSec*1000;
+      for(var j=0;j<queue.length;j++){
+        if(queue[j].t<cutoffT||queue[j].t>t)continue;
+        batchSum+=queue[j].val;batchIdx.push(j);
+        if(Math.abs(batchSum-val)<0.000001){
+          swept++;targets[to]=(targets[to]||0)+1;
+          if(!gHotTargets[to])gHotTargets[to]={count:0,sources:[]};
+          gHotTargets[to].count++;
+          if(gHotTargets[to].sources.indexOf(addrLow)<0)gHotTargets[to].sources.push(addrLow);
+          for(var k=batchIdx.length-1;k>=0;k--)queue.splice(batchIdx[k],1);
+          break;
+        }
+        if(batchSum>val+0.000001)break;
       }
     }
   });
@@ -1213,7 +1238,7 @@ async function runAutoMode(chains,opts,isResume){
       setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');return;
     }
     if(assessment.skip){
-      addLog('[STEP 2] ✗ '+short(d.addr)+' '+assessment.reason,'dim');
+      addLog('[STEP 2] ✗ '+short(d.addr)+' → '+assessment.reason,'dim');
       setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');return;
     }
     depMap[k]={addr:d.addr,chain:ch,label:assessment.label,cssClass:assessment.cssClass};
