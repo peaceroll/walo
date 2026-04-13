@@ -780,7 +780,11 @@ async function alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,wi
   if(pageKey)params.pageKey=pageKey;
   if(tf.contracts.length)params.contractAddresses=tf.contracts;
   var body=JSON.stringify({id:1,jsonrpc:'2.0',method:method,params:[params]});
-  var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:body});});
+  var ac=new AbortController(); var aTimer=setTimeout(function(){ac.abort();},30000);
+  var resp;
+  try{resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:body,signal:ac.signal});});
+  }catch(e){clearTimeout(aTimer);throw new Error('fetch중단: '+String(e.message||e));}
+  clearTimeout(aTimer);
   if(resp.status===429){addLog('⚠ 429 — 3초 대기','warn');await sleep(3000);return alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,withMeta,blockTime,days);}
   if(!resp.ok){var t=await resp.text().catch(function(){return '';});throw new Error('HTTP '+resp.status+' '+t.slice(0,80));}
   var data=await resp.json();
@@ -799,14 +803,25 @@ async function fetchAll(rpcUrl,chainKey,provider,direction,address,blockTime,day
   return all;
 }
 // ══ 섹션 5: RPC 헬퍼 ════════════════════════════════════════════════
-// rpcCall: 모든 eth_* 단일 호출의 유일한 진입점
-// timeout 초과 시 null 반환 (throw 안 함) — 호출부가 null 처리
+// rpcCall: AbortController로 fetch 자체를 중단
+// Promise.race(sleep) 방식은 호출부만 포기할 뿐 drainQueue 안의 await item.fn()은 그대로 블록됨
+// → abort해야만 drainQueue가 catch(e){item.rej(e)}를 거쳐 다음 항목으로 진행 가능
 async function rpcCall(rpcUrl,method,params,timeoutMs){
-  var p=rateCall(function(){
-    return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id:1,jsonrpc:'2.0',method:method,params:params})});
-  }).then(function(r){return r.json();});
-  return Promise.race([p,sleep(timeoutMs||10000).then(function(){return null;})]);
+  var ms=timeoutMs||10000;
+  var ac=new AbortController();
+  var timer=setTimeout(function(){ac.abort();},ms);
+  try{
+    var d=await rateCall(function(){
+      return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({id:1,jsonrpc:'2.0',method:method,params:params}),
+        signal:ac.signal});
+    }).then(function(r){return r.json();});
+    clearTimeout(timer);
+    return d;
+  }catch(e){
+    clearTimeout(timer);
+    return null; // AbortError 또는 기타 오류 → null, 호출부가 처리
+  }
 }
 async function getCode(rpcUrl,address){
   try{
