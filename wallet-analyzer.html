@@ -267,6 +267,18 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <div id="no-res" style="text-align:center;padding:32px;color:#1e3a5a;font-size:11px">분석 시작 후 결과가 표시됩니다</div>
   </div>
 </div>
+
+<!-- ── 요약 패널 ── -->
+<div class="panel" id="summary-wrapper">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+    <h2 style="margin:0">⬡ 요약 <span style="font-size:10px;color:#2a4a6a;font-weight:normal">· 체크박스로 제거 · 라벨 입력 후 저장</span></h2>
+    <div style="display:flex;gap:6px">
+      <button class="btn dim" onclick="renderSummary()">↺ 새로고침</button>
+      <button class="btn dim" style="border-color:var(--g);color:var(--g)" onclick="saveSummary()">💾 요약 저장</button>
+    </div>
+  </div>
+  <div id="summary-panel" style="font-size:10px;color:#4a6a8a">분석 완료 후 자동으로 표시됩니다</div>
+</div>
 </div>
 <script>
 const SEEDS_RAW = [
@@ -627,9 +639,11 @@ var STEPS_DEF = [
 ];
 
 // ══ 섹션 2: 전역 상태 ═══════════════════════════════════════════════
-var gSeeds=SEEDS_RAW.map(function(a){return a.toLowerCase();});
-var gSelected={};
-var gEdges=[];      // {wallet, deposit, exchange, cssClass, chain, userLabel, _cluster}
+var gSeeds       = SEEDS_RAW.map(function(a){return a.toLowerCase();});
+var gSelected    = {};
+var gEdges       = [];   // {wallet, deposit, exchange, cssClass, chain, userLabel, _cluster}
+var gSummaryLabels  = {}; // wallet → 사용자 라벨 (요약 패널)
+var gSummaryDeleted = {}; // wallet → true (요약에서 제거)
 var gApiCalls=0, gAborted=false, gMode='auto';
 var gDirectDeps=[], gDepFilters=[], gTokenFilters=[], gSenderBl={};
 var gBlockCache={}, gHotTargets={}, gSnapshot=null;
@@ -643,7 +657,8 @@ function ts(){return new Date().toISOString().substr(11,8);}
 function short(a){return a?a.substr(0,6)+'…'+a.substr(-4):'';}
 function arkUrl(a){return 'https://intel.arkm.com/explorer/address/'+a;}
 function num(id,def){return parseInt((gel(id)&&gel(id).value)||'')||def;}
-function isZero(a){return !a||a.replace(/0x/i,'').replace(/0/g,'')==='';} // 영주소 판별
+function isZero(a){return !a||a.replace(/0x/i,'').replace(/0/g,'')===''; }
+function csvQuote(s){return '"'+(String(s||'')).replace(/"/g,'""')+'"';}
 
 function addLog(msg,type){
   var el=gel('log'),d=document.createElement('div');
@@ -661,7 +676,7 @@ function toggleEl(bid,aid){var b=gel(bid),a=gel(aid);if(b.style.display==='none'
 function applyPeriod(v){if(v==='0')gel('p-period-days').value='';else if(v)gel('p-period-days').value=v;}
 function download(name,content,mime){
   var blob=new Blob([content],{type:mime});
-  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
 }
 function getActiveChains(){
   return CHAINS.filter(function(c){var chk=gel('on-'+c.key),url=gel('rpc-'+c.key);return chk&&chk.checked&&url&&url.value.trim();})
@@ -694,7 +709,7 @@ async function drainQueue(){
 async function runParallel(items,asyncFn,concurrency){
   var idx=0;
   async function worker(){while(idx<items.length){var i=idx++;try{await asyncFn(items[i],i);}catch(e){}}}
-  var ws=[];for(var w=0;w<Math.min(concurrency,items.length);w++)ws.push(worker());
+  var ws=[]; for(var w=0;w<Math.min(concurrency,items.length);w++)ws.push(worker());
   await Promise.all(ws);
 }
 
@@ -702,15 +717,14 @@ async function runParallel(items,asyncFn,concurrency){
 async function getCurrentBlock(rpcUrl){
   if(gBlockCache[rpcUrl])return gBlockCache[rpcUrl];
   try{
-    var r=await fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_blockNumber',params:[]})});
-    var d=await r.json();var n=parseInt(d.result,16);
-    if(n>0)gBlockCache[rpcUrl]=n;return n||0;
+    var r=await fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_blockNumber',params:[]})});
+    var d=await r.json(); var n=parseInt(d.result,16);
+    if(n>0)gBlockCache[rpcUrl]=n; return n||0;
   }catch(e){return 0;}
 }
 async function toFromBlock(rpcUrl,blockTime,days){
-  var d=parseInt(days);if(!d||d<=0)return '0x0';
-  var cur=await getCurrentBlock(rpcUrl);if(!cur)return '0x0';
+  var d=parseInt(days); if(!d||d<=0)return '0x0';
+  var cur=await getCurrentBlock(rpcUrl); if(!cur)return '0x0';
   var from=cur-Math.floor(d*86400/blockTime);
   return from>0?'0x'+from.toString(16):'0x0';
 }
@@ -721,7 +735,7 @@ function getContracts(chainKey){
 }
 async function alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,withMeta,blockTime,days){
   if(gAborted)throw new Error('중지됨');
-  gApiCalls++;updateStats();
+  gApiCalls++; updateStats();
   var isMega=provider==='meganode';
   var method=isMega?'nr_getAssetTransfers':'alchemy_getAssetTransfers';
   var fromBlock=days?(await toFromBlock(rpcUrl,blockTime,days)):'0x0';
@@ -730,9 +744,8 @@ async function alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,wi
   if(!gTokenFilters.length)cat=isMega?['external','20','721','1155']:['external','erc20','erc721','erc1155'];
   else if(tf.hasNative&&!tf.contracts.length)cat=['external'];
   else cat=isMega?['20','721','1155']:['erc20','erc721','erc1155'];
-  var params={fromBlock:fromBlock,toBlock:'latest',withMetadata:!!withMeta,
-    excludeZeroValue:true,maxCount:'0x64',category:cat};
-  if(direction==='out')params.fromAddress=address;else params.toAddress=address;
+  var params={fromBlock:fromBlock,toBlock:'latest',withMetadata:!!withMeta,excludeZeroValue:true,maxCount:'0x64',category:cat};
+  if(direction==='out')params.fromAddress=address; else params.toAddress=address;
   if(pageKey)params.pageKey=pageKey;
   if(tf.contracts.length)params.contractAddresses=tf.contracts;
   var body=JSON.stringify({id:1,jsonrpc:'2.0',method:method,params:[params]});
@@ -741,113 +754,86 @@ async function alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,wi
   if(!resp.ok){var t=await resp.text().catch(function(){return '';});throw new Error('HTTP '+resp.status+' '+t.slice(0,80));}
   var data=await resp.json();
   if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
-  var result=data.result||{};if(Array.isArray(result))return{transfers:result,pageKey:null};
+  var result=data.result||{}; if(Array.isArray(result))return{transfers:result,pageKey:null};
   return result;
 }
 async function fetchAll(rpcUrl,chainKey,provider,direction,address,blockTime,days,onPage){
   var all=[],pageKey=null,page=0;
   while(!gAborted){
     var result=await alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,false,blockTime,days);
-    var batch=result.transfers||[];all=all.concat(batch);page++;
+    var batch=result.transfers||[]; all=all.concat(batch); page++;
     if(onPage)onPage(page,batch.length,all.length);
-    pageKey=result.pageKey;if(!pageKey||!batch.length)break;
+    pageKey=result.pageKey; if(!pageKey||!batch.length)break;
   }
   return all;
 }
 async function getCode(rpcUrl,address){
   try{
-    var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getCode',params:[address,'latest']})});});
-    var d=await resp.json();var code=d.result||'0x';return code!=='0x'&&code.length>2;
+    var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getCode',params:[address,'latest']})});});
+    var d=await resp.json(); var code=d.result||'0x'; return code!=='0x'&&code.length>2;
   }catch(e){return false;}
 }
 async function getNonce(rpcUrl,address){
   try{
-    var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getTransactionCount',params:[address,'latest']})});});
-    var d=await resp.json();return parseInt(d.result,16)||0;
+    var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getTransactionCount',params:[address,'latest']})});});
+    var d=await resp.json(); return parseInt(d.result,16)||0;
   }catch(e){return -1;}
 }
 
 // ══ 섹션 6: 스윕 계산 ═══════════════════════════════════════════════
-// 원칙: 토큰별 그룹핑, 금액 완전 동일, 배치 스윕 포함, 4시간 윈도우
-// computeSweep: 토큰별로 독립 추적 — 가스비 ETH가 비율을 낮추지 않음
-// 설계:
-//   inByAsset[token] = [{t, val}] — 토큰별 입금 큐
-//   sweepByAsset[token]++ — 매칭 성공 시 토큰별 카운트
-//   신뢰도 = max(sweepByAsset[t] / inByAsset[t].length) across non-gas tokens
+// 원칙: 토큰별 독립 추적 → 가스비 ETH가 비율을 낮추지 않음
 function computeSweep(inTxs,outTxs,addrLow){
   var MAX_SEC=14400;
   function getTs(tx){return tx.metadata&&tx.metadata.blockTimestamp?new Date(tx.metadata.blockTimestamp).getTime():0;}
   var sortedIn =inTxs.slice().sort(function(a,b){return getTs(a)-getTs(b);});
   var sortedOut=outTxs.slice().sort(function(a,b){return getTs(a)-getTs(b);});
-
-  // 토큰별 입금 큐 + 입금 수 추적
   var inByAsset={}, inCntByAsset={};
   sortedIn.forEach(function(tx){
     var asset=tx.asset||'ETH', val=parseFloat(tx.value||0), t=getTs(tx);
-    if(!inByAsset[asset])  { inByAsset[asset]=[]; inCntByAsset[asset]=0; }
-    inByAsset[asset].push({t:t, val:val});
-    inCntByAsset[asset]++;
+    if(!inByAsset[asset]){inByAsset[asset]=[];inCntByAsset[asset]=0;}
+    inByAsset[asset].push({t:t,val:val}); inCntByAsset[asset]++;
   });
-
   var swept=0, targets={}, sweepByAsset={};
-
   sortedOut.forEach(function(tx){
-    var asset=tx.asset||'ETH', val=parseFloat(tx.value||0);
-    var t=getTs(tx), to=(tx.to||'').toLowerCase();
+    var asset=tx.asset||'ETH', val=parseFloat(tx.value||0), t=getTs(tx), to=(tx.to||'').toLowerCase();
     if(!val||to===addrLow)return;
-    if((asset==='ETH'||asset==='')&&val<0.01)return; // 가스비 반환 제외
-
-    var queue=inByAsset[asset];
-    if(!queue||!queue.length)return;
-
+    if((asset==='ETH'||asset==='')&&val<0.01)return;
+    var queue=inByAsset[asset]; if(!queue||!queue.length)return;
     var matched=false;
-
     // ① 1:1 정확 매칭
     for(var i=queue.length-1;i>=0;i--){
       var inn=queue[i], diffSec=(t-inn.t)/1000;
-      if(diffSec<0)break;
-      if(diffSec>MAX_SEC)break;
+      if(diffSec<0)break; if(diffSec>MAX_SEC)break;
       if(Math.abs(inn.val-val)<0.000001){
         swept++; sweepByAsset[asset]=(sweepByAsset[asset]||0)+1;
         targets[to]=(targets[to]||0)+1; _hotPush(to,addrLow);
         queue.splice(i,1); matched=true; break;
       }
     }
-
-    // ② 배치 스윕: 여러 입금 합산 = 출금 1건 (예: 114.95K+400 → 115.35K)
+    // ② 배치 스윕: 여러 입금 합산 = 출금 1건
     if(!matched){
-      var sum=0, batchIdx=[], cutoff=t-MAX_SEC*1000;
+      var sum=0, bIdx=[], cutoff=t-MAX_SEC*1000;
       for(var j=0;j<queue.length;j++){
         if(queue[j].t<cutoff||queue[j].t>t)continue;
-        sum+=queue[j].val; batchIdx.push(j);
+        sum+=queue[j].val; bIdx.push(j);
         if(Math.abs(sum-val)<0.000001){
           swept++; sweepByAsset[asset]=(sweepByAsset[asset]||0)+1;
           targets[to]=(targets[to]||0)+1; _hotPush(to,addrLow);
-          for(var k=batchIdx.length-1;k>=0;k--)queue.splice(batchIdx[k],1);
-          matched=true; break;
+          for(var k=bIdx.length-1;k>=0;k--)queue.splice(bIdx[k],1); break;
         }
         if(sum>val+0.000001)break;
       }
     }
   });
-
-  // 신뢰도: 가스비 ETH 제외한 토큰별 스윕 비율의 최댓값
-  // 예: SENT 2건 중 1건 → 50%, ETH 1건(가스) 0건 → 전체 비율 33%가 아닌 50%로 판단
+  // 가스비 ETH 제외한 토큰별 최고 스윕 비율
   var bestRatio=0;
   Object.keys(inCntByAsset).forEach(function(a){
-    var isGasOnly=(a==='ETH'||a==='')&&!sweepByAsset[a];
-    if(isGasOnly)return; // 가스비만 있고 스윕 없으면 제외
+    var isGasOnly=(a==='ETH'||a==='')&&!sweepByAsset[a]; if(isGasOnly)return;
     var r=(sweepByAsset[a]||0)/inCntByAsset[a];
     if(r>bestRatio)bestRatio=r;
   });
-
-  var conf = bestRatio>=0.6 && swept>=2 ? 'HIGH'
-           : bestRatio>=0.3 && swept>=1 ? 'MEDIUM'
-           : 'LOW';
-
-  return {swept:swept, total:sortedIn.length, confidence:conf, targets:targets};
+  var conf=bestRatio>=0.6&&swept>=2?'HIGH':bestRatio>=0.3&&swept>=1?'MEDIUM':'LOW';
+  return {swept:swept,total:sortedIn.length,confidence:conf,targets:targets};
 }
 function _hotPush(to,source){
   if(!gHotTargets[to])gHotTargets[to]={count:0,sources:[]};
@@ -856,7 +842,6 @@ function _hotPush(to,source){
 }
 
 // ══ 섹션 7: 거래소 후보 판별 (3회 병렬 API) ══════════════════════════
-// 우선순위: ①영주소 ②컨트랙트 ③출금없음 ④발신자과다 ⑤스윕 ⑥발신자수(스윕LOW만) ⑦핫월렛
 async function analyzeCandidate(chain,address,opts){
   if(isZero(address))return{skip:true,reason:'영주소'};
   var addrLow=address.toLowerCase();
@@ -865,14 +850,14 @@ async function analyzeCandidate(chain,address,opts){
     alchemyCall(chain.rpc,chain.key,chain.provider,'out',address,null,false,chain.blockTime,opts.days).catch(function(){return{transfers:[]};}),
     getCode(chain.rpc,address)
   ]);
-  var inTxs=results[0].transfers||[],outTxs=results[1].transfers||[],isCon=results[2];
+  var inTxs=results[0].transfers||[], outTxs=results[1].transfers||[], isCon=results[2];
   if(isCon)          return{skip:true,reason:'컨트랙트'};
   if(!outTxs.length) return{skip:true,reason:'출금이력 없음'};
-  var senders={};inTxs.forEach(function(tx){var f=(tx.from||'').toLowerCase();if(f)senders[f]=true;});
+  var senders={};
+  inTxs.forEach(function(tx){var f=(tx.from||'').toLowerCase();if(f)senders[f]=true;});
   var cnt=Object.keys(senders).length;
   if(cnt>opts.exchMax)return{skip:true,reason:'발신자 과다('+cnt+'명, DeFi)'};
   var sweep=computeSweep(inTxs,outTxs,addrLow);
-  // 스윕 LOW이면 발신자 수 + 시간분산 보조 판단
   if(sweep.confidence==='LOW'||sweep.confidence==='NONE'){
     if(cnt<opts.exchMin)return{skip:true,reason:'스윕없음+발신자부족('+cnt+'명)'};
     if(opts.spreadH>0&&inTxs.length>=100){
@@ -881,7 +866,6 @@ async function analyzeCandidate(chain,address,opts){
         return{skip:true,reason:'단기집중'};
     }
   }
-  // 핫월렛 확인 (outTxs fan-out 재사용, API 없음)
   var topTarget=Object.keys(sweep.targets).sort(function(a,b){return sweep.targets[b]-sweep.targets[a];})[0];
   var hwConf='NONE';
   if(topTarget){
@@ -913,13 +897,53 @@ function clusterEdges(edges){
   return Object.keys(cm).length;
 }
 
-// ══ 섹션 9: 분석 파이프라인 ═════════════════════════════════════════
+// ══ 섹션 9: 공통 파생 데이터 계산 ═══════════════════════════════════
+// buildSummary(): wInfo, seedW, newW, exchList를 한 번에 계산
+// exportReport, renderSummary, saveSummary 모두 이것만 호출
+function buildSummary(){
+  clusterEdges(gEdges);
+  var seedSet={};gSeeds.forEach(function(a){seedSet[a]=1;});
+  var seedClusters={};gEdges.forEach(function(e){if(seedSet[e.wallet]&&e._cluster)seedClusters[e._cluster]=1;});
+  var wInfo={};
+  gEdges.forEach(function(e){
+    if(!wInfo[e.wallet])wInfo[e.wallet]={deps:{},cluster:e._cluster};
+    wInfo[e.wallet].deps[e.deposit]={exchange:e.userLabel||e.exchange,chain:e.chain};
+  });
+  var allW=Object.keys(wInfo);
+  var seedW=allW.filter(function(w){return !!seedSet[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
+  var newW=allW.filter(function(w){return !seedSet[w]&&!gSummaryDeleted[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
+  var w2s={};
+  newW.forEach(function(nw){var cs={};Object.keys(wInfo[nw].deps).forEach(function(dep){seedW.forEach(function(sw){if(wInfo[sw]&&wInfo[sw].deps[dep])cs[PERSON_ADDRESSES[sw]||sw.slice(0,8)+'…']=1;});});w2s[nw]=Object.keys(cs);});
+  var exchSet={};
+  gEdges.forEach(function(e){if(!exchSet[e.deposit])exchSet[e.deposit]={exchange:e.userLabel||e.exchange,chain:e.chain};});
+  var exchList=Object.keys(exchSet).map(function(dep){return {dep:dep,exchange:exchSet[dep].exchange,chain:exchSet[dep].chain};}).sort(function(a,b){return a.chain.localeCompare(b.chain);});
+  var analyzedSeeds=Object.keys(gSelected).filter(function(a){return gSelected[a];});
+  if(!analyzedSeeds.length)analyzedSeeds=gSeeds.slice();
+  return {seedSet:seedSet,seedClusters:seedClusters,wInfo:wInfo,seedW:seedW,newW:newW,w2s:w2s,exchList:exchList,analyzedSeeds:analyzedSeeds};
+}
+
+// ══ 섹션 10: UI 헬퍼 ════════════════════════════════════════════════
+function _seedMeta(){
+  clusterEdges(gEdges);
+  var seedSet={};gSeeds.forEach(function(a){seedSet[a]=1;});
+  var seedClusters={};gEdges.forEach(function(e){if(seedSet[e.wallet]&&e._cluster)seedClusters[e._cluster]=1;});
+  return {seedSet:seedSet,seedClusters:seedClusters};
+}
+function setStep(n){STEPS_DEF.forEach(function(s){var el=gel('sn'+s.id);if(!el)return;el.className='snum'+(s.id<n?' done':s.id===n?' act':'');gel('sl'+s.id).className='slbl'+(s.id<n?' done':s.id===n?' act':'');});}
+function updateStats(){
+  var deps={},wallets={};gEdges.forEach(function(e){deps[e.deposit]=1;wallets[e.wallet]=1;});
+  gel('s-api').textContent=gApiCalls;gel('s-dep').textContent=Object.keys(deps).length;
+  gel('s-edge').textContent=gEdges.length;gel('s-wl').textContent=Object.keys(wallets).length;
+  gel('s-cl').textContent=clusterEdges(gEdges.slice());
+}
+
+// ══ 섹션 11: 분석 파이프라인 ════════════════════════════════════════
 async function runAnalysis(isResume){
   var chains=getActiveChains(),opts=getOpts();
   if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 선택하세요','err');return;}
   gAborted=false;gBlockCache={};gRateRPS=num('p-rps',2);
   gApiCalls=isResume?gApiCalls:0;
-  if(!isResume){gEdges=[];gHotTargets={};gSnapshot=null;}
+  if(!isResume){gEdges=[];gHotTargets={};gSnapshot=null;gSummaryDeleted={};gSummaryLabels={};}
   else addLog('기존 결과 '+gEdges.length+'개 유지하고 재분석','info');
   gel('btn-run').disabled=true;gel('btn-stop').disabled=false;gel('btn-resume').style.display='none';
   if(!isResume){gel('tbody').innerHTML='';gel('no-res').style.display='';gel('res-cnt').textContent='0';}
@@ -938,7 +962,6 @@ async function runAutoMode(chains,opts,isResume){
   var pending=runSeeds.filter(function(s){return !visitedSeeds[s];});
   addLog('=== '+(isResume?'재개':'자동')+' 분석 시작 ===','info');
   addLog('시드: '+pending.length+'개 · 체인: '+chains.map(function(c){return c.name;}).join(','),'info');
-  // STEP 1: 시드×체인 병렬
   setStep(1);
   var destMap=isResume&&gSnapshot?gSnapshot.destMap:{},done1=0;
   var tasks=[];pending.forEach(function(seed){chains.forEach(function(ch){tasks.push({seed:seed,chain:ch});});});
@@ -951,14 +974,13 @@ async function runAutoMode(chains,opts,isResume){
     txs.forEach(function(tx){
       var to=(tx.to||'').toLowerCase();
       if(!to||to===seed||isZero(to))return;
-      var k=to+'::'+ch.key;if(!destMap[k])destMap[k]={addr:to,chain:ch};
+      var k=to+'::'+ch.key; if(!destMap[k])destMap[k]={addr:to,chain:ch};
     });
     visitedSeeds[seed]=true;
     setProgress(++done1,tasks.length,'STEP 1 · 시드 아웃바운드 수집');
   },opts.concurrency);
   addLog('[STEP 1] 목적지 '+Object.keys(destMap).length+'개','info');
   gSnapshot={visitedSeeds:visitedSeeds,destMap:destMap};
-  // STEP 2: 거래소 추정
   setStep(2);
   var depMap={},destKeys=Object.keys(destMap),done2=0;
   addLog('[STEP 2] '+destKeys.length+'개 병렬 분석 (동시 '+opts.concurrency+'개)…','info');
@@ -1001,21 +1023,19 @@ async function collectInbound(depMap,opts){
     if(gAborted)return;
     var dm=depMap[dk],ch=dm.chain;
     addLog('[STEP 3] '+short(dm.addr)+' ('+dm.label+' · '+ch.name+')','info');
-    // 조기 종료: maxSenders 초과 시 즉시 중단
     var txs=[],pageKey=null,earlyStop=false;
     while(!gAborted&&!earlyStop){
       var result=await alchemyCall(ch.rpc,ch.key,ch.provider,'in',dm.addr,pageKey,false,ch.blockTime,opts.days);
-      var batch=result.transfers||[];txs=txs.concat(batch);
+      var batch=result.transfers||[]; txs=txs.concat(batch);
       var tempS={};txs.forEach(function(tx){var f=(tx.from||'').toLowerCase();if(f&&f!==dm.addr.toLowerCase()&&!isZero(f))tempS[f]=1;});
       if(Object.keys(tempS).filter(function(a){return !seedSet[a];}).length>opts.maxSenders){
         addLog('[STEP 3] '+short(dm.addr)+' 발신자 초과 → 조기 종료','warn');earlyStop=true;break;
       }
       addLog('  └ p'+(Math.ceil(txs.length/100))+': '+batch.length+'건 ('+txs.length+')','dim');
-      pageKey=result.pageKey;if(!pageKey||!batch.length)break;
+      pageKey=result.pageKey; if(!pageKey||!batch.length)break;
     }
     if(earlyStop){setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');return;}
     addLog('[STEP 3] → '+txs.length+'건','ok');
-    // 발신자 집계
     var fromMap={};
     txs.forEach(function(tx){
       var f=(tx.from||'').toLowerCase();
@@ -1023,13 +1043,10 @@ async function collectInbound(depMap,opts){
       if(!fromMap[f])fromMap[f]={txCount:0};
       fromMap[f].txCount++;
     });
-    // 필터 적용 (시드는 면제)
     Object.keys(fromMap).forEach(function(a){
       if(seedSet[a])return;
-      // gHotTargets 필터
-      var h=gHotTargets[a];if(h&&h.sources.length>=1){delete fromMap[a];return;}
       if(gSenderBl[a]){addLog('[STEP 3] '+short(a)+' 블랙리스트 → 제거','dim');delete fromMap[a];return;}
-      // TX 건수 필터
+      if(gHotTargets[a]&&gHotTargets[a].sources.length>=1){delete fromMap[a];return;}
       var v=fromMap[a];
       if(opts.txMin>0&&v.txCount<opts.txMin){delete fromMap[a];return;}
       if(opts.txMax>0&&v.txCount>opts.txMax){delete fromMap[a];return;}
@@ -1037,17 +1054,14 @@ async function collectInbound(depMap,opts){
     var fromKeys=Object.keys(fromMap);
     if(fromKeys.length>opts.maxSenders){addLog('[STEP 3] ⚠ '+short(dm.addr)+' 발신자 '+fromKeys.length+'명 초과 → 스킵','warn');}
     else{
-      // 컨트랙트 + nonce 병렬 체크 (시드 면제)
       var checks=fromKeys.filter(function(a){return !seedSet[a];}).map(function(addr){
         return Promise.all([
           getCode(ch.rpc,addr).then(function(isCon){if(isCon)delete fromMap[addr];}),
           (async function(){
-            // 현재 체인 nonce 체크
             var nonce=await getNonce(ch.rpc,addr);
             if(!fromMap[addr])return;
             if(nonce===0){delete fromMap[addr];return;}
             if(opts.nonceMax>0&&nonce>opts.nonceMax){addLog('[STEP 3] '+short(addr)+' nonce='+nonce+'('+ch.name+') → 제거','dim');delete fromMap[addr];return;}
-            // ETH 메인넷 교차 검증 (BSE/ARB 등에서 nonce가 낮아도 ETH에선 높을 수 있음)
             if(ch.key!=='eth'){
               var ethEl=gel('rpc-eth');
               if(ethEl&&ethEl.value.trim()){
@@ -1067,45 +1081,28 @@ async function collectInbound(depMap,opts){
       });
     }
     setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');
-    updateStats();renderTable();
+    updateStats(); renderTable();
   },opts.concurrency);
-  // STEP 4
-  setStep(4);clusterEdges(gEdges);updateStats();renderTable();
+  setStep(4); clusterEdges(gEdges); updateStats(); renderTable(); renderSummary();
   setProgress(1,1,'완료');
   STEPS_DEF.forEach(function(s){var n=gel('sn'+s.id);if(n){n.className='snum done';gel('sl'+s.id).className='slbl done';}});
   addLog('=== 완료 · API '+gApiCalls+'회 · 연결 '+gEdges.length+'개 ===','ok');
 }
 
-// ══ 섹션 10: UI 공통 ════════════════════════════════════════════════
-function setStep(n){STEPS_DEF.forEach(function(s){var el=gel('sn'+s.id);if(!el)return;el.className='snum'+(s.id<n?' done':s.id===n?' act':'');gel('sl'+s.id).className='slbl'+(s.id<n?' done':s.id===n?' act':'');});}
-
-function _seedMeta(){
-  // 매번 재계산하는 비용을 줄이기 위해 한 번에 계산
-  var seedSet={};gSeeds.forEach(function(a){seedSet[a]=1;});
-  var seedClusters={};gEdges.forEach(function(e){if(seedSet[e.wallet]&&e._cluster)seedClusters[e._cluster]=1;});
-  return {seedSet:seedSet,seedClusters:seedClusters};
-}
-
-function updateStats(){
-  var deps={},wallets={};gEdges.forEach(function(e){deps[e.deposit]=1;wallets[e.wallet]=1;});
-  gel('s-api').textContent=gApiCalls;gel('s-dep').textContent=Object.keys(deps).length;
-  gel('s-edge').textContent=gEdges.length;gel('s-wl').textContent=Object.keys(wallets).length;
-  gel('s-cl').textContent=clusterEdges(gEdges.slice()); // 복사본으로 클러스터 수만 계산
-}
-
+// ══ 섹션 12: 결과 테이블 렌더링 ════════════════════════════════════
 function labelKeydown(ev,el){
   if(ev.key==='Enter'){ev.preventDefault();el.blur();}
   else if(ev.key==='Escape'){el.textContent=gEdges[+el.dataset.idx].exchange;el.blur();}
 }
 function saveLabel(el){
-  var idx=+el.dataset.idx,edge=gEdges[idx];if(!edge)return;
+  var idx=+el.dataset.idx,edge=gEdges[idx]; if(!edge)return;
   var val=el.textContent.trim().replace(/^✎ /,'');
   if(val===edge.exchange||val===''){edge.userLabel='';el.className='tag-exch '+(edge.cssClass||'');el.textContent=edge.exchange;}
   else{edge.userLabel=val;el.className='tag-exch user';el.textContent='✎ '+val;addLog('라벨: '+short(edge.deposit)+' → '+val,'ok');}
 }
-
 function renderTable(){
-  var fw=gel('fw').value.toLowerCase(),fd=gel('fd').value.toLowerCase(),fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
+  var fw=gel('fw').value.toLowerCase(),fd=(gel('fd')&&gel('fd').value||'').toLowerCase();
+  var fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
   var onlySeed=gel('only-seed-related')&&gel('only-seed-related').checked;
   var onlySeedWallet=gel('only-seed')&&gel('only-seed').checked;
   clusterEdges(gEdges);
@@ -1116,14 +1113,9 @@ function renderTable(){
     if(fd&&e.deposit.indexOf(fd)<0)return;
     if(fe&&(e.userLabel||e.exchange).toLowerCase().indexOf(fe)<0)return;
     if(fc&&(e._cluster||'').toLowerCase().indexOf(fc)<0)return;
-    // 시드 연결만 보기: 시드와 같은 클러스터에 있는 NEW 지갑만 표시
-    // (시드 본인 제외 — 시드 본인은 항상 연결돼 있어서 필터 의미 없음)
-    if(onlySeedWallet&&!meta.seedSet[e.wallet])return; // 시드 지갑만
-    if(onlySeed){
-      if(!meta.seedClusters[e._cluster])return;   // 시드 클러스터 아니면 제외
-      if(meta.seedSet[e.wallet])return;            // 시드 본인 제외 → ★ 붙은 NEW만
-    }
-    var k=e.wallet+'::'+e.deposit;if(seen[k])return;seen[k]=1;
+    if(onlySeedWallet&&!meta.seedSet[e.wallet])return;
+    if(onlySeed){if(!meta.seedClusters[e._cluster])return;if(meta.seedSet[e.wallet])return;}
+    var k=e.wallet+'::'+e.deposit; if(seen[k])return; seen[k]=1;
     rows.push({e:e,idx:idx});
   });
   gel('res-cnt').textContent=rows.length;
@@ -1136,18 +1128,14 @@ function renderTable(){
     var clLabel=(r._cluster||'—')+(hasSeed&&!isSeed?' ★':'');
     var exchDisplay=r.userLabel?('✎ '+r.userLabel):r.exchange;
     var exchCss=r.userLabel?'user':(r.cssClass||'');
-    var sameWallet=(r.wallet===lastWallet);
-    lastWallet=r.wallet;
+    var sameWallet=(r.wallet===lastWallet); lastWallet=r.wallet;
     if(sameWallet){
       return '<tr class="'+(hasSeed&&!isSeed?'seed-related':'')+'">'
-        +'<td></td>'
-        +'<td style="color:#2a4a6a;font-size:10px;padding-left:8px">└</td>'
-        +'<td></td><td></td>'
+        +'<td></td><td style="color:#2a4a6a;font-size:10px;padding-left:8px">└</td><td></td><td></td>'
         +'<td style="font-family:monospace;font-size:10px;color:#3a6a8a">'+r.deposit+'</td>'
         +'<td><span class="tag-exch '+exchCss+'" contenteditable="true" spellcheck="false" data-idx="'+idx+'" onblur="saveLabel(this)" onkeydown="labelKeydown(event,this)">'+exchDisplay+'</span></td>'
         +'<td style="color:#4a6a8a;font-size:10px">'+r.chain+'</td>'
-        +'<td style="white-space:nowrap"><a href="'+arkUrl(r.deposit)+'" target="_blank">deposit↗</a></td>'
-        +'</tr>';
+        +'<td><a href="'+arkUrl(r.deposit)+'" target="_blank">deposit↗</a></td></tr>';
     }
     return '<tr class="'+(hasSeed&&!isSeed?'seed-related':'')+'">'
       +'<td style="font-weight:700;color:'+(hasSeed?'var(--g)':'#4a6a8a')+'">'+clLabel+'</td>'
@@ -1157,13 +1145,11 @@ function renderTable(){
       +'<td style="font-family:monospace;font-size:10px;color:#3a6a8a">'+r.deposit+'</td>'
       +'<td><span class="tag-exch '+exchCss+'" contenteditable="true" spellcheck="false" data-idx="'+idx+'" onblur="saveLabel(this)" onkeydown="labelKeydown(event,this)">'+exchDisplay+'</span></td>'
       +'<td style="color:#4a6a8a;font-size:10px">'+r.chain+'</td>'
-      +'<td style="white-space:nowrap"><a href="'+arkUrl(r.wallet)+'" target="_blank">wallet↗</a> · <a href="'+arkUrl(r.deposit)+'" target="_blank">deposit↗</a></td>'
-      +'</tr>';
+      +'<td style="white-space:nowrap"><a href="'+arkUrl(r.wallet)+'" target="_blank">wallet↗</a> · <a href="'+arkUrl(r.deposit)+'" target="_blank">deposit↗</a></td></tr>';
   }).join('');
 }
-
 function setMode(mode){
-  gMode=mode;var isAuto=mode==='auto';
+  gMode=mode; var isAuto=mode==='auto';
   gel('tab-auto').className='tab-btn'+(isAuto?' active':'');
   gel('tab-direct').className='tab-btn'+(isAuto?'':' active');
   gel('panel-direct').style.display=isAuto?'none':'';
@@ -1172,26 +1158,19 @@ function setMode(mode){
   ['p-exch-min','p-exch-max','p-spread-h'].forEach(function(id){var el=gel(id);if(!el||!el.closest('.row'))return;el.closest('.row').style.opacity=isAuto?'1':'0.4';el.closest('.row').style.pointerEvents=isAuto?'':'none';});
 }
 
-// ══ 섹션 11: CSV — 단일 함수로 통일 ════════════════════════════════
-// toCSV(edges): Edge 배열 → CSV 문자열
-// save(edges, filename): 다운로드
-// 모든 내보내기/저장은 이 두 함수만 사용
-function csvQuote(s){return '"'+(String(s||'')).replace(/"/g,'""')+'"';}
+// ══ 섹션 13: CSV — toCSV/saveCSV 단일화 ════════════════════════════
 function toCSV(edges){
-  clusterEdges(gEdges); // _cluster 최신화
+  clusterEdges(gEdges);
   var meta=_seedMeta();
   var hdr='cluster,wallet,name,type,deposit,exchange,chain,confidence,seed_connected,arkham_wallet,arkham_deposit';
-  var seen={};
-  var rows=[hdr];
+  var seen={},rows=[hdr];
   edges.forEach(function(e){
-    var k=e.wallet+'::'+e.deposit;if(seen[k])return;seen[k]=1;
+    var k=e.wallet+'::'+e.deposit; if(seen[k])return; seen[k]=1;
     var name=(PERSON_ADDRESSES[e.wallet]||'')+(WALLET_TAGS[e.wallet]?' ['+WALLET_TAGS[e.wallet]+']':'');
-    var exch=e.userLabel||e.exchange;
     var conf=e.cssClass==='high'?'HIGH':e.cssClass==='medium'?'MED':'';
     var seedConn=meta.seedClusters[e._cluster]?'Y':'N';
-    rows.push([e._cluster||'',e.wallet,csvQuote(name),
-      meta.seedSet[e.wallet]?'seed':'new',
-      e.deposit,csvQuote(exch),e.chain,conf,seedConn,
+    rows.push([e._cluster||'',e.wallet,csvQuote(name),meta.seedSet[e.wallet]?'seed':'new',
+      e.deposit,csvQuote(e.userLabel||e.exchange),e.chain,conf,seedConn,
       arkUrl(e.wallet),arkUrl(e.deposit)].join(','));
   });
   return rows.join(String.fromCharCode(10));
@@ -1201,144 +1180,169 @@ function saveCSV(edges,filename){
   download(filename+'-'+new Date().toISOString().slice(0,10)+'.csv','\uFEFF'+toCSV(edges),'text/csv;charset=utf-8-bom');
   addLog('저장 완료: '+filename+' ('+(edges.length)+'행)','ok');
 }
-
-// 버튼별 저장 함수
 function exportCSV(){saveCSV(gEdges,'wallet-clusters');}
 function saveResults(){saveCSV(gEdges,'wallet-results');}
 function saveFiltered(){
   clusterEdges(gEdges);
   var meta=_seedMeta();
-  var fw=gel('fw').value.toLowerCase(),fd=gel('fd').value.toLowerCase(),fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
-    var onlySeed=gel('only-seed-related')&&gel('only-seed-related').checked;
-  var onlySeedWallet=gel('only-seed')&&gel('only-seed').checked; var seen={},filtered=[];
+  var fw=gel('fw').value.toLowerCase(),fd=(gel('fd')&&gel('fd').value||'').toLowerCase();
+  var fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
+  var onlySeed=gel('only-seed-related')&&gel('only-seed-related').checked;
+  var onlySeedWallet=gel('only-seed')&&gel('only-seed').checked;
+  var seen={},filtered=[];
   gEdges.forEach(function(e){
     if(fw&&e.wallet.indexOf(fw)<0&&e.deposit.indexOf(fw)<0)return;
     if(fd&&e.deposit.indexOf(fd)<0)return;
     if(fe&&(e.userLabel||e.exchange).toLowerCase().indexOf(fe)<0)return;
     if(fc&&(e._cluster||'').toLowerCase().indexOf(fc)<0)return;
     if(onlySeedWallet&&!meta.seedSet[e.wallet])return;
-    if(onlySeed&&!meta.seedClusters[e._cluster])return;
-    var k=e.wallet+'::'+e.deposit;if(seen[k])return;seen[k]=1;
+    if(onlySeed){if(!meta.seedClusters[e._cluster])return;if(meta.seedSet[e.wallet])return;}
+    var k=e.wallet+'::'+e.deposit; if(seen[k])return; seen[k]=1;
     filtered.push(e);
   });
-  saveCSV(filtered,'wallet-filtered'+(onlySeed?'-seed-connected':''));
+  saveCSV(filtered,'wallet-filtered'+(onlySeed?'-seed-connected':onlySeedWallet?'-seed-only':''));
 }
 
-// ══ 섹션 12: 리포트 내보내기 ════════════════════════════════════════
+// ══ 섹션 14: 요약 패널 ══════════════════════════════════════════════
+// renderSummary, toggleSummaryWallet, saveSummary 모두 buildSummary() 사용
+function renderSummary(){
+  var panel=gel('summary-panel'); if(!panel||!gEdges.length)return;
+  var S=buildSummary();
+  var html='';
+  // 시드 지갑
+  html+='<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;color:var(--a);margin-bottom:6px">시드 지갑 — '+S.analyzedSeeds.length+'개</div>';
+  S.analyzedSeeds.forEach(function(w){
+    var name=PERSON_ADDRESSES[w]||'',tag=WALLET_TAGS[w]?(' ['+WALLET_TAGS[w]+']'):'';
+    var inR=!!S.wInfo[w];
+    html+='<div style="font-size:10px;padding:2px 0;color:#9ab8c8">'+(name+tag||w.slice(0,10)+'…')+' <span style="color:#3a6a9a">'+w+'</span>'+(inR?' <span style="color:#4a6a8a">(입금주소 '+Object.keys(S.wInfo[w].deps).length+'개)</span>':'')+'</div>';
+  });
+  html+='</div>';
+  // 새 지갑
+  html+='<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;color:var(--g);margin-bottom:6px">발견된 새 지갑 — '+S.newW.length+'개</div>';
+  S.newW.forEach(function(w,i){
+    var deps=Object.keys(S.wInfo[w].deps);
+    var label=gSummaryLabels[w]||'';
+    html+='<div style="border:1px solid var(--bd);border-radius:3px;padding:6px 8px;margin-bottom:4px;background:var(--bg3)">'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<input type="checkbox" checked data-w="'+w+'" onchange="toggleSummaryWallet(this)" style="accent-color:var(--r);cursor:pointer;flex-shrink:0">'
+      +'<span style="font-family:monospace;font-size:10px;color:#7ab4d4;flex:1">'+w+'</span>'
+      +'<input type="text" value="'+label.replace(/"/g,'&quot;')+'" placeholder="라벨..." data-w="'+w+'" onchange="gSummaryLabels[this.dataset.w]=this.value.trim()" style="width:130px;font-size:10px">'
+      +'</div>'
+      +'<div style="margin-top:4px;padding-left:20px">';
+    deps.forEach(function(dep){html+='<div style="font-size:9px;color:#3a6a8a;padding:1px 0">→ '+dep+' <span style="color:#2a4a6a">['+S.wInfo[w].deps[dep].exchange+' · '+S.wInfo[w].deps[dep].chain+']</span></div>';});
+    html+='</div></div>';
+  });
+  html+='</div>';
+  // 거래소 입금주소
+  html+='<div><div style="font-size:11px;font-weight:700;color:var(--b);margin-bottom:6px">거래소 추정 입금주소 — '+S.exchList.length+'개</div>';
+  S.exchList.forEach(function(x,i){html+='<div style="font-size:9px;color:#3a6a9a;padding:1px 0">'+(i+1)+'. <span style="color:#4a6a8a">['+x.chain+']</span> '+x.dep+' <span style="color:#2a4a6a">('+x.exchange+')</span></div>';});
+  html+='</div>';
+  panel.innerHTML=html;
+}
+function toggleSummaryWallet(chk){
+  var w=chk.dataset.w;
+  if(!chk.checked)gSummaryDeleted[w]=true; else delete gSummaryDeleted[w];
+  renderSummary();
+}
+function saveSummary(){
+  if(!gEdges.length){addLog('저장할 결과 없음','warn');return;}
+  var S=buildSummary();
+  var D='═'.repeat(63),d='─'.repeat(50);
+  var L=[D,'  요약 리포트  생성: '+new Date().toLocaleString('ko-KR'),D,''];
+  L.push('[ 시드 지갑 ]');
+  S.analyzedSeeds.forEach(function(w){
+    var name=PERSON_ADDRESSES[w]||'',tag=WALLET_TAGS[w]?(' ['+WALLET_TAGS[w]+']'):'';
+    var inR=!!S.wInfo[w];
+    L.push('  '+(name+tag||w.slice(0,10)+'…')+' — '+w+(inR?' (입금주소 '+Object.keys(S.wInfo[w].deps).length+'개)':' (미발견)'));
+  });
+  L.push('');
+  L.push('[ 발견된 새 지갑 — '+S.newW.length+'개 ]');
+  S.newW.forEach(function(w,i){
+    var label=gSummaryLabels[w]||'',deps=Object.keys(S.wInfo[w].deps);
+    L.push('  '+(i+1)+'. '+w+(label?' ['+label+']':''));
+    deps.forEach(function(dep){L.push('     → '+dep+' ['+S.wInfo[w].deps[dep].exchange+' · '+S.wInfo[w].deps[dep].chain+']');});
+  });
+  L.push('');
+  L.push('[ 거래소 추정 입금주소 — '+S.exchList.length+'개 ]');
+  S.exchList.forEach(function(x,i){L.push('  '+(i+1)+'. ['+x.chain+'] '+x.dep+'  ('+x.exchange+')');});
+  L.push('',D);
+  download('summary-'+new Date().toISOString().slice(0,10)+'.txt',L.join('\n'),'text/plain;charset=utf-8');
+  addLog('요약 저장 완료','ok');
+}
+
+// ══ 섹션 15: 리포트 내보내기 ════════════════════════════════════════
 function exportReport(){
   if(!gEdges.length){addLog('결과 없음','warn');return;}
-  clusterEdges(gEdges);
-  var meta=_seedMeta();
+  var S=buildSummary();
   var D='═'.repeat(63),d='─'.repeat(63);
   var L=[D,'  WALLET CLUSTER ANALYZER — 리포트','  생성: '+new Date().toLocaleString('ko-KR'),D];
-  var wInfo={};
-  gEdges.forEach(function(e){
-    if(!wInfo[e.wallet])wInfo[e.wallet]={deps:{},cluster:e._cluster};
-    wInfo[e.wallet].deps[e.deposit]={exchange:e.userLabel||e.exchange,chain:e.chain};
-  });
-  var allW=Object.keys(wInfo);
-  var clCnt=new Set(allW.map(function(w){return wInfo[w].cluster;})).size;
+  var allW=Object.keys(S.wInfo);
+  var clCnt=new Set(allW.map(function(w){return S.wInfo[w].cluster;})).size;
   L.push('  지갑: '+allW.length+'개  |  클러스터: '+clCnt+'개  |  API: '+gApiCalls+'회',D,'');
-  // 시드 섹션
-  var analyzedSeeds=Object.keys(gSelected).filter(function(a){return gSelected[a];});
-  if(!analyzedSeeds.length)analyzedSeeds=gSeeds.slice();
-  L.push('■ 시드 지갑 — '+analyzedSeeds.length+'개 분석',d);
-  analyzedSeeds.forEach(function(w,i){
+  L.push('■ 시드 지갑 — '+S.analyzedSeeds.length+'개 분석',d);
+  S.analyzedSeeds.forEach(function(w,i){
     var name=PERSON_ADDRESSES[w]||'',tag=WALLET_TAGS[w]?(' ['+WALLET_TAGS[w]+']'):'';
-    var inR=!!wInfo[w];
+    var inR=!!S.wInfo[w],deps=inR?Object.keys(S.wInfo[w].deps):[];
     L.push('  '+(i+1)+'위.  '+(name||w.slice(0,10)+'…')+tag,'       지갑: '+w);
-    if(inR){
-      var deps=Object.keys(wInfo[w].deps);
-      L.push('       거래소 추정 입금주소 ('+deps.length+'개):');
-      deps.forEach(function(dep){L.push('         '+dep+'  ['+wInfo[w].deps[dep].exchange+' · '+wInfo[w].deps[dep].chain+']');});
-      L.push('       클러스터: '+wInfo[w].cluster);
-    }else{L.push('       → 이번 분석에서 거래소 입금주소 미발견');}
+    if(inR){L.push('       거래소 추정 입금주소 ('+deps.length+'개):');deps.forEach(function(dep){L.push('         '+dep+'  ['+S.wInfo[w].deps[dep].exchange+' · '+S.wInfo[w].deps[dep].chain+']');});L.push('       클러스터: '+S.wInfo[w].cluster);}
+    else L.push('       → 이번 분석에서 거래소 입금주소 미발견');
     L.push('');
   });
-  // 신규 지갑 섹션
-  var seedW=allW.filter(function(w){return !!meta.seedSet[w];});
-  var newW=allW.filter(function(w){return !meta.seedSet[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
-  var w2s={};
-  newW.forEach(function(nw){var cs={};Object.keys(wInfo[nw].deps).forEach(function(dep){seedW.forEach(function(sw){if(wInfo[sw]&&wInfo[sw].deps[dep])cs[PERSON_ADDRESSES[sw]||sw.slice(0,8)+'…']=1;});});w2s[nw]=Object.keys(cs);});
   var groups={},multi=[],noSeed=[];
-  newW.forEach(function(nw){var cs=w2s[nw];if(!cs.length)noSeed.push(nw);else if(cs.length===1){if(!groups[cs[0]])groups[cs[0]]=[];groups[cs[0]].push(nw);}else multi.push(nw);});
+  S.newW.forEach(function(nw){var cs=S.w2s[nw];if(!cs.length)noSeed.push(nw);else if(cs.length===1){if(!groups[cs[0]])groups[cs[0]]=[];groups[cs[0]].push(nw);}else multi.push(nw);});
   L.push(d,'■ 신규 발견 지갑 — 시드별 연결',d);
   Object.keys(groups).forEach(function(sn){
     L.push('◆ '+sn+'  관련 지갑 ('+groups[sn].length+'개)','─'.repeat(50));
-    groups[sn].forEach(function(nw,i){var deps=Object.keys(wInfo[nw].deps);L.push('  '+(i+1)+'위.  '+nw,'       입금주소 ('+deps.length+'개):');deps.forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+' · '+wInfo[nw].deps[dep].chain+']');});L.push('       클러스터: '+wInfo[nw].cluster,'');});
+    groups[sn].forEach(function(nw,i){var deps=Object.keys(S.wInfo[nw].deps);L.push('  '+(i+1)+'위.  '+nw,'       입금주소 ('+deps.length+'개):');deps.forEach(function(dep){L.push('         '+dep+'  ['+S.wInfo[nw].deps[dep].exchange+' · '+S.wInfo[nw].deps[dep].chain+']');});L.push('       클러스터: '+S.wInfo[nw].cluster,'');});
   });
-  if(multi.length){L.push('◆ 복수 시드 공통 연결','─'.repeat(50));multi.forEach(function(nw,i){L.push('  '+(i+1)+'위.  '+nw,'       연결시드: '+w2s[nw].join(', '));Object.keys(wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+']');});L.push('       클러스터: '+wInfo[nw].cluster,'');});}
-  if(noSeed.length){L.push('◆ 시드 연결 없음 ('+noSeed.length+'개)','─'.repeat(50));noSeed.forEach(function(nw,i){var name=PERSON_ADDRESSES[nw]||'';L.push('  '+(i+1)+'위.  '+nw+(name?' ['+name+']':''));Object.keys(wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+wInfo[nw].deps[dep].exchange+' · '+wInfo[nw].deps[dep].chain+']');});L.push('       클러스터: '+wInfo[nw].cluster,'');});}
-  // ── 요약 섹션 ──────────────────────────────────────────────────
+  if(multi.length){L.push('◆ 복수 시드 공통 연결','─'.repeat(50));multi.forEach(function(nw,i){L.push('  '+(i+1)+'위.  '+nw,'       연결시드: '+S.w2s[nw].join(', '));Object.keys(S.wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+S.wInfo[nw].deps[dep].exchange+']');});L.push('       클러스터: '+S.wInfo[nw].cluster,'');});}
+  if(noSeed.length){L.push('◆ 시드 연결 없음 ('+noSeed.length+'개)','─'.repeat(50));noSeed.forEach(function(nw,i){var name=PERSON_ADDRESSES[nw]||'';L.push('  '+(i+1)+'위.  '+nw+(name?' ['+name+']':''));Object.keys(S.wInfo[nw].deps).forEach(function(dep){L.push('         '+dep+'  ['+S.wInfo[nw].deps[dep].exchange+' · '+S.wInfo[nw].deps[dep].chain+']');});L.push('       클러스터: '+S.wInfo[nw].cluster,'');});}
   L.push(d,'■ 요약',d);
-
-  // 시드 지갑
   L.push('[ 시드 지갑 ]');
-  analyzedSeeds.forEach(function(w){
-    var name=PERSON_ADDRESSES[w]||'';
-    var tag=WALLET_TAGS[w]?(' ['+WALLET_TAGS[w]+']'):'';
-    var inR=!!wInfo[w];
-    L.push('  '+(name||w.slice(0,10)+'…')+tag+' — '+w+(inR?' (입금주소 '+Object.keys(wInfo[w].deps).length+'개)':' (미발견)'));
+  S.analyzedSeeds.forEach(function(w){
+    var name=PERSON_ADDRESSES[w]||'',tag=WALLET_TAGS[w]?(' ['+WALLET_TAGS[w]+']'):'';
+    var inR=!!S.wInfo[w];
+    L.push('  '+(name+tag||w.slice(0,10)+'…')+' — '+w+(inR?' (입금주소 '+Object.keys(S.wInfo[w].deps).length+'개)':' (미발견)'));
   });
   L.push('');
-
-  // 발견된 새 지갑
-  L.push('[ 발견된 새 지갑 — '+newW.length+'개 ]');
-  newW.forEach(function(w,i){
-    var seeds=w2s[w].join(', ')||'시드 연결 없음';
-    var deps=Object.keys(wInfo[w].deps);
+  L.push('[ 발견된 새 지갑 — '+S.newW.length+'개 ]');
+  S.newW.forEach(function(w,i){
+    var deps=Object.keys(S.wInfo[w].deps);
     L.push('  '+(i+1)+'. '+w);
-    L.push('     연결 시드: '+seeds);
-    deps.forEach(function(dep){L.push('     → '+dep+' ['+wInfo[w].deps[dep].exchange+' · '+wInfo[w].deps[dep].chain+']');});
+    deps.forEach(function(dep){L.push('     → '+dep+' ['+S.wInfo[w].deps[dep].exchange+' · '+S.wInfo[w].deps[dep].chain+']');});
   });
   L.push('');
-
-  // 거래소 목록
-  var exchSet={};
-  gEdges.forEach(function(e){
-    var ex=(e.userLabel||e.exchange).replace(/CEX입금[★]*/,'').replace(/\(.*\)/,'').trim()||e.exchange;
-    var dep=e.deposit;
-    if(!exchSet[dep])exchSet[dep]={exchange:e.userLabel||e.exchange,chain:e.chain};
-  });
-  var exchList=Object.keys(exchSet).map(function(dep){return {dep:dep,exchange:exchSet[dep].exchange,chain:exchSet[dep].chain};});
-  exchList.sort(function(a,b){return a.chain.localeCompare(b.chain)||a.exchange.localeCompare(b.exchange);});
-  L.push('[ 거래소 추정 입금주소 — '+exchList.length+'개 ]');
-  exchList.forEach(function(x,i){
-    L.push('  '+(i+1)+'. ['+x.chain+'] '+x.dep+'  ('+x.exchange+')');
-  });
-  L.push('');
-
-  L.push(D,'  END OF REPORT',D);
+  L.push('[ 거래소 추정 입금주소 — '+S.exchList.length+'개 ]');
+  S.exchList.forEach(function(x,i){L.push('  '+(i+1)+'. ['+x.chain+'] '+x.dep+'  ('+x.exchange+')');});
+  L.push('',D,'  END OF REPORT',D);
   download('wallet-report-'+new Date().toISOString().slice(0,10)+'.txt',L.join('\n'),'text/plain;charset=utf-8');
   addLog('리포트 완료','ok');
 }
 
-// ══ 섹션 13: 결과 불러오기 ══════════════════════════════════════════
+// ══ 섹션 16: 결과 불러오기 ══════════════════════════════════════════
 function loadResults(input){
-  var file=input.files[0];if(!file)return;
+  var file=input.files[0]; if(!file)return;
   var reader=new FileReader();
   reader.onload=function(ev){
     try{
       var text=ev.target.result;
       if(text.trim().charAt(0)==='{'){
-        // JSON 구버전 호환
         var data=JSON.parse(text);var edges=data.edges||[];
         gEdges=edges.map(function(e){e.userLabel=e.userLabel||'';e.cssClass=e.cssClass||'';return e;});
         gApiCalls=data.apiCalls||0;
       }else{
-        // CSV
         var LF=String.fromCharCode(10);
         var lines=text.replace(String.fromCharCode(13)+LF,LF).replace(String.fromCharCode(13),LF).split(LF).filter(function(l){return l.trim();});
         var s=lines[0].toLowerCase().indexOf('cluster')>-1?1:0;
         gEdges=[];
         for(var i=s;i<lines.length;i++){
-          var c=lines[i].split(',');if(c.length<6)continue;
-          gEdges.push({_cluster:c[0].trim(),wallet:c[1].trim().toLowerCase(),
-            deposit:c[4].trim().toLowerCase(),exchange:c[5].trim().replace(/^"|"$/g,''),
-            chain:c[6].trim(),cssClass:c[7]==='HIGH'?'high':c[7]==='MED'?'medium':'',userLabel:''});
+          var c=lines[i].split(','); if(c.length<6)continue;
+          gEdges.push({_cluster:c[0].trim(),wallet:c[1].trim().toLowerCase(),deposit:c[4].trim().toLowerCase(),
+            exchange:c[5].trim().replace(/^"|"$/g,''),chain:c[6].trim(),
+            cssClass:c[7]==='HIGH'?'high':c[7]==='MED'?'medium':'',userLabel:''});
         }
       }
-      clusterEdges(gEdges);updateStats();renderTable();
+      clusterEdges(gEdges);updateStats();renderTable();renderSummary();
       addLog('결과 불러오기: '+gEdges.length+'개','ok');
     }catch(err){addLog('파일 오류: '+err.message,'err');}
     input.value='';
@@ -1346,7 +1350,7 @@ function loadResults(input){
   reader.readAsText(file,'utf-8');
 }
 
-// ══ 섹션 14: 시드 UI ════════════════════════════════════════════════
+// ══ 섹션 17: 시드 UI ════════════════════════════════════════════════
 function renderSeeds(){
   var q=(gel('seed-q').value||'').toLowerCase();
   var filtered=gSeeds.filter(function(a){var n=(PERSON_ADDRESSES[a]||'').toLowerCase();return !q||n.indexOf(q)>=0||a.indexOf(q)>=0;});
@@ -1354,7 +1358,7 @@ function renderSeeds(){
     var name=PERSON_ADDRESSES[a]||'',tag=WALLET_TAGS[a]?('<span style="background:rgba(0,255,157,.1);color:var(--g);border-radius:2px;font-size:9px;padding:1px 4px">'+WALLET_TAGS[a]+'</span>'):'';
     return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><input type="checkbox" '+(gSelected[a]?'checked':'')+' data-a="'+a+'" onchange="gSelected[this.dataset.a]=this.checked;updateSelLbl()" style="accent-color:var(--g);cursor:pointer;flex-shrink:0"><span style="color:var(--a);min-width:110px;font-size:11px">'+name+'</span>'+tag+'<span style="color:#3a6a9a;font-size:10px">'+a+'</span></div>';
   }).join('');
-  gel('seed-cnt-lbl').textContent=gSeeds.length;updateSelLbl();
+  gel('seed-cnt-lbl').textContent=gSeeds.length; updateSelLbl();
 }
 function updateSelLbl(){gel('sel-lbl').textContent='선택: '+Object.keys(gSelected).filter(function(a){return gSelected[a];}).length+'개';}
 function selAll(){gSeeds.forEach(function(a){gSelected[a]=true;});renderSeeds();}
@@ -1363,26 +1367,32 @@ function selInvert(){gSeeds.forEach(function(a){gSelected[a]=!gSelected[a];});re
 function addSeed(){var el=gel('add-addr'),v=el.value.trim().toLowerCase();if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}if(gSeeds.indexOf(v)<0){gSeeds.push(v);gSelected[v]=true;renderSeeds();addLog('추가: '+v,'ok');}el.value='';}
 function resetSeeds(){gSeeds=SEEDS_RAW.map(function(a){return a.toLowerCase();});gSelected={};gSeeds.forEach(function(a){gSelected[a]=true;});renderSeeds();addLog('시드 초기화','warn');}
 
-// ══ 섹션 15: 직접 모드 / 입금주소 필터 / 토큰 필터 UI ════════════════
+// ══ 섹션 18: 기타 UI 함수 ═══════════════════════════════════════════
 function addDirectDep(){var a=gel('direct-addr'),l=gel('direct-label'),c=gel('direct-chain-sel');var v=a.value.trim().toLowerCase();if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}if(gDirectDeps.find(function(d){return d.addr===v;})){addLog('이미 추가됨','warn');return;}gDirectDeps.push({addr:v,label:l.value.trim()||'입금주소',chainKey:c.value});a.value='';l.value='';renderDirectDeps();addLog('입금주소 추가: '+v,'ok');}
 function clearDirectDeps(){gDirectDeps=[];renderDirectDeps();}
 function renderDirectDeps(){var el=gel('direct-dep-list');if(!gDirectDeps.length){el.innerHTML='<span style="color:#2a4a6a;font-size:10px">추가된 입금주소 없음</span>';return;}el.innerHTML=gDirectDeps.map(function(d,i){var lbl=d.chainKey==='__no_bsc__'?'BSC제외':d.chainKey||'전체';return '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;font-size:10px"><span style="background:rgba(0,255,157,.1);color:var(--g);border-radius:2px;padding:1px 5px;font-weight:700">'+lbl+'</span><span style="color:var(--a);min-width:100px">'+d.label+'</span><span style="color:#3a6a9a;font-family:monospace">'+d.addr+'</span><button data-i="'+i+'" onclick="gDirectDeps.splice(+this.dataset.i,1);renderDirectDeps()" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button></div>';}).join('');}
 function addDepFilter(){var a=gel('dep-filter-addr'),l=gel('dep-filter-label'),m=gel('dep-filter-mode');var v=a.value.trim().toLowerCase();if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}if(gDepFilters.find(function(f){return f.addr===v;})){addLog('이미 등록됨','warn');return;}gDepFilters.push({addr:v,label:l.value.trim()||v.slice(0,10)+'…',mode:m.value});a.value='';l.value='';renderDepFilters();addLog('필터 등록: '+v,'ok');}
 function clearDepFilters(){gDepFilters=[];renderDepFilters();}
 function renderDepFilters(){gel('dep-filter-cnt').textContent=gDepFilters.length;var el=gel('dep-filter-list');if(!gDepFilters.length){el.innerHTML='<span style="color:#2a4a6a;font-size:10px">없음</span>';return;}el.innerHTML=gDepFilters.map(function(f,i){var c=f.mode==='exclude'?'var(--r)':'var(--g)';return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px"><span style="border-radius:2px;font-size:9px;font-weight:700;padding:1px 5px;color:'+c+'">'+(f.mode==='exclude'?'제외':'포함')+'</span><span style="color:var(--a);min-width:100px">'+f.label+'</span><span style="color:#3a6a9a;font-family:monospace">'+f.addr+'</span><button data-i="'+i+'" onclick="gDepFilters.splice(+this.dataset.i,1);renderDepFilters()" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button></div>';}).join('');}
-function saveDepFiltersCsv(){if(!gDepFilters.length){addLog('저장할 주소 없음','warn');return;}var lines=['addr,label,mode'];gDepFilters.forEach(function(f){lines.push([f.addr,csvQuote(f.label||''),f.mode||'exclude'].join(','));});download('dep-filters-'+new Date().toISOString().slice(0,10)+'.csv',lines.join('\n'),'text/csv;charset=utf-8');addLog('CSV 저장 완료','ok');}
-function loadDepFiltersCsv(input){var file=input.files[0];if(!file)return;var reader=new FileReader();reader.onload=function(e){try{var lines=e.target.result.split(/\r?\n/).filter(function(l){return l.trim();});var start=lines[0].toLowerCase().includes('addr')?1:0,added=0;for(var i=start;i<lines.length;i++){var cols=lines[i].split(',');var addr=(cols[0]||'').trim().toLowerCase(),label=(cols[1]||'').trim().replace(/^"|"$/g,''),mode=(cols[2]||'exclude').trim();if(!addr||!addr.startsWith('0x')||addr.length!==42)continue;if(gDepFilters.find(function(x){return x.addr===addr;}))continue;gDepFilters.push({addr:addr,label:label||addr.slice(0,10)+'…',mode:mode==='include'?'include':'exclude'});added++;}renderDepFilters();addLog('불러오기: '+added+'개 추가','ok');}catch(err){addLog('파일 오류: '+err.message,'err');}input.value='';};reader.readAsText(file);}
+function saveDepFiltersCsv(){if(!gDepFilters.length){addLog('저장할 주소 없음','warn');return;}var lines=['addr,label,mode'];gDepFilters.forEach(function(f){lines.push(f.addr+','+csvQuote(f.label||'')+','+(f.mode||'exclude'));});download('dep-filters-'+new Date().toISOString().slice(0,10)+'.csv',lines.join('\n'),'text/csv;charset=utf-8');addLog('CSV 저장 완료','ok');}
+function loadDepFiltersCsv(input){var file=input.files[0];if(!file)return;var reader=new FileReader();reader.onload=function(e){try{var lines=e.target.result.split(/\r?\n/).filter(function(l){return l.trim();});var start=lines[0].toLowerCase().startsWith('addr')?1:0,added=0;for(var i=start;i<lines.length;i++){var c=lines[i].split(',');var addr=(c[0]||'').trim().toLowerCase(),label=(c[1]||'').trim().replace(/^"|"$/g,''),mode=(c[2]||'exclude').trim();if(!addr||!addr.startsWith('0x')||addr.length!==42)continue;if(gDepFilters.find(function(x){return x.addr===addr;}))continue;gDepFilters.push({addr:addr,label:label||addr.slice(0,10)+'…',mode:mode==='include'?'include':'exclude'});added++;}renderDepFilters();addLog('불러오기: '+added+'개 추가','ok');}catch(err){addLog('파일 오류: '+err.message,'err');}input.value='';};reader.readAsText(file);}
 function addTokenFilter(){var c=gel('p-tf-chain').value,a=gel('p-tf-addr').value.trim().toLowerCase(),n=gel('p-tf-name').value.trim();if(!a){addLog('컨트랙트 주소 입력 필요','warn');return;}if(a!=='native'&&(!a.startsWith('0x')||a.length!==42)){addLog("유효한 0x 또는 'native' 입력","warn");return;}gTokenFilters.push({chainKey:c,addr:a,name:n||a.slice(0,8)+'…'});gel('p-tf-addr').value='';gel('p-tf-name').value='';renderTokenFilters();addLog('토큰 필터 추가','ok');}
 function quickToken(c,a,n){gel('p-tf-chain').value=c;gel('p-tf-addr').value=a;gel('p-tf-name').value=n;addTokenFilter();}
 function clearTokenFilters(){gTokenFilters=[];renderTokenFilters();}
 function renderTokenFilters(){var el=gel('token-filter-list');if(!gTokenFilters.length){el.innerHTML='<span style="font-size:10px;color:#2a4a6a">없음 (전체 토큰)</span>';return;}el.innerHTML=gTokenFilters.map(function(f,i){return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px"><span style="background:rgba(79,163,255,.12);color:var(--b);border-radius:2px;padding:1px 5px">'+(f.chainKey||'전체')+'</span><span style="color:var(--g);font-weight:700">'+f.name+'</span><span style="color:#3a6a9a;font-family:monospace">'+f.addr+'</span><button data-i="'+i+'" onclick="gTokenFilters.splice(+this.dataset.i,1);renderTokenFilters()" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button></div>';}).join('');}
+function addSenderBl(){var a=gel('sender-bl-addr'),l=gel('sender-bl-label');var v=a.value.trim().toLowerCase();if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}gSenderBl[v]=l.value.trim()||v.slice(0,10)+'…';a.value='';l.value='';renderSenderBl();addLog('블랙리스트 추가: '+v,'ok');}
+function clearSenderBl(){gSenderBl={};renderSenderBl();addLog('블랙리스트 초기화','warn');}
+function renderSenderBl(){var keys=Object.keys(gSenderBl);gel('sender-bl-cnt').textContent=keys.length;var el=gel('sender-bl-list');if(!keys.length){el.innerHTML='<span style="color:#2a4a6a;font-size:10px">없음</span>';return;}el.innerHTML=keys.map(function(a){return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px"><span style="color:var(--r);font-weight:700">✕</span><span style="color:var(--a);min-width:140px">'+gSenderBl[a]+'</span><span style="color:#3a6a9a;font-family:monospace">'+a+'</span><button data-a="'+a+'" onclick="delete gSenderBl[this.dataset.a];renderSenderBl()" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button></div>';}).join('');}
+function applySenderBl(){var before=gEdges.length;gEdges=gEdges.filter(function(e){return !gSenderBl[e.wallet];});var removed=before-gEdges.length;clusterEdges(gEdges);updateStats();renderTable();renderSummary();addLog('블랙리스트 적용: '+removed+'개 제거','ok');}
+function saveSenderBlCsv(){var keys=Object.keys(gSenderBl);if(!keys.length){addLog('저장할 주소 없음','warn');return;}var lines=['addr,label'];keys.forEach(function(a){lines.push(a+','+csvQuote(gSenderBl[a]));});download('sender-blacklist-'+new Date().toISOString().slice(0,10)+'.csv',lines.join('\n'),'text/csv;charset=utf-8');addLog('블랙리스트 CSV 저장','ok');}
+function loadSenderBlCsv(input){var file=input.files[0];if(!file)return;var reader=new FileReader();reader.onload=function(e){try{var lines=e.target.result.split(/\r?\n/).filter(function(l){return l.trim();});var start=lines[0].toLowerCase().startsWith('addr')?1:0,added=0;for(var i=start;i<lines.length;i++){var c=lines[i].split(',');var addr=(c[0]||'').trim().toLowerCase(),label=(c[1]||'').trim().replace(/^"|"$/g,'');if(!addr||!addr.startsWith('0x')||addr.length!==42)continue;gSenderBl[addr]=label||addr.slice(0,10)+'…';added++;}renderSenderBl();addLog('블랙리스트 불러오기: '+added+'개','ok');}catch(err){addLog('파일 오류: '+err.message,'err');}input.value='';};reader.readAsText(file);}
 
-// ══ 섹션 16: 체인 UI + localStorage ═════════════════════════════════
+// ══ 섹션 19: 체인 UI + localStorage ════════════════════════════════
 function buildChainUI(){
   gel('chain-rpc-rows').innerHTML=CHAINS.map(function(c){return '<div class="chain-row"><input type="checkbox" id="on-'+c.key+'" style="accent-color:var(--g);cursor:pointer"><span style="font-size:11px;font-weight:700;color:'+c.color+'">'+c.name+'</span><input type="text" id="rpc-'+c.key+'" style="width:100%" placeholder="'+c.placeholder+'"></div>';}).join('');
   var opts='<option value="">전체</option>',dOpts='<option value="">전체 체인</option><option value="__no_bsc__">전체(BSC 제외)</option>';
   CHAINS.forEach(function(c){opts+='<option value="'+c.key+'">'+c.name+'</option>';dOpts+='<option value="'+c.key+'">'+c.name+'</option>';});
-  gel('p-tf-chain').innerHTML=opts;gel('direct-chain-sel').innerHTML=dOpts;
+  gel('p-tf-chain').innerHTML=opts; gel('direct-chain-sel').innerHTML=dOpts;
 }
 function lsInit(){
   CHAINS.forEach(function(c){
@@ -1391,77 +1401,18 @@ function lsInit(){
     if(oEl){var sv=localStorage.getItem('wca_on-'+c.key);oEl.checked=sv===null?false:(sv==='1');oEl.addEventListener('change',function(){localStorage.setItem('wca_on-'+c.key,oEl.checked?'1':'0');});}
   });
   ['p-exch-min','p-exch-max','p-spread-h','p-max-senders','p-tx-min','p-tx-max','p-nonce-max','p-period-days','p-rps','p-concur'].forEach(function(id){
-    var el=gel(id);if(!el)return;
-    var sv=localStorage.getItem('wca_'+id);if(sv!==null)el.value=sv;
+    var el=gel(id); if(!el)return;
+    var sv=localStorage.getItem('wca_'+id); if(sv!==null)el.value=sv;
     el.addEventListener('change',function(){localStorage.setItem('wca_'+id,el.value);});
     el.addEventListener('input',function(){localStorage.setItem('wca_'+id,el.value);});
   });
 }
-// ══ 발신자 블랙리스트 UI ════════════════════════════════════════
-function addSenderBl(){
-  var a=gel('sender-bl-addr'),l=gel('sender-bl-label');
-  var v=a.value.trim().toLowerCase();
-  if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}
-  gSenderBl[v]=l.value.trim()||v.slice(0,10)+'…';
-  a.value='';l.value='';renderSenderBl();addLog('블랙리스트 추가: '+v,'ok');
-}
-function clearSenderBl(){gSenderBl={};renderSenderBl();addLog('블랙리스트 초기화','warn');}
-function renderSenderBl(){
-  var keys=Object.keys(gSenderBl);
-  gel('sender-bl-cnt').textContent=keys.length;
-  var el=gel('sender-bl-list');
-  if(!keys.length){el.innerHTML='<span style="color:#2a4a6a;font-size:10px">없음</span>';return;}
-  el.innerHTML=keys.map(function(a){
-    return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px">'
-      +'<span style="color:var(--r);font-weight:700">✕</span>'
-      +'<span style="color:var(--a);min-width:140px">'+gSenderBl[a]+'</span>'
-      +'<span style="color:#3a6a9a;font-family:monospace">'+a+'</span>'
-      +'<button data-a="'+a+'" onclick="delete gSenderBl[this.dataset.a];renderSenderBl()" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button>'
-      +'</div>';
-  }).join('');
-}
-function applySenderBl(){
-  // 재분석 없이 현재 gEdges에서 즉시 제거
-  var before=gEdges.length;
-  gEdges=gEdges.filter(function(e){return !gSenderBl[e.wallet];});
-  var removed=before-gEdges.length;
-  clusterEdges(gEdges);updateStats();renderTable();
-  addLog('블랙리스트 적용: '+removed+'개 제거 (재분석 불필요)','ok');
-}
-function saveSenderBlCsv(){
-  var keys=Object.keys(gSenderBl);
-  if(!keys.length){addLog('저장할 주소 없음','warn');return;}
-  var lines=['addr,label'];
-  keys.forEach(function(a){lines.push(a+','+csvQuote(gSenderBl[a]));});
-  download('sender-blacklist-'+new Date().toISOString().slice(0,10)+'.csv',lines.join('\n'),'text/csv;charset=utf-8');
-  addLog('블랙리스트 CSV 저장','ok');
-}
-function loadSenderBlCsv(input){
-  var file=input.files[0];if(!file)return;
-  var reader=new FileReader();
-  reader.onload=function(e){
-    try{
-      var lines=e.target.result.split(/\r?\n/).filter(function(l){return l.trim();});
-      var start=lines[0].toLowerCase().startsWith('addr')?1:0,added=0;
-      for(var i=start;i<lines.length;i++){
-        var c=lines[i].split(',');
-        var addr=(c[0]||'').trim().toLowerCase(),label=(c[1]||'').trim().replace(/^"|"$/g,'');
-        if(!addr||!addr.startsWith('0x')||addr.length!==42)continue;
-        gSenderBl[addr]=label||addr.slice(0,10)+'…';added++;
-      }
-      renderSenderBl();addLog('블랙리스트 불러오기: '+added+'개','ok');
-    }catch(err){addLog('파일 오류: '+err.message,'err');}
-    input.value='';
-  };
-  reader.readAsText(file);
-}
-
 (function init(){
-  buildChainUI();lsInit();
+  buildChainUI(); lsInit();
   gel('steps').innerHTML=STEPS_DEF.map(function(s){return '<div class="srow"><div class="snum" id="sn'+s.id+'">'+s.id+'</div><div class="slbl" id="sl'+s.id+'">'+s.label+'</div></div>';}).join('');
   renderSeeds();renderDirectDeps();renderDepFilters();renderTokenFilters();renderSenderBl();updateStats();setMode('auto');
   addLog('준비 완료. RPC URL 입력 → 분석 시작','ok');
-  addLog('v16.1 · toCSV/saveCSV 단일화 · isZero 필터 · _seedMeta 캐시','info');
+  addLog('v16.2 · buildSummary() 단일화 · computeSweep 토큰별 추적','info');
 })();
 
 </script>
