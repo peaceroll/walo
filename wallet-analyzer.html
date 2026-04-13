@@ -621,7 +621,6 @@ const WALLET_TAGS = {
   "0x7e151351180ae4d443280e59d8ec4f0b88a097da": "stake",
   "0x876eb4a3d7261bea7d0c11fb37d605d0ce802fc9": "stake"
 };
-
 // ══ 섹션 1: 체인 정의 ═══════════════════════════════════════════════
 var CHAINS = [
   {key:'eth',     name:'ETH', color:'#4fa3ff', blockTime:12,   placeholder:'https://eth-mainnet.g.alchemy.com/v2/...'},
@@ -651,6 +650,7 @@ var gDirectDeps=[], gDepFilters=[], gTokenFilters=[], gSenderBl={};
 var gBlockCache={}, gHotTargets={}, gSnapshot=null;
 var gRateQueue=[], gRateRun=false, gRateTs=0, gRateRPS=2;
 gSeeds.forEach(function(a){gSelected[a]=true;});
+
 
 // ══ 섹션 3: 유틸 ════════════════════════════════════════════════════
 function gel(id){return document.getElementById(id);}
@@ -781,6 +781,7 @@ async function getNonce(rpcUrl,address){
     var d=await resp.json(); return parseInt(d.result,16)||0;
   }catch(e){return -1;}
 }
+
 
 // ══ 섹션 6: 스윕 계산 ═══════════════════════════════════════════════
 // 원칙: 토큰별 독립 추적 → 가스비 ETH가 비율을 낮추지 않음
@@ -925,20 +926,6 @@ function buildSummary(){
   return {seedSet:seedSet,seedClusters:seedClusters,wInfo:wInfo,seedW:seedW,newW:newW,w2s:w2s,exchList:exchList,analyzedSeeds:analyzedSeeds};
 }
 
-// ══ 섹션 10: UI 헬퍼 ════════════════════════════════════════════════
-function _seedMeta(){
-  clusterEdges(gEdges);
-  var seedSet={};gSeeds.forEach(function(a){seedSet[a]=1;});
-  var seedClusters={};gEdges.forEach(function(e){if(seedSet[e.wallet]&&e._cluster)seedClusters[e._cluster]=1;});
-  return {seedSet:seedSet,seedClusters:seedClusters};
-}
-function setStep(n){STEPS_DEF.forEach(function(s){var el=gel('sn'+s.id);if(!el)return;el.className='snum'+(s.id<n?' done':s.id===n?' act':'');gel('sl'+s.id).className='slbl'+(s.id<n?' done':s.id===n?' act':'');});}
-function updateStats(){
-  var deps={},wallets={};gEdges.forEach(function(e){deps[e.deposit]=1;wallets[e.wallet]=1;});
-  gel('s-api').textContent=gApiCalls;gel('s-dep').textContent=Object.keys(deps).length;
-  gel('s-edge').textContent=gEdges.length;gel('s-wl').textContent=Object.keys(wallets).length;
-  gel('s-cl').textContent=clusterEdges(gEdges.slice());
-}
 
 // ══ 섹션 11: 분석 파이프라인 ════════════════════════════════════════
 async function runAnalysis(isResume){
@@ -1090,6 +1077,22 @@ async function collectInbound(depMap,opts){
   setProgress(1,1,'완료');
   STEPS_DEF.forEach(function(s){var n=gel('sn'+s.id);if(n){n.className='snum done';gel('sl'+s.id).className='slbl done';}});
   addLog('=== 완료 · API '+gApiCalls+'회 · 연결 '+gEdges.length+'개 ===','ok');
+}
+
+
+// ══ 섹션 10: UI 헬퍼 ════════════════════════════════════════════════
+function _seedMeta(){
+  clusterEdges(gEdges);
+  var seedSet={};gSeeds.forEach(function(a){seedSet[a]=1;});
+  var seedClusters={};gEdges.forEach(function(e){if(seedSet[e.wallet]&&e._cluster)seedClusters[e._cluster]=1;});
+  return {seedSet:seedSet,seedClusters:seedClusters};
+}
+function setStep(n){STEPS_DEF.forEach(function(s){var el=gel('sn'+s.id);if(!el)return;el.className='snum'+(s.id<n?' done':s.id===n?' act':'');gel('sl'+s.id).className='slbl'+(s.id<n?' done':s.id===n?' act':'');});}
+function updateStats(){
+  var deps={},wallets={};gEdges.forEach(function(e){deps[e.deposit]=1;wallets[e.wallet]=1;});
+  gel('s-api').textContent=gApiCalls;gel('s-dep').textContent=Object.keys(deps).length;
+  gel('s-edge').textContent=gEdges.length;gel('s-wl').textContent=Object.keys(wallets).length;
+  gel('s-cl').textContent=clusterEdges(gEdges.slice());
 }
 
 // ══ 섹션 12: 결과 테이블 렌더링 ════════════════════════════════════
