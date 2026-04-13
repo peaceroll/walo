@@ -780,7 +780,11 @@ async function alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,wi
   if(pageKey)params.pageKey=pageKey;
   if(tf.contracts.length)params.contractAddresses=tf.contracts;
   var body=JSON.stringify({id:1,jsonrpc:'2.0',method:method,params:[params]});
-  var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:body});});
+  var resp=await rateCall(function(){
+    var ctrl=new AbortController();
+    setTimeout(function(){ctrl.abort();},15000); // alchemy는 15초 (응답이 더 큼)
+    return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:body,signal:ctrl.signal});
+  });
   if(resp.status===429){addLog('⚠ 429 — 3초 대기','warn');await sleep(3000);return alchemyCall(rpcUrl,chainKey,provider,direction,address,pageKey,withMeta,blockTime,days);}
   if(!resp.ok){var t=await resp.text().catch(function(){return '';});throw new Error('HTTP '+resp.status+' '+t.slice(0,80));}
   var data=await resp.json();
@@ -800,26 +804,45 @@ async function fetchAll(rpcUrl,chainKey,provider,direction,address,blockTime,day
 }
 async function getCode(rpcUrl,address){
   try{
-    var ctrl=new AbortController();
-    var tId=setTimeout(function(){ctrl.abort();},8000);
-    var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getCode',params:[address,'latest']}),
-      signal:ctrl.signal});});
-    clearTimeout(tId);
-    var d=await resp.json(); var code=d.result||'0x'; return code!=='0x'&&code.length>2;
+    var isCon=await rateCall(async function(){
+      return await Promise.race([
+        (async function(){
+          var resp=await fetch(rpcUrl,{method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getCode',params:[address,'latest']})});
+          var d=await resp.json();
+          var code=d.result||'0x';
+          return code!=='0x'&&code.length>2;
+        })(),
+        new Promise(function(_,rej){setTimeout(function(){rej(new Error('getCode timeout'));},8000);})
+      ]);
+    });
+    return isCon;
   }catch(e){return false;}
 }
+// nonce 캐시 — 같은 주소 반복 조회 방지
+var _nonceCache={};
+function _nonceCacheKey(rpcUrl,address){return rpcUrl.slice(-10)+'|'+address;}
+
 async function getNonce(rpcUrl,address){
+  var key=_nonceCacheKey(rpcUrl,address);
+  if(_nonceCache[key]!==undefined)return _nonceCache[key];
   try{
-    var ctrl=new AbortController();
-    var tId=setTimeout(function(){ctrl.abort();},8000);
-    var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getTransactionCount',params:[address,'latest']}),
-      signal:ctrl.signal});});
-    clearTimeout(tId);
-    var d=await resp.json(); return parseInt(d.result,16)||0;
+    // rateCall 내부에서 fetch+json+타임아웃 전체 처리
+    var nonce=await rateCall(async function(){
+      return await Promise.race([
+        (async function(){
+          var resp=await fetch(rpcUrl,{method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getTransactionCount',params:[address,'latest']})});
+          var d=await resp.json();
+          return parseInt(d.result,16)||0;
+        })(),
+        new Promise(function(_,rej){setTimeout(function(){rej(new Error('nonce timeout'));},8000);})
+      ]);
+    });
+    _nonceCache[key]=nonce;
+    return nonce;
   }catch(e){return -1;}
 }
 
@@ -974,7 +997,7 @@ async function runAnalysis(isResume){
   if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 선택하세요','err');return;}
   gAborted=false;gBlockCache={};gRateRPS=num('p-rps',2);
   gApiCalls=isResume?gApiCalls:0;
-  if(!isResume){gEdges=[];gHotTargets={};gSnapshot=null;gSS={w:{},d:{}};gHW={};gHWS={};}
+  if(!isResume){gEdges=[];gHotTargets={};gSnapshot=null;gSS={w:{},d:{}};gHW={};gHWS={};_nonceCache={};}
   else addLog('기존 결과 '+gEdges.length+'개 유지하고 재분석','info');
   gel('btn-run').disabled=true;gel('btn-stop').disabled=false;gel('btn-resume').style.display='none';
   if(!isResume){gel('tbody').innerHTML='';gel('no-res').style.display='';gel('res-cnt').textContent='0';}
@@ -1118,9 +1141,9 @@ async function collectInbound(depMap,opts){
               if(nonceTotal>0)setStatus('STEP 3 · '+short(dm.addr)+' nonce 검증 ('+nonceDone+'/'+nonceTotal+')…');
             })(),
             sleep(15000).then(function(){
+              // 타임아웃 = 확인 불가 → 제거 아님, 일단 포함
               if(fromMap[addr]){
-                addLog('[STEP 3] '+short(addr)+' nonce 타임아웃(15s) → 스킵','warn');
-                delete fromMap[addr];
+                addLog('[STEP 3] '+short(addr)+' nonce 타임아웃 → 검증불가(포함)','warn');
               }
             })
           ])
