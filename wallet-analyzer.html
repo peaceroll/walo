@@ -1105,9 +1105,11 @@ async function collectInbound(depMap,opts){
       });
     }
     setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');
-    updateStats(); renderTable();
+    updateStats(); // 카운터만 — 렌더는 STEP4에서
   },opts.concurrency);
-  setStep(4); clusterEdges(gEdges); updateStats(); renderTable(); renderSummary();
+  // STEP 4: 디바운스 타이머 취소 후 최종 1회 렌더
+  if(_renderTimer){clearTimeout(_renderTimer);_renderTimer=null;}
+  setStep(4); renderAll(); // 클러스터계산+렌더 단 1회
   setProgress(1,1,'완료');
   STEPS_DEF.forEach(function(s){var n=gel('sn'+s.id);if(n){n.className='snum done';gel('sl'+s.id).className='slbl done';}});
   addLog('=== 완료 · API '+gApiCalls+'회 · 연결 '+gEdges.length+'개 · 핫월렛추정 '+Object.keys(gHW).length+'개 ===','ok');
@@ -1322,11 +1324,26 @@ function _seedMeta(){
   return {seedSet:seedSet,seedClusters:seedClusters};
 }
 function setStep(n){STEPS_DEF.forEach(function(s){var el=gel('sn'+s.id);if(!el)return;el.className='snum'+(s.id<n?' done':s.id===n?' act':'');gel('sl'+s.id).className='slbl'+(s.id<n?' done':s.id===n?' act':'');});}
+// renderAll: 비싼 연산을 단 한 곳에서만 실행
+// STEP4 완료 + 파일 로드 + 수동 새로고침 시에만 호출
+function renderAll(){
+  clusterEdges(gEdges);
+  gel('s-cl').textContent=new Set(gEdges.map(function(e){return e._cluster;})).size;
+  updateStats();
+  renderTable();
+  renderSummary();
+  renderHotWallets();
+}
+// updateStats: 단순 카운터만 — clusterEdges 절대 호출 안 함
+// 분석 중 매 스텝마다 호출되므로 최대한 가볍게 유지
 function updateStats(){
-  var deps={},wallets={};gEdges.forEach(function(e){deps[e.deposit]=1;wallets[e.wallet]=1;});
-  gel('s-api').textContent=gApiCalls;gel('s-dep').textContent=Object.keys(deps).length;
-  gel('s-edge').textContent=gEdges.length;gel('s-wl').textContent=Object.keys(wallets).length;
-  gel('s-cl').textContent=clusterEdges(gEdges.slice());
+  var deps={},wallets={};
+  for(var i=0;i<gEdges.length;i++){deps[gEdges[i].deposit]=1;wallets[gEdges[i].wallet]=1;}
+  gel('s-api').textContent=gApiCalls;
+  gel('s-dep').textContent=Object.keys(deps).length;
+  gel('s-edge').textContent=gEdges.length;
+  gel('s-wl').textContent=Object.keys(wallets).length;
+  // s-cl은 renderAll()에서만 설정
 }
 
 // ══ 섹션 12: 결과 테이블 렌더링 ════════════════════════════════════
@@ -1606,7 +1623,7 @@ function loadResults(input){
             cssClass:c[7]==='HIGH'?'high':c[7]==='MED'?'medium':''});
         }
       }
-      clusterEdges(gEdges);updateStats();renderTable();renderSummary();renderHotWallets();
+      renderAll();
       addLog('결과 불러오기: '+gEdges.length+'개','ok');
     }catch(err){addLog('파일 오류: '+err.message,'err');}
     input.value='';
@@ -1647,7 +1664,7 @@ function renderTokenFilters(){var el=gel('token-filter-list');if(!gTokenFilters.
 function addSenderBl(){var a=gel('sender-bl-addr'),l=gel('sender-bl-label');var v=a.value.trim().toLowerCase();if(!v.startsWith('0x')||v.length!==42){addLog('유효한 0x 주소 아님','warn');return;}gSenderBl[v]=l.value.trim()||v.slice(0,10)+'…';a.value='';l.value='';renderSenderBl();addLog('블랙리스트 추가: '+v,'ok');}
 function clearSenderBl(){gSenderBl={};renderSenderBl();addLog('블랙리스트 초기화','warn');}
 function renderSenderBl(){var keys=Object.keys(gSenderBl);gel('sender-bl-cnt').textContent=keys.length;var el=gel('sender-bl-list');if(!keys.length){el.innerHTML='<span style="color:#2a4a6a;font-size:10px">없음</span>';return;}el.innerHTML=keys.map(function(a){return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px"><span style="color:var(--r);font-weight:700">✕</span><span style="color:var(--a);min-width:140px">'+gSenderBl[a]+'</span><span style="color:#3a6a9a;font-family:monospace">'+a+'</span><button data-a="'+a+'" onclick="delete gSenderBl[this.dataset.a];renderSenderBl()" style="background:none;border:none;color:var(--r);cursor:pointer;margin-left:auto">✕</button></div>';}).join('');}
-function applySenderBl(){var before=gEdges.length;gEdges=gEdges.filter(function(e){return !gSenderBl[e.wallet];});var removed=before-gEdges.length;clusterEdges(gEdges);updateStats();renderTable();renderSummary();addLog('블랙리스트 적용: '+removed+'개 제거','ok');}
+function applySenderBl(){var before=gEdges.length;gEdges=gEdges.filter(function(e){return !gSenderBl[e.wallet];});var removed=before-gEdges.length;renderAll();addLog('블랙리스트 적용: '+removed+'개 제거','ok');}
 function saveSenderBlCsv(){var keys=Object.keys(gSenderBl);if(!keys.length){addLog('저장할 주소 없음','warn');return;}var lines=['addr,label'];keys.forEach(function(a){lines.push(a+','+csvQuote(gSenderBl[a]));});download('sender-blacklist-'+new Date().toISOString().slice(0,10)+'.csv',lines.join('\n'),'text/csv;charset=utf-8');addLog('블랙리스트 CSV 저장','ok');}
 function loadSenderBlCsv(input){var file=input.files[0];if(!file)return;var reader=new FileReader();reader.onload=function(e){try{var lines=e.target.result.split(/\r?\n/).filter(function(l){return l.trim();});var start=lines[0].toLowerCase().startsWith('addr')?1:0,added=0;for(var i=start;i<lines.length;i++){var c=lines[i].split(',');var addr=(c[0]||'').trim().toLowerCase(),label=(c[1]||'').trim().replace(/^"|"$/g,'');if(!addr||!addr.startsWith('0x')||addr.length!==42)continue;gSenderBl[addr]=label||addr.slice(0,10)+'…';added++;}renderSenderBl();addLog('블랙리스트 불러오기: '+added+'개','ok');}catch(err){addLog('파일 오류: '+err.message,'err');}input.value='';};reader.readAsText(file);}
 
