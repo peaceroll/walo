@@ -996,7 +996,7 @@ async function runAutoMode(chains,opts,isResume){
       var k=to+'::'+ch.key; if(!destMap[k])destMap[k]={addr:to,chain:ch};
     });
     visitedSeeds[seed]=true;
-    setProgress(++done1,tasks.length,'STEP 1 · 시드 아웃바운드 수집');
+    setBar(++done1,tasks.length); setStatus('STEP 1 · '+short(task.seed)+' ('+task.chain.name+') 완료');
   },opts.concurrency);
   addLog('[STEP 1] 목적지 '+Object.keys(destMap).length+'개','info');
   gSnapshot={visitedSeeds:visitedSeeds,destMap:destMap};
@@ -1006,17 +1006,17 @@ async function runAutoMode(chains,opts,isResume){
   await runParallel(destKeys,async function(k){
     if(gAborted)return;
     var d=destMap[k],ch=d.chain;
-    if(isZero(d.addr)){setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');return;}
+    if(isZero(d.addr)){setBar(++done2,destKeys.length); setStatus('STEP 2 · '+short(d.addr)+' 완료');return;}
     var flt=gDepFilters.find(function(f){return f.addr===d.addr;});
-    if(flt&&flt.mode==='exclude'){addLog('[STEP 2] ✗ '+short(d.addr)+' [제외]','dim');setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');return;}
-    if(flt&&flt.mode==='include'){depMap[k]={addr:d.addr,chain:ch,label:'['+flt.label+'] 강제포함',cssClass:'medium'};setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');return;}
+    if(flt&&flt.mode==='exclude'){addLog('[STEP 2] ✗ '+short(d.addr)+' [제외]','dim');setBar(++done2,destKeys.length); setStatus('STEP 2 · '+short(d.addr)+' 완료');return;}
+    if(flt&&flt.mode==='include'){depMap[k]={addr:d.addr,chain:ch,label:'['+flt.label+'] 강제포함',cssClass:'medium'};setBar(++done2,destKeys.length); setStatus('STEP 2 · '+short(d.addr)+' 완료');return;}
     var assessment;
     try{assessment=await analyzeCandidate(ch,d.addr,opts);}
-    catch(e){addLog('[STEP 2] ⚠ '+short(d.addr)+': '+String(e.message||e),'warn');setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');return;}
-    if(assessment.skip){addLog('[STEP 2] ✗ '+short(d.addr)+' → '+assessment.reason,'dim');setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');return;}
+    catch(e){addLog('[STEP 2] ⚠ '+short(d.addr)+': '+String(e.message||e),'warn');setBar(++done2,destKeys.length); setStatus('STEP 2 · '+short(d.addr)+' 완료');return;}
+    if(assessment.skip){addLog('[STEP 2] ✗ '+short(d.addr)+' → '+assessment.reason,'dim');setBar(++done2,destKeys.length); setStatus('STEP 2 · '+short(d.addr)+' 완료');return;}
     depMap[k]={addr:d.addr,chain:ch,label:assessment.label,cssClass:assessment.cssClass};
     addLog('[STEP 2] ✓ '+short(d.addr)+' '+assessment.label+' ('+ch.name+')','ok');
-    setProgress(++done2,destKeys.length,'STEP 2 · 거래소 추정');
+    setBar(++done2,destKeys.length); setStatus('STEP 2 · '+short(d.addr)+' 완료');
   },opts.concurrency);
   addLog('[STEP 2] 거래소 추정 '+Object.keys(depMap).length+'개','info');
   await collectInbound(depMap,opts);
@@ -1053,7 +1053,7 @@ async function collectInbound(depMap,opts){
       addLog('  └ p'+(Math.ceil(txs.length/100))+': '+batch.length+'건 ('+txs.length+')','dim');
       pageKey=result.pageKey; if(!pageKey||!batch.length)break;
     }
-    if(earlyStop){setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');return;}
+    if(earlyStop){setBar(++done3,depKeys.length);setStatus('STEP 3 · '+short(dm.addr)+' 조기종료');return;}
     addLog('[STEP 3] → '+txs.length+'건','ok');
     var fromMap={};
     txs.forEach(function(tx){
@@ -1075,6 +1075,11 @@ async function collectInbound(depMap,opts){
     var fromKeys=Object.keys(fromMap);
     if(fromKeys.length>opts.maxSenders){addLog('[STEP 3] ⚠ '+short(dm.addr)+' 발신자 '+fromKeys.length+'명 초과 → 스킵','warn');}
     else{
+      var nonceTotal=fromKeys.filter(function(a){return !seedSet[a];}).length;
+      var nonceDone=0;
+      if(nonceTotal>0){
+        setStatus('STEP 3 · '+short(dm.addr)+' nonce 검증 (0/'+nonceTotal+')…');
+      }
       var checks=fromKeys.filter(function(a){return !seedSet[a];}).map(function(addr){
         return Promise.all([
           getCode(ch.rpc,addr).then(function(isCon){if(isCon)delete fromMap[addr];}),
@@ -1096,6 +1101,10 @@ async function collectInbound(depMap,opts){
                 }
               }
             }
+          nonceDone++;
+            if(nonceTotal>0){
+              setStatus('STEP 3 · '+short(dm.addr)+' nonce 검증 ('+nonceDone+'/'+nonceTotal+')…');
+            }
           })()
         ]);
       });
@@ -1104,16 +1113,15 @@ async function collectInbound(depMap,opts){
         gEdges.push({wallet:from,deposit:dm.addr,exchange:dm.label,cssClass:dm.cssClass||'',chain:ch.name,_cluster:''});
       });
     }
-    setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');
-    updateStats(); // 카운터만 — 렌더는 STEP4에서
+    setBar(++done3,depKeys.length); setStatus('STEP 3 · '+short(dm.addr)+' 완료');
+    updateStats();
   },opts.concurrency);
   // STEP 4: 디바운스 타이머 취소 후 최종 1회 렌더
   if(_renderTimer){clearTimeout(_renderTimer);_renderTimer=null;}
-  setStep(4); renderAll(); // 클러스터계산+렌더 단 1회
+  setStep(4); await renderAll(); // 클러스터계산+렌더 단 1회 (async)
   setProgress(1,1,'완료');
   STEPS_DEF.forEach(function(s){var n=gel('sn'+s.id);if(n){n.className='snum done';gel('sl'+s.id).className='slbl done';}});
-  addLog('=== 완료 · API '+gApiCalls+'회 · 연결 '+gEdges.length+'개 · 핫월렛추정 '+Object.keys(gHW).length+'개 ===','ok');
-  renderHotWallets();
+  addLog('=== 완료 · API '+gApiCalls+'회 · 핫월렛추정 '+Object.keys(gHW).length+'개 ===','ok');
 }
 
 
@@ -1325,14 +1333,26 @@ function _seedMeta(){
 }
 function setStep(n){STEPS_DEF.forEach(function(s){var el=gel('sn'+s.id);if(!el)return;el.className='snum'+(s.id<n?' done':s.id===n?' act':'');gel('sl'+s.id).className='slbl'+(s.id<n?' done':s.id===n?' act':'');});}
 // renderAll: 비싼 연산을 단 한 곳에서만 실행
-// STEP4 완료 + 파일 로드 + 수동 새로고침 시에만 호출
-function renderAll(){
-  clusterEdges(gEdges);
-  gel('s-cl').textContent=new Set(gEdges.map(function(e){return e._cluster;})).size;
-  updateStats();
-  renderTable();
-  renderSummary();
-  renderHotWallets();
+// async — 각 단계 사이 sleep(0)으로 브라우저 리페인트 허용 → 진행도 표시
+async function renderAll(){
+  var steps=[
+    ['클러스터 계산', function(){
+      clusterEdges(gEdges);
+      gel('s-cl').textContent=new Set(gEdges.map(function(e){return e._cluster;})).size;
+      updateStats();
+    }],
+    ['결과 테이블 렌더링', function(){renderTable();}],
+    ['요약 생성', function(){renderSummary();}],
+    ['핫월렛 정리', function(){renderHotWallets();}],
+  ];
+  for(var i=0;i<steps.length;i++){
+    setBar(i,steps.length); setStatus('STEP 4 · '+steps[i][0]+'…');
+    addLog('[STEP 4] '+steps[i][0]+'…','dim');
+    await sleep(0); // 브라우저 리페인트
+    steps[i][1]();
+  }
+  setBar(steps.length,steps.length); setStatus('완료');
+  addLog('[STEP 4] 완료 · '+gEdges.length+'개 연결 · '+gel('s-cl').textContent+'개 클러스터','ok');
 }
 // updateStats: 단순 카운터만 — clusterEdges 절대 호출 안 함
 // 분석 중 매 스텝마다 호출되므로 최대한 가볍게 유지
