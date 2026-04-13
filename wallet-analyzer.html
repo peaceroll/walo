@@ -268,6 +268,22 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   </div>
 </div>
 
+<!-- ── 핫월렛 추정 패널 ── -->
+<div class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <h2 style="margin:0">⬡ 거래소 핫월렛 추정</h2>
+      <span class="bdg" id="hw-cnt">0</span>
+      <span style="font-size:10px;color:#2a4a6a">· nonce 초과·블랙리스트·스윕반복으로 제거된 주소</span>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="btn dim" onclick="renderHotWallets()">↺ 새로고침</button>
+      <button class="btn dim" style="border-color:var(--r);color:var(--r)" onclick="saveHotWallets()">💾 핫월렛 저장</button>
+    </div>
+  </div>
+  <div id="hw-panel" style="font-size:10px;color:#4a6a8a;max-height:400px;overflow-y:auto">분석 완료 후 자동 표시됩니다</div>
+</div>
+
 <!-- ── 요약 패널 ── -->
 <div class="panel" id="summary-wrapper">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
@@ -640,7 +656,7 @@ var STEPS_DEF = [
 // ══ 섹션 2: 전역 상태 ═══════════════════════════════════════════════
 var gSeeds       = SEEDS_RAW.map(function(a){return a.toLowerCase();});
 var gSelected    = {};
-var gEdges       = [];   // {wallet, deposit, exchange, cssClass, chain, userLabel, _cluster}
+var gEdges       = [];   // {wallet, deposit, exchange, cssClass, chain, _cluster}
 // 요약 편집 상태 — 단일 객체로 관리
 // gSS.w[addr] = {del:bool, label:str}
 // gSS.d[addr] = {del:bool, label:str}
@@ -651,6 +667,19 @@ var gBlockCache={}, gHotTargets={}, gSnapshot=null;
 var gRateQueue=[], gRateRun=false, gRateTs=0, gRateRPS=2;
 gSeeds.forEach(function(a){gSelected[a]=true;});
 
+// 알려진 거래소 목록 — 요약 패널 라벨 선택기용
+var KNOWN_EXCHANGES = [
+  'Binance Deposit','OKX Deposit','Bybit Deposit','Upbit Deposit',
+  'Bithumb Deposit','Coinbase Deposit','KuCoin Deposit','Gate Deposit',
+  'Bitget Deposit','Huobi Deposit','Kraken Deposit','Gemini Deposit',
+  'Crypto.com Deposit','Bitfinex Deposit','MEXC Deposit'
+];
+// 핫월렛 수집 — STEP 3에서 nonce/블랙리스트로 제거된 주소
+// gHW[addr] = {reason, chain, nonce, deposit}
+var gHW = {};
+// 핫월렛 패널 편집 상태 — gSS와 동일 구조
+// gHWS[addr] = {del:bool, label:str}
+var gHWS = {};
 
 // ══ 섹션 3: 유틸 ════════════════════════════════════════════════════
 function gel(id){return document.getElementById(id);}
@@ -910,7 +939,7 @@ function buildSummary(){
   var wInfo={};
   gEdges.forEach(function(e){
     if(!wInfo[e.wallet])wInfo[e.wallet]={deps:{},cluster:e._cluster};
-    wInfo[e.wallet].deps[e.deposit]={exchange:e.userLabel||e.exchange,chain:e.chain};
+    wInfo[e.wallet].deps[e.deposit]={exchange:depLabel(e.deposit,e.exchange),chain:e.chain};
   });
   var allW=Object.keys(wInfo);
   var seedW=allW.filter(function(w){return !!seedSet[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
@@ -918,7 +947,7 @@ function buildSummary(){
   var w2s={};
   newW.forEach(function(nw){var cs={};Object.keys(wInfo[nw].deps).forEach(function(dep){seedW.forEach(function(sw){if(wInfo[sw]&&wInfo[sw].deps[dep])cs[PERSON_ADDRESSES[sw]||sw.slice(0,8)+'…']=1;});});w2s[nw]=Object.keys(cs);});
   var exchSet={};
-  gEdges.forEach(function(e){if(!exchSet[e.deposit])exchSet[e.deposit]={exchange:e.userLabel||e.exchange,chain:e.chain};});
+  gEdges.forEach(function(e){if(!exchSet[e.deposit])exchSet[e.deposit]={exchange:depLabel(e.deposit,e.exchange),chain:e.chain};});
   // 원본 그대로 반환 — 필터/라벨 오버라이드는 render/export에서 적용
   var exchList=Object.keys(exchSet).map(function(dep){return {dep:dep,exchange:exchSet[dep].exchange,chain:exchSet[dep].chain};}).sort(function(a,b){return a.chain.localeCompare(b.chain);});
   var analyzedSeeds=Object.keys(gSelected).filter(function(a){return gSelected[a];});
@@ -933,7 +962,7 @@ async function runAnalysis(isResume){
   if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 선택하세요','err');return;}
   gAborted=false;gBlockCache={};gRateRPS=num('p-rps',2);
   gApiCalls=isResume?gApiCalls:0;
-  if(!isResume){gEdges=[];gHotTargets={};gSnapshot=null;gSS={w:{},d:{}};}
+  if(!isResume){gEdges=[];gHotTargets={};gSnapshot=null;gSS={w:{},d:{}};gHW={};gHWS={};}
   else addLog('기존 결과 '+gEdges.length+'개 유지하고 재분석','info');
   gel('btn-run').disabled=true;gel('btn-stop').disabled=false;gel('btn-resume').style.display='none';
   if(!isResume){gel('tbody').innerHTML='';gel('no-res').style.display='';gel('res-cnt').textContent='0';}
@@ -1035,8 +1064,10 @@ async function collectInbound(depMap,opts){
     });
     Object.keys(fromMap).forEach(function(a){
       if(seedSet[a])return;
-      if(gSenderBl[a]){addLog('[STEP 3] '+short(a)+' 블랙리스트 → 제거','dim');delete fromMap[a];return;}
-      if(gHotTargets[a]&&gHotTargets[a].sources.length>=1){delete fromMap[a];return;}
+      if(gSenderBl[a]){addLog('[STEP 3] '+short(a)+' 블랙리스트 → 제거','dim');
+        gHW[a]={reason:'블랙리스트: '+(gSenderBl[a]||''),chain:dm.chain.name,nonce:-1,deposit:dm.addr};delete fromMap[a];return;}
+      if(gHotTargets[a]&&gHotTargets[a].sources.length>=1){
+        gHW[a]={reason:'스윕 목적지 반복 (핫월렛)',chain:dm.chain.name,nonce:-1,deposit:dm.addr};delete fromMap[a];return;}
       var v=fromMap[a];
       if(opts.txMin>0&&v.txCount<opts.txMin){delete fromMap[a];return;}
       if(opts.txMax>0&&v.txCount>opts.txMax){delete fromMap[a];return;}
@@ -1050,14 +1081,17 @@ async function collectInbound(depMap,opts){
           (async function(){
             var nonce=await getNonce(ch.rpc,addr);
             if(!fromMap[addr])return;
-            if(nonce===0){delete fromMap[addr];return;}
-            if(opts.nonceMax>0&&nonce>opts.nonceMax){addLog('[STEP 3] '+short(addr)+' nonce='+nonce+'('+ch.name+') → 제거','dim');delete fromMap[addr];return;}
+            if(nonce===0){delete fromMap[addr];
+              gHW[addr]={reason:'nonce=0 (출금이력없음)',chain:ch.name,nonce:0,deposit:dm.addr};return;}
+            if(opts.nonceMax>0&&nonce>opts.nonceMax){addLog('[STEP 3] '+short(addr)+' nonce='+nonce+'('+ch.name+') → 제거','dim');
+              gHW[addr]={reason:'nonce='+nonce+' (핫월렛)',chain:ch.name,nonce:nonce,deposit:dm.addr};delete fromMap[addr];return;}
             if(ch.key!=='eth'){
               var ethEl=gel('rpc-eth');
               if(ethEl&&ethEl.value.trim()){
                 var ethNonce=await getNonce(ethEl.value.trim(),addr);
                 if(fromMap[addr]&&opts.nonceMax>0&&ethNonce>opts.nonceMax){
                   addLog('[STEP 3] '+short(addr)+' ETH nonce='+ethNonce+' → 핫월렛 제거','dim');
+                  gHW[addr]={reason:'ETH nonce='+ethNonce+' (L2 핫월렛)',chain:ch.name,nonce:ethNonce,deposit:dm.addr};
                   delete fromMap[addr];
                 }
               }
@@ -1067,7 +1101,7 @@ async function collectInbound(depMap,opts){
       });
       await Promise.all(checks);
       Object.keys(fromMap).forEach(function(from){
-        gEdges.push({wallet:from,deposit:dm.addr,exchange:dm.label,cssClass:dm.cssClass||'',chain:ch.name,userLabel:'',_cluster:''});
+        gEdges.push({wallet:from,deposit:dm.addr,exchange:dm.label,cssClass:dm.cssClass||'',chain:ch.name,_cluster:''});
       });
     }
     setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');
@@ -1076,10 +1110,210 @@ async function collectInbound(depMap,opts){
   setStep(4); clusterEdges(gEdges); updateStats(); renderTable(); renderSummary();
   setProgress(1,1,'완료');
   STEPS_DEF.forEach(function(s){var n=gel('sn'+s.id);if(n){n.className='snum done';gel('sl'+s.id).className='slbl done';}});
-  addLog('=== 완료 · API '+gApiCalls+'회 · 연결 '+gEdges.length+'개 ===','ok');
+  addLog('=== 완료 · API '+gApiCalls+'회 · 연결 '+gEdges.length+'개 · 핫월렛추정 '+Object.keys(gHW).length+'개 ===','ok');
+  renderHotWallets();
 }
 
 
+// ══ 제네릭 편집 패널 시스템 ══════════════════════════════════════════
+//
+// 설계 원칙:
+//   - renderSummary 새지갑 섹션, 핫월렛 패널 모두 동일한 패턴
+//   - renderItemPanel(cfg) 단일 함수로 처리
+//   - 모든 핸들러는 named function (인라인 onchange 금지)
+//   - 상태는 gSS.w / gSS.d / gHWS — 모두 {del, label} 구조
+//
+// cfg: {
+//   containerId,   // 패널 DOM id
+//   countId,       // 카운트 뱃지 DOM id (optional)
+//   items: [{
+//     id,          // 고유 키 (주소)
+//     label,       // 주 표시 텍스트
+//     meta,        // 보조 텍스트 (chain, nonce 등)
+//     sub,         // [{text, dim}] 서브 항목
+//     link,        // arkham URL
+//   }],
+//   state,         // {id: {del, label}} 객체 참조
+//   onLabelChange, // function(id, label) — 라벨 변경 시 콜백
+//   onToggle,      // function(id, checked) — 체크박스 변경 시 콜백
+//   emptyMsg,      // 항목 없을 때 표시할 메시지
+// }
+
+var _panelHandlers = {}; // DOM id별 핸들러 등록
+
+function renderItemPanel(cfg) {
+  var el = gel(cfg.containerId); if (!el) return;
+  var items = cfg.items || [];
+  var state = cfg.state || {};
+  var active = items.filter(function(x) { return !(state[x.id] && state[x.id].del); });
+  if (cfg.countId) {
+    var cnt = gel(cfg.countId); if (cnt) cnt.textContent = active.length;
+  }
+  if (!items.length) {
+    el.innerHTML = '<span style="color:#2a4a6a;font-size:10px">' + (cfg.emptyMsg || '없음') + '</span>';
+    return;
+  }
+
+  // 핸들러 네임스페이스 등록 (인라인 onchange 대신)
+  var ns = 'ph_' + cfg.containerId;
+  _panelHandlers[ns] = {
+    toggle: function(id, checked) {
+      if (!state[id]) state[id] = {};
+      state[id].del = !checked;
+      if (cfg.onToggle) cfg.onToggle(id, checked);
+      renderItemPanel(cfg);
+    },
+    label: function(id, val) {
+      if (val === '__custom__') {
+        val = prompt('직접 입력:', '') || '';
+      }
+      if (!state[id]) state[id] = {};
+      state[id].label = val;
+      if (cfg.onLabelChange) cfg.onLabelChange(id, val);
+      renderItemPanel(cfg);
+    }
+  };
+
+  var rows = items.map(function(item, i) {
+    var s = state[item.id] || {};
+    var del = !!s.del;
+    var lbl = s.label || '';
+    var opacity = del ? 'opacity:0.3;' : '';
+    var strike = del ? 'text-decoration:line-through;' : '';
+
+    var subHtml = (item.sub || []).map(function(sub) {
+      return '<div style="font-size:10px;color:#3a6a8a;padding:1px 0;padding-left:20px">'
+        + '→ ' + sub.text
+        + (sub.dim ? ' <span style="color:#2a4a6a">' + sub.dim + '</span>' : '')
+        + '</div>';
+    }).join('');
+
+    var selectOpts = '<option value="">' + (lbl || '거래소 선택...') + '</option>'
+      + KNOWN_EXCHANGES.map(function(ex) {
+          return '<option value="' + ex + '"' + (lbl === ex ? ' selected' : '') + '>' + ex + '</option>';
+        }).join('')
+      + '<option value="__custom__">✎ 직접 입력...</option>';
+
+    return '<div style="border-bottom:1px solid #0a1520;padding:5px 0;' + opacity + '">'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<input type="checkbox" ' + (del ? '' : 'checked') + ' '
+      +   'data-ns="' + ns + '" data-id="' + item.id + '" '
+      +   'onchange="_panelHandlers[this.dataset.ns].toggle(this.dataset.id,this.checked)" '
+      +   'style="accent-color:var(--r);cursor:pointer;flex-shrink:0">'
+      + '<span style="font-family:monospace;font-size:10px;color:#7ab4d4;flex:1;' + strike + '">'
+      +   (i + 1) + '. ' + item.label
+      + '</span>'
+      + (item.meta ? '<span style="font-size:9px;color:#4a6a8a;flex-shrink:0">' + item.meta + '</span>' : '')
+      + '<a href="' + item.link + '" target="_blank" style="font-size:10px;flex-shrink:0">arkham↗</a>'
+      + '<select data-ns="' + ns + '" data-id="' + item.id + '" '
+      +   'onchange="_panelHandlers[this.dataset.ns].label(this.dataset.id,this.value)" '
+      +   'style="background:#07101a;border:1px solid var(--bd);border-radius:3px;color:#c8d3e0;'
+      +   'font-family:monospace;font-size:10px;padding:2px 4px;width:155px;cursor:pointer">'
+      + selectOpts + '</select>'
+      + '</div>'
+      + subHtml
+      + '</div>';
+  }).join('');
+
+  el.innerHTML = rows;
+}
+
+// ── 핫월렛 패널 ─────────────────────────────────────────────────────
+function renderHotWallets() {
+  var items = Object.keys(gHW)
+    .sort(function(a, b) { return (gHW[b].nonce || 0) - (gHW[a].nonce || 0); })
+    .map(function(addr) {
+      var h = gHW[addr];
+      return {
+        id: addr,
+        label: addr,
+        meta: '[' + h.chain + ']' + (h.nonce >= 0 ? ' nonce=' + h.nonce.toLocaleString() : ''),
+        sub: [{ text: h.reason + (h.deposit ? ' ← ' + h.deposit : ''), dim: '' }],
+        link: arkUrl(addr)
+      };
+    });
+
+  renderItemPanel({
+    containerId: 'hw-panel',
+    countId: 'hw-cnt',
+    items: items,
+    state: gHWS,
+    emptyMsg: '분석 완료 후 자동 표시됩니다'
+  });
+}
+
+function saveHotWallets() {
+  var keys = Object.keys(gHW).filter(function(a) { return !(gHWS[a] && gHWS[a].del); });
+  if (!keys.length) { addLog('저장할 핫월렛 없음', 'warn'); return; }
+  var hdr = 'address,exchange_label,chain,nonce,reason,deposit_address,arkham';
+  var rows = [hdr];
+  keys.sort(function(a, b) { return (gHW[b].nonce || 0) - (gHW[a].nonce || 0); });
+  keys.forEach(function(addr) {
+    var h = gHW[addr], lbl = (gHWS[addr] && gHWS[addr].label) || '';
+    rows.push([addr, csvQuote(lbl), h.chain, h.nonce >= 0 ? h.nonce : '',
+      csvQuote(h.reason), h.deposit, arkUrl(addr)].join(','));
+  });
+  var fname = 'hotwallet-' + getFileSuffix() + '.csv';
+  download(fname, '\uFEFF' + rows.join('\n'), 'text/csv;charset=utf-8-bom');
+  addLog('핫월렛 저장: ' + fname + ' (' + keys.length + '개)', 'ok');
+}
+
+// ── 요약 패널 새지갑 섹션 (renderItemPanel 사용) ─────────────────────
+function renderSummaryWallets(S) {
+  var items = S.newW.map(function(w) {
+    var deps = Object.keys(S.wInfo[w].deps);
+    return {
+      id: w,
+      label: w,
+      meta: '',
+      sub: deps.map(function(dep) {
+        var dex = depLabel(dep, S.wInfo[w].deps[dep].exchange);
+        return { text: dep, dim: '[' + dex + ' · ' + S.wInfo[w].deps[dep].chain + ']' };
+      }),
+      link: arkUrl(w)
+    };
+  });
+
+  renderItemPanel({
+    containerId: 'summary-wallets',
+    items: items,
+    state: gSS.w,
+    emptyMsg: '발견된 새 지갑 없음',
+    onToggle: function() { renderSummaryExch(S); } // 지갑 삭제 시 섹션 재렌더 불필요 (deposit은 유지)
+  });
+}
+
+function renderSummaryExch(S) {
+  var items = S.exchList.map(function(x, i) {
+    return {
+      id: x.dep,
+      label: (i + 1) + '. ' + x.dep,
+      meta: '[' + x.chain + ']',
+      sub: [{ text: x.exchange, dim: '' }],
+      link: arkUrl(x.dep)
+    };
+  });
+
+  renderItemPanel({
+    containerId: 'summary-exch',
+    countId: 'summary-exch-cnt',
+    items: items,
+    state: gSS.d,
+    emptyMsg: '거래소 입금주소 없음',
+    onLabelChange: function(dep, label) {
+      // 라벨 변경 → 테이블도 즉시 반영
+      gEdges.forEach(function(e) { /* depLabel()이 gSS.d에서 읽으므로 자동 반영 */ });
+      renderTable();
+    }
+  });
+}
+
+
+// depLabel(deposit, fallback): 입금주소 라벨의 단일 읽기 함수
+// 모든 라벨 표시는 이것만 사용 — edge.userLabel 완전 제거
+function depLabel(dep, fallback){
+  return (gSS.d[dep]&&gSS.d[dep].label)||fallback||'';
+}
 // ══ 섹션 10: UI 헬퍼 ════════════════════════════════════════════════
 function _seedMeta(){
   clusterEdges(gEdges);
@@ -1100,11 +1334,37 @@ function labelKeydown(ev,el){
   if(ev.key==='Enter'){ev.preventDefault();el.blur();}
   else if(ev.key==='Escape'){el.textContent=gEdges[+el.dataset.idx].exchange;el.blur();}
 }
+// setDepLabel: 입금주소 라벨의 단일 진실 공급원
+
+// getFileSuffix: 시드 1개면 그 이름, 아니면 날짜
+function getFileSuffix(){
+  var seeds=Object.keys(gSelected).filter(function(a){return gSelected[a];});
+  if(!seeds.length)seeds=gSeeds.slice();
+  var date=new Date().toISOString().slice(0,10);
+  if(seeds.length===1){
+    var name=(PERSON_ADDRESSES[seeds[0]]||seeds[0].slice(0,10))
+      .replace(/[^a-zA-Z0-9가-힣_\-]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+    return name+'_'+date;
+  }
+  return date;
+}
+function setDepLabel(dep, label){
+  if(label==='직접입력'){
+    var v=prompt('거래소명 직접 입력:','');
+    if(v===null)return;
+    label=v.trim();
+  }
+  if(!gSS.d[dep])gSS.d[dep]={};
+  gSS.d[dep].label=label;
+  // edge.userLabel 동기화 불필요 — depLabel() 함수가 gSS.d에서 직접 읽음
+  renderTable();
+  renderSummary();
+}
 function saveLabel(el){
   var idx=+el.dataset.idx,edge=gEdges[idx]; if(!edge)return;
   var val=el.textContent.trim().replace(/^✎ /,'');
-  if(val===edge.exchange||val===''){edge.userLabel='';el.className='tag-exch '+(edge.cssClass||'');el.textContent=edge.exchange;}
-  else{edge.userLabel=val;el.className='tag-exch user';el.textContent='✎ '+val;addLog('라벨: '+short(edge.deposit)+' → '+val,'ok');}
+  var label=val===edge.exchange?'':val;
+  setDepLabel(edge.deposit, label); // gSS.d 업데이트 + 전체 재렌더
 }
 function renderTable(){
   var fw=gel('fw').value.toLowerCase(),fd=(gel('fd')&&gel('fd').value||'').toLowerCase();
@@ -1115,9 +1375,10 @@ function renderTable(){
   var meta=_seedMeta();
   var seen={},rows=[];
   gEdges.forEach(function(e,idx){
+    if(gSS.d[e.deposit]&&gSS.d[e.deposit].del)return; // 요약에서 체크 해제된 입금주소 제거
     if(fw&&e.wallet.indexOf(fw)<0&&e.deposit.indexOf(fw)<0)return;
     if(fd&&e.deposit.indexOf(fd)<0)return;
-    if(fe&&(e.userLabel||e.exchange).toLowerCase().indexOf(fe)<0)return;
+    if(fe&&depLabel(e.deposit,e.exchange).toLowerCase().indexOf(fe)<0)return;
     if(fc&&(e._cluster||'').toLowerCase().indexOf(fc)<0)return;
     if(onlySeedWallet&&!meta.seedSet[e.wallet])return;
     if(onlySeed){if(!meta.seedClusters[e._cluster])return;if(meta.seedSet[e.wallet])return;}
@@ -1132,8 +1393,10 @@ function renderTable(){
     var r=item.e,idx=item.idx;
     var isSeed=!!meta.seedSet[r.wallet],hasSeed=!!meta.seedClusters[r._cluster];
     var clLabel=(r._cluster||'—')+(hasSeed&&!isSeed?' ★':'');
-    var exchDisplay=r.userLabel?('✎ '+r.userLabel):r.exchange;
-    var exchCss=r.userLabel?'user':(r.cssClass||'');
+    var _lbl=depLabel(r.deposit,'');
+    var exchDisplay=_lbl?('✎ '+_lbl):r.exchange;
+    var exchCls=_lbl?'user':(r.cssClass||'');
+    // exchCls already set above
     var sameWallet=(r.wallet===lastWallet); lastWallet=r.wallet;
     if(sameWallet){
       return '<tr class="'+(hasSeed&&!isSeed?'seed-related':'')+'">'
@@ -1176,15 +1439,16 @@ function toCSV(edges){
     var conf=e.cssClass==='high'?'HIGH':e.cssClass==='medium'?'MED':'';
     var seedConn=meta.seedClusters[e._cluster]?'Y':'N';
     rows.push([e._cluster||'',e.wallet,csvQuote(name),meta.seedSet[e.wallet]?'seed':'new',
-      e.deposit,csvQuote(e.userLabel||e.exchange),e.chain,conf,seedConn,
+      e.deposit,csvQuote(depLabel(e.deposit,e.exchange)),e.chain,conf,seedConn,
       arkUrl(e.wallet),arkUrl(e.deposit)].join(','));
   });
   return rows.join(String.fromCharCode(10));
 }
 function saveCSV(edges,filename){
   if(!edges.length){addLog('저장할 결과 없음','warn');return;}
-  download(filename+'-'+new Date().toISOString().slice(0,10)+'.csv','\uFEFF'+toCSV(edges),'text/csv;charset=utf-8-bom');
-  addLog('저장 완료: '+filename+' ('+(edges.length)+'행)','ok');
+  var fname=filename+'-'+getFileSuffix()+'.csv';
+  download(fname,'\uFEFF'+toCSV(edges),'text/csv;charset=utf-8-bom');
+  addLog('저장 완료: '+fname+' ('+(edges.length)+'행)','ok');
 }
 function exportCSV(){saveCSV(gEdges,'wallet-clusters');}
 function saveResults(){saveCSV(gEdges,'wallet-results');}
@@ -1199,7 +1463,7 @@ function saveFiltered(){
   gEdges.forEach(function(e){
     if(fw&&e.wallet.indexOf(fw)<0&&e.deposit.indexOf(fw)<0)return;
     if(fd&&e.deposit.indexOf(fd)<0)return;
-    if(fe&&(e.userLabel||e.exchange).toLowerCase().indexOf(fe)<0)return;
+    if(fe&&depLabel(e.deposit,e.exchange).toLowerCase().indexOf(fe)<0)return;
     if(fc&&(e._cluster||'').toLowerCase().indexOf(fc)<0)return;
     if(onlySeedWallet&&!meta.seedSet[e.wallet])return;
     if(onlySeed){if(!meta.seedClusters[e._cluster])return;if(meta.seedSet[e.wallet])return;}
@@ -1211,65 +1475,32 @@ function saveFiltered(){
 
 // ══ 섹션 14: 요약 패널 ══════════════════════════════════════════════
 // renderSummary, toggleSummaryWallet, saveSummary 모두 buildSummary() 사용
+
+
 function renderSummary(){
   var panel=gel('summary-panel'); if(!panel||!gEdges.length)return;
   var S=buildSummary();
-  // 헬퍼: gSS에서 값 읽기
-  function wLabel(w){return (gSS.w[w]&&gSS.w[w].label)||'';}
-  function dLabel(dep){return (gSS.d[dep]&&gSS.d[dep].label)||'';}
-  function dDel(dep){return !!(gSS.d[dep]&&gSS.d[dep].del);}
-  var activeExch=S.exchList.filter(function(x){return !dDel(x.dep);});
-  var html='';
-  // 시드 지갑
-  html+='<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:var(--a);margin-bottom:8px">시드 지갑 — '+S.analyzedSeeds.length+'개</div>';
+  // 시드 지갑 섹션 (정적 — 편집 없음)
+  var seedHtml='<div style="margin-bottom:14px">'
+    +'<div style="font-size:12px;font-weight:700;color:var(--a);margin-bottom:8px">시드 지갑 — '+S.analyzedSeeds.length+'개</div>';
   S.analyzedSeeds.forEach(function(w){
     var name=PERSON_ADDRESSES[w]||'',tag=WALLET_TAGS[w]?(' ['+WALLET_TAGS[w]+']'):'';
     var inR=!!S.wInfo[w];
-    html+='<div style="font-size:11px;padding:2px 0;color:#9ab8c8">'+(name+tag||w.slice(0,10)+'…')
+    seedHtml+='<div style="font-size:11px;padding:2px 0;color:#9ab8c8">'+(name+tag||w.slice(0,10)+'…')
       +' <span style="color:#3a6a9a">'+w+'</span>'
       +(inR?' <span style="color:#4a6a8a">(입금주소 '+Object.keys(S.wInfo[w].deps).length+'개)</span>':'')
       +' <a href="'+arkUrl(w)+'" target="_blank" style="font-size:10px;margin-left:4px">arkham↗</a></div>';
   });
-  html+='</div>';
-  // 새 지갑
-  html+='<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:8px">발견된 새 지갑 — '+S.newW.length+'개</div>';
-  S.newW.forEach(function(w){
-    var deps=Object.keys(S.wInfo[w].deps);
-    var lbl=wLabel(w);
-    html+='<div style="border:1px solid var(--bd);border-radius:3px;padding:6px 8px;margin-bottom:5px;background:var(--bg3)">'
-      +'<div style="display:flex;align-items:center;gap:8px">'
-      +'<input type="checkbox" checked data-w="'+w+'" onchange="gSS.w[this.dataset.w]=gSS.w[this.dataset.w]||{};gSS.w[this.dataset.w].del=!this.checked;renderSummary()" style="accent-color:var(--r);cursor:pointer;flex-shrink:0">'
-      +'<span style="font-family:monospace;font-size:11px;color:#7ab4d4;flex:1">'+w+'</span>'
-      +'<a href="'+arkUrl(w)+'" target="_blank" style="font-size:10px;flex-shrink:0">arkham↗</a>'
-      +'<input type="text" value="'+lbl.replace(/"/g,'&quot;')+'" placeholder="라벨..." data-w="'+w+'" onchange="gSS.w[this.dataset.w]=gSS.w[this.dataset.w]||{};gSS.w[this.dataset.w].label=this.value.trim()" style="width:130px;font-size:10px">'
-      +'</div>'
-      +'<div style="margin-top:5px;padding-left:20px">';
-    deps.forEach(function(dep){
-      var dex=dLabel(dep)||S.wInfo[w].deps[dep].exchange;
-      html+='<div style="font-size:10px;color:#3a6a8a;padding:2px 0">→ '+dep+' <span style="color:#2a4a6a">['+dex+' · '+S.wInfo[w].deps[dep].chain+']</span></div>';
-    });
-    html+='</div></div>';
-  });
-  html+='</div>';
-  // 거래소 추정 입금주소 — 체크박스 + 라벨 + 아캄 링크
-  html+='<div><div style="font-size:12px;font-weight:700;color:var(--b);margin-bottom:8px">거래소 추정 입금주소 — '+activeExch.length+'개</div>';
-  S.exchList.forEach(function(x,i){
-    var del=dDel(x.dep);
-    var lbl=dLabel(x.dep);
-    var exchDisplay=lbl||x.exchange;
-    html+='<div style="display:flex;align-items:center;gap:8px;padding:3px 0;'+(del?'opacity:0.35;':'')+'">'
-      +'<input type="checkbox" '+(del?'':'checked')+' data-dep="'+x.dep+'" onchange="gSS.d[this.dataset.dep]=gSS.d[this.dataset.dep]||{};gSS.d[this.dataset.dep].del=!this.checked;renderSummary()" style="accent-color:var(--b);cursor:pointer;flex-shrink:0">'
-      +'<span style="font-size:10px;color:#4a6a8a;flex-shrink:0">['+x.chain+']</span>'
-      +'<span style="font-family:monospace;font-size:11px;color:'+(del?'#2a4a6a':'#3a8ab4')+';flex:1;'+(del?'text-decoration:line-through;':'')+'">'+(i+1)+'. '+x.dep+'</span>'
-      +'<a href="'+arkUrl(x.dep)+'" target="_blank" style="font-size:10px;flex-shrink:0">arkham↗</a>'
-      +'<input type="text" value="'+lbl.replace(/"/g,'&quot;')+'" placeholder="거래소명..." data-dep="'+x.dep+'" onchange="gSS.d[this.dataset.dep]=gSS.d[this.dataset.dep]||{};gSS.d[this.dataset.dep].label=this.value.trim()" style="width:130px;font-size:10px">'
-      +'<span style="font-size:10px;color:#2a4a6a;max-width:180px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">('+exchDisplay+')</span>'
-      +'</div>';
-  });
-  html+='</div>';
-  panel.innerHTML=html;
+  seedHtml+='</div>';
+  // 새지갑 + 거래소 섹션 — renderItemPanel로 위임
+  panel.innerHTML=seedHtml
+    +'<div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:8px">발견된 새 지갑 — '+S.newW.length+'개</div>'
+    +'<div id="summary-wallets" style="margin-bottom:14px"></div>'
+    +'<div style="font-size:12px;font-weight:700;color:var(--b);margin-bottom:8px">거래소 추정 입금주소 — <span id="summary-exch-cnt">'+S.exchList.length+'</span>개</div>'
+    +'<div id="summary-exch"></div>';
+  renderSummaryWallets(S);
+  renderSummaryExch(S);
 }
-// toggleSummaryWallet/Dep → renderSummary 인라인 onchange로 통합
 
 function saveSummary(){
   if(!gEdges.length){addLog('저장할 결과 없음','warn');return;}
@@ -1294,7 +1525,7 @@ function saveSummary(){
   L.push('[ 거래소 추정 입금주소 — '+activeExch.length+'개 ]');
   activeExch.forEach(function(x,i){var lbl=(gSS.d[x.dep]&&gSS.d[x.dep].label)||x.exchange;L.push('  '+(i+1)+'. ['+x.chain+'] '+x.dep+'  ('+lbl+')');});
   L.push('',D);
-  download('summary-'+new Date().toISOString().slice(0,10)+'.txt',L.join('\n'),'text/plain;charset=utf-8');
+  download('summary-'+getFileSuffix()+'.txt',L.join('\n'),'text/plain;charset=utf-8');
   addLog('요약 저장 완료','ok');
 }
 
@@ -1344,7 +1575,7 @@ function exportReport(){
   L.push('[ 거래소 추정 입금주소 — '+rptExch.length+'개 ]');
   rptExch.forEach(function(x,i){var lbl=(gSS.d[x.dep]&&gSS.d[x.dep].label)||x.exchange;L.push('  '+(i+1)+'. ['+x.chain+'] '+x.dep+'  ('+lbl+')');});
   L.push('',D,'  END OF REPORT',D);
-  download('wallet-report-'+new Date().toISOString().slice(0,10)+'.txt',L.join('\n'),'text/plain;charset=utf-8');
+  download('wallet-report-'+getFileSuffix()+'.txt',L.join('\n'),'text/plain;charset=utf-8');
   addLog('리포트 완료','ok');
 }
 
@@ -1357,7 +1588,11 @@ function loadResults(input){
       var text=ev.target.result;
       if(text.trim().charAt(0)==='{'){
         var data=JSON.parse(text);var edges=data.edges||[];
-        gEdges=edges.map(function(e){e.userLabel=e.userLabel||'';e.cssClass=e.cssClass||'';return e;});
+        gEdges=edges.map(function(e){
+          // 구버전 JSON userLabel → gSS.d로 마이그레이션
+          if(e.userLabel){if(!gSS.d[e.deposit])gSS.d[e.deposit]={};gSS.d[e.deposit].label=e.userLabel;delete e.userLabel;}
+          e.cssClass=e.cssClass||'';return e;
+        });
         gApiCalls=data.apiCalls||0;
       }else{
         var LF=String.fromCharCode(10);
@@ -1368,10 +1603,10 @@ function loadResults(input){
           var c=lines[i].split(','); if(c.length<6)continue;
           gEdges.push({_cluster:c[0].trim(),wallet:c[1].trim().toLowerCase(),deposit:c[4].trim().toLowerCase(),
             exchange:c[5].trim().replace(/^"|"$/g,''),chain:c[6].trim(),
-            cssClass:c[7]==='HIGH'?'high':c[7]==='MED'?'medium':'',userLabel:''});
+            cssClass:c[7]==='HIGH'?'high':c[7]==='MED'?'medium':''});
         }
       }
-      clusterEdges(gEdges);updateStats();renderTable();renderSummary();
+      clusterEdges(gEdges);updateStats();renderTable();renderSummary();renderHotWallets();
       addLog('결과 불러오기: '+gEdges.length+'개','ok');
     }catch(err){addLog('파일 오류: '+err.message,'err');}
     input.value='';
@@ -1439,7 +1674,7 @@ function lsInit(){
 (function init(){
   buildChainUI(); lsInit();
   gel('steps').innerHTML=STEPS_DEF.map(function(s){return '<div class="srow"><div class="snum" id="sn'+s.id+'">'+s.id+'</div><div class="slbl" id="sl'+s.id+'">'+s.label+'</div></div>';}).join('');
-  renderSeeds();renderDirectDeps();renderDepFilters();renderTokenFilters();renderSenderBl();updateStats();setMode('auto');
+  renderSeeds();renderDirectDeps();renderDepFilters();renderTokenFilters();renderSenderBl();renderHotWallets();updateStats();setMode('auto');
   addLog('준비 완료. RPC URL 입력 → 분석 시작','ok');
   addLog('v16.2 · buildSummary() 단일화 · computeSweep 토큰별 추적','info');
 })();
