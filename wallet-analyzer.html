@@ -800,13 +800,25 @@ async function fetchAll(rpcUrl,chainKey,provider,direction,address,blockTime,day
 }
 async function getCode(rpcUrl,address){
   try{
-    var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getCode',params:[address,'latest']})});});
+    var ctrl=new AbortController();
+    var tId=setTimeout(function(){ctrl.abort();},8000);
+    var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getCode',params:[address,'latest']}),
+      signal:ctrl.signal});});
+    clearTimeout(tId);
     var d=await resp.json(); var code=d.result||'0x'; return code!=='0x'&&code.length>2;
   }catch(e){return false;}
 }
 async function getNonce(rpcUrl,address){
   try{
-    var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getTransactionCount',params:[address,'latest']})});});
+    var ctrl=new AbortController();
+    var tId=setTimeout(function(){ctrl.abort();},8000);
+    var resp=await rateCall(function(){return fetch(rpcUrl,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:1,jsonrpc:'2.0',method:'eth_getTransactionCount',params:[address,'latest']}),
+      signal:ctrl.signal});});
+    clearTimeout(tId);
     var d=await resp.json(); return parseInt(d.result,16)||0;
   }catch(e){return -1;}
 }
@@ -1083,29 +1095,35 @@ async function collectInbound(depMap,opts){
       var checks=fromKeys.filter(function(a){return !seedSet[a];}).map(function(addr){
         return Promise.all([
           getCode(ch.rpc,addr).then(function(isCon){if(isCon)delete fromMap[addr];}),
-          (async function(){
-            var nonce=await getNonce(ch.rpc,addr);
-            if(!fromMap[addr])return;
-            if(nonce===0){delete fromMap[addr];
-              gHW[addr]={reason:'nonce=0 (출금이력없음)',chain:ch.name,nonce:0,deposit:dm.addr};return;}
-            if(opts.nonceMax>0&&nonce>opts.nonceMax){addLog('[STEP 3] '+short(addr)+' nonce='+nonce+'('+ch.name+') → 제거','dim');
-              gHW[addr]={reason:'nonce='+nonce+' (핫월렛)',chain:ch.name,nonce:nonce,deposit:dm.addr};delete fromMap[addr];return;}
-            if(ch.key!=='eth'){
-              var ethEl=gel('rpc-eth');
-              if(ethEl&&ethEl.value.trim()){
-                var ethNonce=await getNonce(ethEl.value.trim(),addr);
-                if(fromMap[addr]&&opts.nonceMax>0&&ethNonce>opts.nonceMax){
-                  addLog('[STEP 3] '+short(addr)+' ETH nonce='+ethNonce+' → 핫월렛 제거','dim');
-                  gHW[addr]={reason:'ETH nonce='+ethNonce+' (L2 핫월렛)',chain:ch.name,nonce:ethNonce,deposit:dm.addr};
-                  delete fromMap[addr];
+          Promise.race([
+            (async function(){
+              var nonce=await getNonce(ch.rpc,addr);
+              if(!fromMap[addr])return;
+              if(nonce===0){delete fromMap[addr];
+                gHW[addr]={reason:'nonce=0 (출금이력없음)',chain:ch.name,nonce:0,deposit:dm.addr};return;}
+              if(opts.nonceMax>0&&nonce>opts.nonceMax){addLog('[STEP 3] '+short(addr)+' nonce='+nonce+'('+ch.name+') → 제거','dim');
+                gHW[addr]={reason:'nonce='+nonce+' (핫월렛)',chain:ch.name,nonce:nonce,deposit:dm.addr};delete fromMap[addr];return;}
+              if(ch.key!=='eth'){
+                var ethEl=gel('rpc-eth');
+                if(ethEl&&ethEl.value.trim()){
+                  var ethNonce=await getNonce(ethEl.value.trim(),addr);
+                  if(fromMap[addr]&&opts.nonceMax>0&&ethNonce>opts.nonceMax){
+                    addLog('[STEP 3] '+short(addr)+' ETH nonce='+ethNonce+' → 핫월렛 제거','dim');
+                    gHW[addr]={reason:'ETH nonce='+ethNonce+' (L2 핫월렛)',chain:ch.name,nonce:ethNonce,deposit:dm.addr};
+                    delete fromMap[addr];
+                  }
                 }
               }
-            }
-          nonceDone++;
-            if(nonceTotal>0){
-              setStatus('STEP 3 · '+short(dm.addr)+' nonce 검증 ('+nonceDone+'/'+nonceTotal+')…');
-            }
-          })()
+              nonceDone++;
+              if(nonceTotal>0)setStatus('STEP 3 · '+short(dm.addr)+' nonce 검증 ('+nonceDone+'/'+nonceTotal+')…');
+            })(),
+            sleep(15000).then(function(){
+              if(fromMap[addr]){
+                addLog('[STEP 3] '+short(addr)+' nonce 타임아웃(15s) → 스킵','warn');
+                delete fromMap[addr];
+              }
+            })
+          ])
         ]);
       });
       await Promise.all(checks);
@@ -1332,6 +1350,20 @@ function _seedMeta(){
   return {seedSet:seedSet,seedClusters:seedClusters};
 }
 function setStep(n){STEPS_DEF.forEach(function(s){var el=gel('sn'+s.id);if(!el)return;el.className='snum'+(s.id<n?' done':s.id===n?' act':'');gel('sl'+s.id).className='slbl'+(s.id<n?' done':s.id===n?' act':'');});}
+// ── 진행도 함수 ─────────────────────────────────────────────────────
+// setBar: 진행 바 (외부 진행도) — 절대 카운터 기준
+function setBar(done,total){
+  var pct=total>0?Math.round(done/total*100):0;
+  var pb=gel('pbar'); if(pb)pb.style.width=pct+'%';
+  var p=gel('progress-pct'); if(p)p.textContent=total>0?(done+'/'+total+' ('+pct+'%)'):'';
+}
+// setStatus: 현재 작업 텍스트 — 자유롭게 업데이트
+function setStatus(label){
+  var l=gel('progress-lbl'); if(l)l.textContent=label||'';
+}
+// setProgress: 하위 호환 래퍼
+function setProgress(done,total,label){setBar(done,total);setStatus(label||'');}
+
 // renderAll: 비싼 연산을 단 한 곳에서만 실행
 // async — 각 단계 사이 sleep(0)으로 브라우저 리페인트 허용 → 진행도 표시
 async function renderAll(){
