@@ -642,8 +642,10 @@ var STEPS_DEF = [
 var gSeeds       = SEEDS_RAW.map(function(a){return a.toLowerCase();});
 var gSelected    = {};
 var gEdges       = [];   // {wallet, deposit, exchange, cssClass, chain, userLabel, _cluster}
-var gSummaryLabels  = {}; // wallet → 사용자 라벨 (요약 패널)
-var gSummaryDeleted = {}; // wallet → true (요약에서 제거)
+// 요약 편집 상태 — 단일 객체로 관리
+// gSS.w[addr] = {del:bool, label:str}
+// gSS.d[addr] = {del:bool, label:str}
+var gSS = {w:{}, d:{}};
 var gApiCalls=0, gAborted=false, gMode='auto';
 var gDirectDeps=[], gDepFilters=[], gTokenFilters=[], gSenderBl={};
 var gBlockCache={}, gHotTargets={}, gSnapshot=null;
@@ -911,11 +913,12 @@ function buildSummary(){
   });
   var allW=Object.keys(wInfo);
   var seedW=allW.filter(function(w){return !!seedSet[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
-  var newW=allW.filter(function(w){return !seedSet[w]&&!gSummaryDeleted[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
+  var newW=allW.filter(function(w){return !seedSet[w]&&!(gSS.w[w]&&gSS.w[w].del);}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
   var w2s={};
   newW.forEach(function(nw){var cs={};Object.keys(wInfo[nw].deps).forEach(function(dep){seedW.forEach(function(sw){if(wInfo[sw]&&wInfo[sw].deps[dep])cs[PERSON_ADDRESSES[sw]||sw.slice(0,8)+'…']=1;});});w2s[nw]=Object.keys(cs);});
   var exchSet={};
   gEdges.forEach(function(e){if(!exchSet[e.deposit])exchSet[e.deposit]={exchange:e.userLabel||e.exchange,chain:e.chain};});
+  // 원본 그대로 반환 — 필터/라벨 오버라이드는 render/export에서 적용
   var exchList=Object.keys(exchSet).map(function(dep){return {dep:dep,exchange:exchSet[dep].exchange,chain:exchSet[dep].chain};}).sort(function(a,b){return a.chain.localeCompare(b.chain);});
   var analyzedSeeds=Object.keys(gSelected).filter(function(a){return gSelected[a];});
   if(!analyzedSeeds.length)analyzedSeeds=gSeeds.slice();
@@ -943,7 +946,7 @@ async function runAnalysis(isResume){
   if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 선택하세요','err');return;}
   gAborted=false;gBlockCache={};gRateRPS=num('p-rps',2);
   gApiCalls=isResume?gApiCalls:0;
-  if(!isResume){gEdges=[];gHotTargets={};gSnapshot=null;gSummaryDeleted={};gSummaryLabels={};}
+  if(!isResume){gEdges=[];gHotTargets={};gSnapshot=null;gSS={w:{},d:{}};}
   else addLog('기존 결과 '+gEdges.length+'개 유지하고 재분석','info');
   gel('btn-run').disabled=true;gel('btn-stop').disabled=false;gel('btn-resume').style.display='none';
   if(!isResume){gel('tbody').innerHTML='';gel('no-res').style.display='';gel('res-cnt').textContent='0';}
@@ -1208,42 +1211,63 @@ function saveFiltered(){
 function renderSummary(){
   var panel=gel('summary-panel'); if(!panel||!gEdges.length)return;
   var S=buildSummary();
+  // 헬퍼: gSS에서 값 읽기
+  function wLabel(w){return (gSS.w[w]&&gSS.w[w].label)||'';}
+  function dLabel(dep){return (gSS.d[dep]&&gSS.d[dep].label)||'';}
+  function dDel(dep){return !!(gSS.d[dep]&&gSS.d[dep].del);}
+  var activeExch=S.exchList.filter(function(x){return !dDel(x.dep);});
   var html='';
   // 시드 지갑
-  html+='<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;color:var(--a);margin-bottom:6px">시드 지갑 — '+S.analyzedSeeds.length+'개</div>';
+  html+='<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:var(--a);margin-bottom:8px">시드 지갑 — '+S.analyzedSeeds.length+'개</div>';
   S.analyzedSeeds.forEach(function(w){
     var name=PERSON_ADDRESSES[w]||'',tag=WALLET_TAGS[w]?(' ['+WALLET_TAGS[w]+']'):'';
     var inR=!!S.wInfo[w];
-    html+='<div style="font-size:10px;padding:2px 0;color:#9ab8c8">'+(name+tag||w.slice(0,10)+'…')+' <span style="color:#3a6a9a">'+w+'</span>'+(inR?' <span style="color:#4a6a8a">(입금주소 '+Object.keys(S.wInfo[w].deps).length+'개)</span>':'')+'</div>';
+    html+='<div style="font-size:11px;padding:2px 0;color:#9ab8c8">'+(name+tag||w.slice(0,10)+'…')
+      +' <span style="color:#3a6a9a">'+w+'</span>'
+      +(inR?' <span style="color:#4a6a8a">(입금주소 '+Object.keys(S.wInfo[w].deps).length+'개)</span>':'')
+      +' <a href="'+arkUrl(w)+'" target="_blank" style="font-size:10px;margin-left:4px">arkham↗</a></div>';
   });
   html+='</div>';
   // 새 지갑
-  html+='<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;color:var(--g);margin-bottom:6px">발견된 새 지갑 — '+S.newW.length+'개</div>';
-  S.newW.forEach(function(w,i){
+  html+='<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:8px">발견된 새 지갑 — '+S.newW.length+'개</div>';
+  S.newW.forEach(function(w){
     var deps=Object.keys(S.wInfo[w].deps);
-    var label=gSummaryLabels[w]||'';
-    html+='<div style="border:1px solid var(--bd);border-radius:3px;padding:6px 8px;margin-bottom:4px;background:var(--bg3)">'
+    var lbl=wLabel(w);
+    html+='<div style="border:1px solid var(--bd);border-radius:3px;padding:6px 8px;margin-bottom:5px;background:var(--bg3)">'
       +'<div style="display:flex;align-items:center;gap:8px">'
-      +'<input type="checkbox" checked data-w="'+w+'" onchange="toggleSummaryWallet(this)" style="accent-color:var(--r);cursor:pointer;flex-shrink:0">'
-      +'<span style="font-family:monospace;font-size:10px;color:#7ab4d4;flex:1">'+w+'</span>'
-      +'<input type="text" value="'+label.replace(/"/g,'&quot;')+'" placeholder="라벨..." data-w="'+w+'" onchange="gSummaryLabels[this.dataset.w]=this.value.trim()" style="width:130px;font-size:10px">'
+      +'<input type="checkbox" checked data-w="'+w+'" onchange="gSS.w[this.dataset.w]=gSS.w[this.dataset.w]||{};gSS.w[this.dataset.w].del=!this.checked;renderSummary()" style="accent-color:var(--r);cursor:pointer;flex-shrink:0">'
+      +'<span style="font-family:monospace;font-size:11px;color:#7ab4d4;flex:1">'+w+'</span>'
+      +'<a href="'+arkUrl(w)+'" target="_blank" style="font-size:10px;flex-shrink:0">arkham↗</a>'
+      +'<input type="text" value="'+lbl.replace(/"/g,'&quot;')+'" placeholder="라벨..." data-w="'+w+'" onchange="gSS.w[this.dataset.w]=gSS.w[this.dataset.w]||{};gSS.w[this.dataset.w].label=this.value.trim()" style="width:130px;font-size:10px">'
       +'</div>'
-      +'<div style="margin-top:4px;padding-left:20px">';
-    deps.forEach(function(dep){html+='<div style="font-size:9px;color:#3a6a8a;padding:1px 0">→ '+dep+' <span style="color:#2a4a6a">['+S.wInfo[w].deps[dep].exchange+' · '+S.wInfo[w].deps[dep].chain+']</span></div>';});
+      +'<div style="margin-top:5px;padding-left:20px">';
+    deps.forEach(function(dep){
+      var dex=dLabel(dep)||S.wInfo[w].deps[dep].exchange;
+      html+='<div style="font-size:10px;color:#3a6a8a;padding:2px 0">→ '+dep+' <span style="color:#2a4a6a">['+dex+' · '+S.wInfo[w].deps[dep].chain+']</span></div>';
+    });
     html+='</div></div>';
   });
   html+='</div>';
-  // 거래소 입금주소
-  html+='<div><div style="font-size:11px;font-weight:700;color:var(--b);margin-bottom:6px">거래소 추정 입금주소 — '+S.exchList.length+'개</div>';
-  S.exchList.forEach(function(x,i){html+='<div style="font-size:9px;color:#3a6a9a;padding:1px 0">'+(i+1)+'. <span style="color:#4a6a8a">['+x.chain+']</span> '+x.dep+' <span style="color:#2a4a6a">('+x.exchange+')</span></div>';});
+  // 거래소 추정 입금주소 — 체크박스 + 라벨 + 아캄 링크
+  html+='<div><div style="font-size:12px;font-weight:700;color:var(--b);margin-bottom:8px">거래소 추정 입금주소 — '+activeExch.length+'개</div>';
+  S.exchList.forEach(function(x,i){
+    var del=dDel(x.dep);
+    var lbl=dLabel(x.dep);
+    var exchDisplay=lbl||x.exchange;
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:3px 0;'+(del?'opacity:0.35;':'')+'">'
+      +'<input type="checkbox" '+(del?'':'checked')+' data-dep="'+x.dep+'" onchange="gSS.d[this.dataset.dep]=gSS.d[this.dataset.dep]||{};gSS.d[this.dataset.dep].del=!this.checked;renderSummary()" style="accent-color:var(--b);cursor:pointer;flex-shrink:0">'
+      +'<span style="font-size:10px;color:#4a6a8a;flex-shrink:0">['+x.chain+']</span>'
+      +'<span style="font-family:monospace;font-size:11px;color:'+(del?'#2a4a6a':'#3a8ab4')+';flex:1;'+(del?'text-decoration:line-through;':'')+'">'+(i+1)+'. '+x.dep+'</span>'
+      +'<a href="'+arkUrl(x.dep)+'" target="_blank" style="font-size:10px;flex-shrink:0">arkham↗</a>'
+      +'<input type="text" value="'+lbl.replace(/"/g,'&quot;')+'" placeholder="거래소명..." data-dep="'+x.dep+'" onchange="gSS.d[this.dataset.dep]=gSS.d[this.dataset.dep]||{};gSS.d[this.dataset.dep].label=this.value.trim()" style="width:130px;font-size:10px">'
+      +'<span style="font-size:10px;color:#2a4a6a;max-width:180px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">('+exchDisplay+')</span>'
+      +'</div>';
+  });
   html+='</div>';
   panel.innerHTML=html;
 }
-function toggleSummaryWallet(chk){
-  var w=chk.dataset.w;
-  if(!chk.checked)gSummaryDeleted[w]=true; else delete gSummaryDeleted[w];
-  renderSummary();
-}
+// toggleSummaryWallet/Dep → renderSummary 인라인 onchange로 통합
+
 function saveSummary(){
   if(!gEdges.length){addLog('저장할 결과 없음','warn');return;}
   var S=buildSummary();
@@ -1258,13 +1282,14 @@ function saveSummary(){
   L.push('');
   L.push('[ 발견된 새 지갑 — '+S.newW.length+'개 ]');
   S.newW.forEach(function(w,i){
-    var label=gSummaryLabels[w]||'',deps=Object.keys(S.wInfo[w].deps);
+    var label=(gSS.w[w]&&gSS.w[w].label)||'',deps=Object.keys(S.wInfo[w].deps);
     L.push('  '+(i+1)+'. '+w+(label?' ['+label+']':''));
     deps.forEach(function(dep){L.push('     → '+dep+' ['+S.wInfo[w].deps[dep].exchange+' · '+S.wInfo[w].deps[dep].chain+']');});
   });
   L.push('');
-  L.push('[ 거래소 추정 입금주소 — '+S.exchList.length+'개 ]');
-  S.exchList.forEach(function(x,i){L.push('  '+(i+1)+'. ['+x.chain+'] '+x.dep+'  ('+x.exchange+')');});
+  var activeExch=S.exchList.filter(function(x){return !(gSS.d[x.dep]&&gSS.d[x.dep].del);});
+  L.push('[ 거래소 추정 입금주소 — '+activeExch.length+'개 ]');
+  activeExch.forEach(function(x,i){var lbl=(gSS.d[x.dep]&&gSS.d[x.dep].label)||x.exchange;L.push('  '+(i+1)+'. ['+x.chain+'] '+x.dep+'  ('+lbl+')');});
   L.push('',D);
   download('summary-'+new Date().toISOString().slice(0,10)+'.txt',L.join('\n'),'text/plain;charset=utf-8');
   addLog('요약 저장 완료','ok');
@@ -1312,8 +1337,9 @@ function exportReport(){
     deps.forEach(function(dep){L.push('     → '+dep+' ['+S.wInfo[w].deps[dep].exchange+' · '+S.wInfo[w].deps[dep].chain+']');});
   });
   L.push('');
-  L.push('[ 거래소 추정 입금주소 — '+S.exchList.length+'개 ]');
-  S.exchList.forEach(function(x,i){L.push('  '+(i+1)+'. ['+x.chain+'] '+x.dep+'  ('+x.exchange+')');});
+  var rptExch=S.exchList.filter(function(x){return !(gSS.d[x.dep]&&gSS.d[x.dep].del);});
+  L.push('[ 거래소 추정 입금주소 — '+rptExch.length+'개 ]');
+  rptExch.forEach(function(x,i){var lbl=(gSS.d[x.dep]&&gSS.d[x.dep].label)||x.exchange;L.push('  '+(i+1)+'. ['+x.chain+'] '+x.dep+'  ('+lbl+')');});
   L.push('',D,'  END OF REPORT',D);
   download('wallet-report-'+new Date().toISOString().slice(0,10)+'.txt',L.join('\n'),'text/plain;charset=utf-8');
   addLog('리포트 완료','ok');
