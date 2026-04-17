@@ -1094,7 +1094,11 @@ async function surfSql(sql){
   }
   if(resp.status===429){addLog('⚠ 429 — 5초 대기','warn');await sleep(5000);return surfSql(sql);}
   if(resp.status===402){addLog('⚠ 크레딧 부족','err');throw new Error('크레딧 부족');}
-  if(!resp.ok){var t=await resp.text().catch(function(){return '';});throw new Error('HTTP '+resp.status+' '+t.slice(0,100));}
+  if(!resp.ok){
+    var t=await resp.text().catch(function(){return '';});
+    addLog('⚠ Surf API '+resp.status+': '+t.slice(0,200),'err');
+    throw new Error('HTTP '+resp.status);
+  }
   var d=await resp.json();
   if(d.error)throw new Error(JSON.stringify(d.error));
   // 크레딧 누적 추적

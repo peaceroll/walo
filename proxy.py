@@ -96,14 +96,16 @@ class Proxy(BaseHTTPRequestHandler):
         req = urllib.request.Request(url, data=body, headers=hdrs, method=method)
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
-                data = r.read()
+                enc  = r.headers.get('Content-Encoding', '')
+                data = decompress(r.read(), enc)
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             for k, v in CORS.items(): self.send_header(k, v)
             self.end_headers()
             self.wfile.write(data)
         except urllib.error.HTTPError as e:
-            data = e.read()
+            enc  = e.headers.get('Content-Encoding', '')
+            data = decompress(e.read(), enc)
             self.send_response(e.code)
             self.send_header('Content-Type', 'application/json')
             for k, v in CORS.items(): self.send_header(k, v)
