@@ -1330,7 +1330,7 @@ async function collectExchangeWallets(query){
       if(!addr||!addr.startsWith('0x'))return;
       var chain=(a.chain||'').replace('_one','').replace('_mainnet','');
       if(!gHWDB[addr]){
-        gHWDB[addr]={label:label, chain:chain, nonce:0, sources:[], depositLabels:[]};
+        gHWDB[addr]={label:label, chain:chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
         added++;
       }else{
         if(!gHWDB[addr].label)gHWDB[addr].label=label;
@@ -1339,6 +1339,7 @@ async function collectExchangeWallets(query){
     });
   });
   saveHWDB();
+  renderHwDb();
   addLog('[탐색] "'+query+'" → '+added+'개 신규 · '+updated+'개 업데이트 (DB 총 '+Object.keys(gHWDB).length+'개)','ok');
   return added+updated;
 }
@@ -2239,12 +2240,14 @@ function renderHwDb(){
       +KNOWN_EXCHANGES.map(function(ex){return '<option value="'+ex+'"'+(lbl===ex?' selected':'')+'>'+ex+'</option>';}).join('')
       +'<option value="__custom__">✎ 직접 입력...</option>';
     var srcTip=(d.sources||[]).join(', ');
+    var srcLabel=d.fromExplorer?'Surf탐색':(d.sources||[]).length+'개 분석';
     return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0a1520">'
       +'<span style="font-size:9px;color:#2a4a6a;width:24px;text-align:right;flex-shrink:0">'+(i+1)+'</span>'
       +'<span style="font-size:9px;color:#4a5a8a;background:rgba(130,71,229,.1);border-radius:2px;padding:1px 5px;flex-shrink:0">['+d.chain+']</span>'
+      +(d.fromExplorer?'<span style="font-size:9px;color:#8247e5;flex-shrink:0">◈</span>':'')
       +'<span style="font-family:monospace;font-size:10px;color:'+(lbl?'#9ab8c8':'#5a6a7a')+';flex:1">'+addr+'</span>'
-      +'<span style="font-size:9px;color:#3a4a5a;flex-shrink:0">nonce='+((d.nonce||0).toLocaleString())+'</span>'
-      +'<span style="font-size:9px;color:#2a4a6a;flex-shrink:0" title="'+srcTip+'">src:'+(d.sources||[]).length+'개</span>'
+      +(d.nonce?'<span style="font-size:9px;color:#3a4a5a;flex-shrink:0">nonce='+((d.nonce||0).toLocaleString())+'</span>':'')
+      +'<span style="font-size:9px;color:#2a4a6a;flex-shrink:0" title="'+srcTip+'">'+srcLabel+'</span>'
       +'<a href="'+arkUrl(addr)+'" target="_blank" style="font-size:10px;flex-shrink:0;color:var(--b)">arkham↗</a>'
       +'<select data-addr="'+addr+'" onchange="setHwDbLabel(this.dataset.addr,this.value)"'
         +' style="background:#07101a;border:1px solid '+(lbl?'rgba(130,71,229,.4)':'var(--bd)')+';border-radius:3px;color:'+(lbl?'#8247e5':'#4a6a8a')+';font-family:monospace;font-size:10px;padding:2px 4px;width:150px;cursor:pointer">'
