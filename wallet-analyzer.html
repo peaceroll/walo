@@ -314,7 +314,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
     <h2 style="margin:0">⬡ 요약 <span style="font-size:10px;color:#2a4a6a;font-weight:normal">· 체크박스로 제거 · 라벨 입력 후 저장</span></h2>
     <div style="display:flex;gap:6px">
-      <button class="btn dim" onclick="renderSummary()">↺ 새로고침</button>
+      <button class="btn dim" onclick="resetSummary()">↺ 새로고침</button>
       <button class="btn dim" style="border-color:var(--a);color:var(--a)" onclick="filterWalletsByExch()">⬡ 거래소 입금주소로 필터링</button>
       <button class="btn dim" style="border-color:var(--g);color:var(--g)" onclick="saveSummary()">💾 요약 저장</button>
     </div>
@@ -986,6 +986,16 @@ function buildSummary(){
   clusterEdges(gEdges);
   var seedSet={};gSeeds.forEach(function(a){seedSet[a]=1;});
   var seedClusters={};gEdges.forEach(function(e){if(seedSet[e.wallet]&&e._cluster)seedClusters[e._cluster]=1;});
+  // 핫월렛 주소 집합: 해당 지갑의 모든 엣지가 noCluster인 경우
+  var hotWalletAddrs={};
+  var walletEdgeCnt={}, walletHotCnt={};
+  gEdges.forEach(function(e){
+    walletEdgeCnt[e.wallet]=(walletEdgeCnt[e.wallet]||0)+1;
+    if(e.noCluster)walletHotCnt[e.wallet]=(walletHotCnt[e.wallet]||0)+1;
+  });
+  Object.keys(walletEdgeCnt).forEach(function(w){
+    if(walletEdgeCnt[w]===walletHotCnt[w])hotWalletAddrs[w]=1; // 모든 엣지가 핫 → 핫월렛 주소
+  });
   var wInfo={};
   gEdges.forEach(function(e){
     if(!wInfo[e.wallet])wInfo[e.wallet]={deps:{},cluster:e._cluster};
@@ -993,16 +1003,16 @@ function buildSummary(){
   });
   var allW=Object.keys(wInfo);
   var seedW=allW.filter(function(w){return !!seedSet[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
-  var newW=allW.filter(function(w){return !seedSet[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
+  // 핫월렛 주소는 새 지갑 목록에서 제외 (별도 패널로 표시)
+  var newW=allW.filter(function(w){return !seedSet[w]&&!hotWalletAddrs[w];}).sort(function(a,b){return Object.keys(wInfo[b].deps).length-Object.keys(wInfo[a].deps).length;});
   var w2s={};
   newW.forEach(function(nw){var cs={};Object.keys(wInfo[nw].deps).forEach(function(dep){seedW.forEach(function(sw){if(wInfo[sw]&&wInfo[sw].deps[dep])cs[PERSON_ADDRESSES[sw]||sw.slice(0,8)+'…']=1;});});w2s[nw]=Object.keys(cs);});
   var exchSet={};
   gEdges.forEach(function(e){if(!exchSet[e.deposit])exchSet[e.deposit]={exchange:e.userLabel||e.exchange,chain:e.chain};});
-  // 원본 그대로 반환 — 필터/라벨 오버라이드는 render/export에서 적용
   var exchList=Object.keys(exchSet).map(function(dep){return {dep:dep,exchange:exchSet[dep].exchange,chain:exchSet[dep].chain};}).sort(function(a,b){return a.chain.localeCompare(b.chain);});
   var analyzedSeeds=Object.keys(gSelected).filter(function(a){return gSelected[a];});
   if(!analyzedSeeds.length)analyzedSeeds=gSeeds.slice();
-  return {seedSet:seedSet,seedClusters:seedClusters,wInfo:wInfo,seedW:seedW,newW:newW,w2s:w2s,exchList:exchList,analyzedSeeds:analyzedSeeds};
+  return {seedSet:seedSet,seedClusters:seedClusters,wInfo:wInfo,seedW:seedW,newW:newW,w2s:w2s,exchList:exchList,analyzedSeeds:analyzedSeeds,hotWalletAddrs:hotWalletAddrs};
 }
 
 
@@ -1095,38 +1105,26 @@ async function collectInbound(depMap,opts){
     addLog('[STEP 3] '+short(dm.addr)+' ('+dm.label+' · '+ch.name+')','info');
     var txs=[],pageKey=null,earlyStop=false;
     while(!gAborted&&!earlyStop){
-      var result=await alchemyCall(ch.rpc,ch.key,ch.provider,'in',dm.addr,pageKey,false,ch.blockTime,opts.days,true);
+      // inclInternal 제거: external+erc20만 수집
+      // internal 포함 시 거래소 내부 운영 TX가 대거 포함 → earlyStop 오발동
+      var result=await alchemyCall(ch.rpc,ch.key,ch.provider,'in',dm.addr,pageKey,false,ch.blockTime,opts.days);
       var batch=result.transfers||[]; txs=txs.concat(batch);
-      var tempS={};txs.forEach(function(tx){var f=(tx.from||'').toLowerCase();if(f&&f!==dm.addr.toLowerCase()&&!isZero(f))tempS[f]=1;});
-      if(Object.keys(tempS).filter(function(a){return !seedSet[a];}).length>opts.maxSenders){
-        addLog('[STEP 3] '+short(dm.addr)+' 발신자 초과 → 조기 종료','warn');earlyStop=true;break;
+      // earlyStop: 시드 제외 고유 발신자 수로 체크
+      // (컨트랙트, Gas Supplier 등은 아직 필터 전이므로 실제보다 많게 나옴 — 여유 있게 2배 적용)
+      var tempS={};
+      txs.forEach(function(tx){
+        var f=(tx.from||'').toLowerCase();
+        if(f&&f!==dm.addr.toLowerCase()&&!isZero(f)&&!seedSet[f])tempS[f]=1;
+      });
+      if(Object.keys(tempS).length>opts.maxSenders*2){
+        addLog('[STEP 3] '+short(dm.addr)+' 발신자 초과('+Object.keys(tempS).length+'명) → 조기 종료','warn');
+        earlyStop=true;break;
       }
       addLog('  └ p'+(Math.ceil(txs.length/100))+': '+batch.length+'건 ('+txs.length+')','dim');
       pageKey=result.pageKey; if(!pageKey||!batch.length)break;
     }
     if(earlyStop){setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');return;}
     addLog('[STEP 3] → '+txs.length+'건','ok');
-
-    // internal transfer는 from=컨트랙트 → TX hash로 실제 EOA 역추적
-    var internalTxs=txs.filter(function(tx){return tx.category==='internal';});
-    var externalTxs=txs.filter(function(tx){return tx.category!=='internal';});
-    if(internalTxs.length>0){
-      addLog('[STEP 3] internal TX '+internalTxs.length+'건 EOA 역추적…','info');
-      var hashToEoa={};
-      var seen={};
-      // 중복 hash 제거 후 병렬 조회
-      var uniqueHashes=internalTxs.map(function(tx){return tx.hash;}).filter(function(h){if(seen[h])return false;seen[h]=1;return true;});
-      await Promise.all(uniqueHashes.map(async function(hash){
-        var eoa=await resolveInternalSender(ch.rpc,hash);
-        if(eoa)hashToEoa[hash]=eoa;
-      }));
-      // internal TX의 from을 EOA로 교체 (컨트랙트 중간 경유 제거)
-      internalTxs.forEach(function(tx){
-        var eoa=hashToEoa[tx.hash];
-        if(eoa)tx.from=eoa;
-      });
-      txs=externalTxs.concat(internalTxs);
-    }
 
     var fromMap={};
     txs.forEach(function(tx){
@@ -1154,13 +1152,24 @@ async function collectInbound(depMap,opts){
             var nonce=await getNonce(ch.rpc,addr);
             if(!fromMap[addr])return;
             if(nonce===0){delete fromMap[addr];return;}
-            // nonceMax 초과 → 삭제 아닌 핫월렛 레이블 표시 (실제 입금 흐름 보존)
-            var isHot=opts.nonceMax>0&&nonce>opts.nonceMax;
+            var nonceThr=opts.nonceMax>0?opts.nonceMax:5000;
+            // 2단계 분류:
+            // nonceThr < nonce <= nonceThr*20 → 핫월렛으로 표시 (거래소 핫월렛 가능성)
+            // nonce > nonceThr*20             → 완전 제거 (Gas Supplier / Bridge Solver 등 인프라)
+            var isInfra=nonce>nonceThr*20;
+            var isHot=!isInfra&&opts.nonceMax>0&&nonce>opts.nonceMax;
+            if(isInfra){
+              addLog('[STEP 3] '+short(addr)+' nonce='+nonce.toLocaleString()+' → 인프라 제거','dim');
+              delete fromMap[addr]; return;
+            }
             if(!isHot&&ch.key!=='eth'){
               var ethEl=gel('rpc-eth');
               if(ethEl&&ethEl.value.trim()){
                 var ethNonce=await getNonce(ethEl.value.trim(),addr);
-                if(fromMap[addr]&&opts.nonceMax>0&&ethNonce>opts.nonceMax)isHot=true;
+                if(fromMap[addr]&&opts.nonceMax>0){
+                  if(ethNonce>nonceThr*20){addLog('[STEP 3] '+short(addr)+' ETH nonce='+ethNonce.toLocaleString()+' → 인프라 제거','dim');delete fromMap[addr];return;}
+                  if(ethNonce>opts.nonceMax)isHot=true;
+                }
               }
             }
             if(isHot){
@@ -1290,6 +1299,13 @@ function renderSummary(){
 
 // 거래소 추정 입금주소로 필터링:
 // 활성(체크된) 입금주소와 연결이 하나도 없는 새 지갑은 모두 del=true 처리
+// 새로고침: del 플래그 초기화 후 재렌더 (필터링 결과 되돌리기)
+function resetSummary(){
+  Object.keys(gSS.w).forEach(function(w){if(gSS.w[w])gSS.w[w].del=false;});
+  Object.keys(gSS.d).forEach(function(d){if(gSS.d[d])gSS.d[d].del=false;});
+  renderSummary(); renderTable();
+}
+
 function filterWalletsByExch(){
   var S=buildSummary();
   // 현재 활성 입금주소 집합
@@ -1349,7 +1365,9 @@ function saveSummary(){
 function renderHotWallets(){
   var panel=gel('hw-panel'); if(!panel)return;
   var addrs=Object.keys(gHW);
-  var cntEl=gel('hw-cnt'); if(cntEl)cntEl.textContent=addrs.length;
+  // 활성(del 아닌) 개수만 카운트
+  var activeCount=addrs.filter(function(a){return !gHW[a].del;}).length;
+  var cntEl=gel('hw-cnt'); if(cntEl)cntEl.textContent=activeCount;
   if(!addrs.length){
     panel.innerHTML='<span style="color:#2a4a6a;font-size:10px">핫월렛이 감지되지 않았습니다 (nonce > 설정값인 발신자가 없음)</span>';
     return;
@@ -1358,15 +1376,20 @@ function renderHotWallets(){
   panel.innerHTML=addrs.map(function(addr,i){
     var h=gHW[addr];
     var lbl=h.label||'';
+    var del=!!h.del;
     var inDb=!!gHWDB[addr];
     var selOpts='<option value="">거래소 선택...</option>'
       +KNOWN_EXCHANGES.map(function(ex){return '<option value="'+ex+'"'+(lbl===ex?' selected':'')+'>'+ex+'</option>';}).join('')
       +'<option value="__custom__">✎ 직접 입력...</option>';
-    return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0a1520">'
-      +'<span style="font-size:9px;color:#2a4a6a;width:20px;text-align:right;flex-shrink:0">'+(i+1)+'</span>'
+    var dimStyle=del?'opacity:0.35;':'';
+    var addrColor=del?'color:#2a4a6a;text-decoration:line-through;':'color:#7a8a9a;';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0a1520;'+dimStyle+'">'
+      +'<input type="checkbox" '+(del?'':'checked')+' data-addr="'+addr
+        +'" onchange="gHW[this.dataset.addr].del=!this.checked;renderHotWallets()"'
+        +' style="accent-color:var(--r);cursor:pointer;flex-shrink:0">'
       +'<span style="font-size:9px;color:var(--r);background:rgba(255,77,106,.1);border-radius:2px;padding:1px 5px;flex-shrink:0">['+h.chain+']</span>'
-      +(inDb?'<span style="font-size:9px;color:#8247e5;flex-shrink:0" title="DB에 등록됨">DB</span>':'<span style="font-size:9px;color:#2a4a6a;flex-shrink:0">   </span>')
-      +'<span style="font-family:monospace;font-size:10px;color:#7a8a9a;flex:1">'+addr+'</span>'
+      +(inDb?'<span style="font-size:9px;color:#8247e5;flex-shrink:0" title="DB에 등록됨">DB</span>':'<span style="font-size:9px;color:#1a2a3a;flex-shrink:0" style="width:18px"> </span>')
+      +'<span style="font-family:monospace;font-size:10px;flex:1;'+addrColor+'">'+addr+'</span>'
       +'<span style="font-size:9px;color:#3a4a5a;flex-shrink:0">nonce='+((h.nonce||0).toLocaleString())+'</span>'
       +'<span style="font-size:9px;color:#2a4a6a;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0" title="'+(h.depositLabel||'')+'">'+((h.depositLabel||'').slice(0,18))+'</span>'
       +'<a href="'+arkUrl(addr)+'" target="_blank" style="font-size:10px;flex-shrink:0;color:var(--b)">arkham↗</a>'
@@ -1375,7 +1398,7 @@ function renderHotWallets(){
         +selOpts+'</select>'
       +'</div>';
   }).join('')
-  +'<div style="margin-top:6px;font-size:9px;color:#2a4a6a">총 '+addrs.length+'개 · [→ DB에 추가] 버튼으로 누적 DB에 병합하세요</div>';
+  +'<div style="margin-top:6px;font-size:9px;color:#2a4a6a">활성 '+activeCount+'개 / 전체 '+addrs.length+'개 · [→ DB에 추가] 시 체크된 항목만 병합됩니다</div>';
 }
 
 function setHWLabel(addr,val){
@@ -1390,8 +1413,9 @@ function setHWLabel(addr,val){
 }
 
 function saveHotWalletsCsv(){
-  var addrs=Object.keys(gHW);
-  if(!addrs.length){addLog('저장할 핫월렛 없음','warn');return;}
+  // 체크된(del 아닌) 항목만 저장
+  var addrs=Object.keys(gHW).filter(function(a){return !gHW[a].del;});
+  if(!addrs.length){addLog('저장할 핫월렛 없음 (체크된 항목 없음)','warn');return;}
   addrs.sort(function(a,b){return (gHW[b].nonce||0)-(gHW[a].nonce||0);});
   var lines=['address,label,chain,nonce,deposit,deposit_label'];
   addrs.forEach(function(addr){
@@ -1403,17 +1427,16 @@ function saveHotWalletsCsv(){
   addLog('핫월렛 CSV 저장: '+fname+' ('+addrs.length+'개)','ok');
 }
 
-// 현재 분석 gHW → DB에 병합
+// 현재 분석 gHW → DB에 병합 (체크된 항목만)
 function mergeCurrentToDb(){
   var added=0,updated=0;
-  Object.keys(gHW).forEach(function(addr){
+  Object.keys(gHW).filter(function(a){return !gHW[a].del;}).forEach(function(addr){
     var h=gHW[addr];
     if(!gHWDB[addr]){
       gHWDB[addr]={label:h.label||'',chain:h.chain||'',nonce:h.nonce||0,
         sources:[h.deposit||''],depositLabels:[h.depositLabel||'']};
       added++;
     }else{
-      // 기존 항목 업데이트: 라벨은 덮어쓰지 않고 nonce는 최대값으로
       if(h.label&&!gHWDB[addr].label)gHWDB[addr].label=h.label;
       if((h.nonce||0)>gHWDB[addr].nonce)gHWDB[addr].nonce=h.nonce||0;
       if(h.deposit&&gHWDB[addr].sources.indexOf(h.deposit)<0){
@@ -1425,7 +1448,7 @@ function mergeCurrentToDb(){
   });
   saveHWDB();
   renderHwDb();
-  addLog('DB에 병합: '+added+'개 신규 · '+updated+'개 업데이트','ok');
+  addLog('DB에 병합: '+added+'개 신규 · '+updated+'개 업데이트 (체크된 항목만)','ok');
 }
 
 
