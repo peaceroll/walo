@@ -1314,62 +1314,61 @@ async function surfSearchExchange(query, limit){
   return d;
 }
 
-// 거래소 검색 → cex 엔티티만 필터 → 배치 라벨로 Hot/Cold Wallet 확인 → gHWDB에 저장
+// 거래소 검색 → cex 엔티티만 필터 → 배치 라벨로 exchange 확인 → gHWDB에 저장
 async function collectExchangeWallets(query){
   addLog('[탐색] "'+query+'" 거래소 주소 수집…','info');
   var d=await surfSearchExchange(query, 5);
   var items=d.data||[];
-  // entity_type=cex 만
   var cexItems=items.filter(function(x){return x.entity_type==='cex'&&x.addresses&&x.addresses.length;});
   if(!cexItems.length){addLog('[탐색] "'+query+'" — cex 엔티티 없음','warn');return 0;}
 
-  // 모든 주소 수집 (EVM 체인만)
+  // EVM 주소 수집
   var candidates=[];
   cexItems.forEach(function(item){
     var label=item.entity_name||query;
     (item.addresses||[]).forEach(function(a){
       var addr=(a.address||'').toLowerCase();
-      if(!addr||!addr.startsWith('0x'))return; // EVM 주소만
-      var chain=(a.chain||'').replace('_one','').replace('_mainnet','').replace('arbitrum_one','arbitrum');
+      if(!addr||!addr.startsWith('0x'))return;
+      var chain=(a.chain||'').replace('arbitrum_one','arbitrum').replace('_mainnet','');
       candidates.push({addr:addr, chain:chain, label:label});
     });
   });
   if(!candidates.length){addLog('[탐색] "'+query+'" — EVM 주소 없음','warn');return 0;}
 
-  // 배치 라벨 조회 → Hot Wallet / Cold Wallet 필터
-  var addrs=candidates.map(function(c){return c.addr;});
-  addLog('[탐색] '+addrs.length+'개 주소 라벨 확인 중…','dim');
-  var labelMap=await fetchWalletLabels(addrs);
+  // 이미 DB에 있는 주소는 건너뜀 (재검색 방지)
+  var newCandidates=candidates.filter(function(c){return !gHWDB[c.addr];});
+  var skippedExisting=candidates.length-newCandidates.length;
+  if(skippedExisting>0)addLog('[탐색] '+skippedExisting+'개 기존 DB 주소 건너뜀','dim');
 
-  // Hot/Cold Wallet 라벨 포함 여부 확인
-  function isHotOrCold(lrow){
-    if(!lrow)return false;
-    var labels=(lrow.labels||[]).map(function(l){return (l.label||'').toLowerCase();});
-    var name=(lrow.entity_name||'').toLowerCase();
-    return labels.some(function(l){return l.includes('hot')&&l.includes('wallet');})
-        || labels.some(function(l){return l.includes('cold')&&l.includes('wallet');})
-        || name.includes('hot wallet')
-        || name.includes('cold wallet');
-  }
+  var added=0, skipped=0;
+  if(newCandidates.length>0){
+    // 배치 라벨 조회 → entity_type=exchange 인 것만 저장
+    var addrs=newCandidates.map(function(c){return c.addr;});
+    addLog('[탐색] '+addrs.length+'개 주소 라벨 확인 중…','dim');
+    var labelMap=await fetchWalletLabels(addrs);
 
-  var added=0, updated=0, skipped=0;
-  candidates.forEach(function(c){
-    var lrow=labelMap[c.addr];
-    if(!isHotOrCold(lrow)){skipped++;return;} // 핫/콜드월렛 아니면 제외
-    var finalLabel=lrow.entity_name||c.label;
-    if(!gHWDB[c.addr]){
+    newCandidates.forEach(function(c){
+      var lrow=labelMap[c.addr];
+      // 라벨 정보 없으면 search가 cex로 분류했으므로 그대로 저장
+      // 라벨 있으면 exchange/cex 타입만 허용 (bot, bridge, protocol 제외)
+      if(lrow){
+        var t=(lrow.entity_type||'').toLowerCase();
+        if(t&&t!=='exchange'&&t!=='cex'&&t!=='miner'){skipped++;return;}
+      }
+      var finalLabel=(lrow&&lrow.entity_name&&lrow.entity_name!=='Unknown')?lrow.entity_name:c.label;
       gHWDB[c.addr]={label:finalLabel, chain:c.chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
       added++;
-    }else{
-      if(!gHWDB[c.addr].label)gHWDB[c.addr].label=finalLabel;
-      gHWDB[c.addr].fromExplorer=true;
-      updated++;
-    }
-  });
+    });
+  }
+
   saveHWDB();
   renderHwDb();
-  addLog('[탐색] "'+query+'" → '+added+'개 신규 · '+updated+'개 업데이트 · '+skipped+'개 제외(핫/콜드월렛 아님) (DB 총 '+Object.keys(gHWDB).length+'개)','ok');
-  return added+updated;
+  var msg='[탐색] "'+query+'" → '+added+'개 신규';
+  if(skippedExisting)msg+=' · '+skippedExisting+'개 DB에 이미 있음';
+  if(skipped)msg+=' · '+skipped+'개 제외(거래소 아님)';
+  msg+=' (DB 총 '+Object.keys(gHWDB).length+'개)';
+  addLog(msg,'ok');
+  return added;
 }
 
 // 여러 거래소 일괄 수집
