@@ -185,6 +185,33 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       지원 체인: Ethereum · Arbitrum · Base · BSC · Polygon · 거래소 라벨 자동 적용
     </div>
   </div>
+
+  <!-- Surf API 탐색기 -->
+  <div class="panel" style="margin-top:0;border-color:rgba(130,71,229,.2)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-size:11px;font-weight:700;color:#8247e5">◈ API 탐색기</span>
+      <span style="font-size:10px;color:#2a4a6a">엔드포인트 직접 테스트 — 응답 구조 확인용</span>
+    </div>
+    <div class="row center">
+      <select id="api-method" style="width:70px;background:#07101a;border:1px solid var(--bd);border-radius:3px;color:#c8d3e0;font-family:monospace;font-size:11px;padding:4px">
+        <option>GET</option><option>POST</option>
+      </select>
+      <input type="text" id="api-path" value="/gateway/v1/search/wallet?q=Binance&limit=20"
+        style="flex:1;font-size:11px" placeholder="/gateway/v1/...">
+      <button class="btn dim" style="border-color:#8247e5;color:#8247e5" onclick="surfApiExplore()">▶ 실행</button>
+    </div>
+    <div class="row center" style="margin-top:4px">
+      <span class="lbl" style="min-width:80px;font-size:10px">Body (POST)</span>
+      <textarea id="api-body" style="flex:1;height:36px;background:#07101a;border:1px solid var(--bd);border-radius:3px;color:#c8d3e0;font-family:monospace;font-size:10px;padding:4px;resize:vertical" placeholder='{"sql":"SELECT 1"}'></textarea>
+    </div>
+    <div style="margin-top:5px;font-size:10px;color:#2a4a6a">빠른 실행:
+      <span onclick="surfApiQuick('/gateway/v1/search/wallet?q=Binance&limit=20','GET','')" style="color:#8247e5;cursor:pointer;margin:0 4px">Binance 검색</span>·
+      <span onclick="surfApiQuick('/gateway/v1/search/wallet?q=OKX&limit=20','GET','')" style="color:#8247e5;cursor:pointer;margin:0 4px">OKX 검색</span>·
+      <span onclick="surfApiQuick('/gateway/v1/wallet/labels/batch?addresses=0x28c6c06298d514db089934071355e5743bf21d60','GET','')" style="color:#8247e5;cursor:pointer;margin:0 4px">라벨 조회 테스트</span>·
+      <span onclick="surfApiQuick('/gateway/v1/onchain/sql','POST','{"sql":"SELECT 1 AS test"}')" style="color:#8247e5;cursor:pointer;margin:0 4px">SQL 테스트</span>
+    </div>
+    <div id="api-result" style="font-family:monospace;font-size:10px;color:#7a9ab8;background:#050d15;border:1px solid var(--bd);border-radius:3px;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap;display:none;margin-top:6px"></div>
+  </div>
 </div>
 </div><!-- /settings-surf -->
 
@@ -2843,6 +2870,44 @@ function saveLog(){
   var ts=new Date().toISOString().replace('T','_').slice(0,19).replace(/:/g,'-');
   download('log-'+ts+'.txt',lines.join('\n'),'text/plain;charset=utf-8');
   addLog('로그 저장 완료 ('+lines.length+'줄)','ok');
+}
+
+async function surfApiExplore(){
+  var method=(gel('api-method')&&gel('api-method').value)||'GET';
+  var path=(gel('api-path')&&gel('api-path').value.trim())||'';
+  var bodyTxt=(gel('api-body')&&gel('api-body').value.trim())||'';
+  if(!path){addLog('⚠ API 경로를 입력하세요','warn');return;}
+  var resultEl=gel('api-result');
+  resultEl.style.display='block';
+  resultEl.textContent='⏳ 요청 중...';
+  var proxy=getSurfProxy();
+  var url=proxy?(proxy.replace(/\/+$/,'')+path):('https://api.asksurf.ai'+path);
+  var key=getSurfKey();
+  var opts={method:method,headers:{'Authorization':'Bearer '+key}};
+  if(method==='POST'&&bodyTxt){
+    opts.headers['Content-Type']='application/json';
+    opts.body=bodyTxt;
+  }
+  try{
+    var resp=await fetch(url,opts);
+    var t=await resp.text();
+    var parsed;try{parsed=JSON.parse(t);}catch(e){parsed=t;}
+    var pretty=typeof parsed==='object'?JSON.stringify(parsed,null,2):parsed;
+    resultEl.textContent='HTTP '+resp.status+'\n\n'+pretty;
+    resultEl.style.color=resp.ok?'var(--g)':'var(--r)';
+    addLog('API 탐색: '+method+' '+path+' → HTTP '+resp.status,'info');
+  }catch(e){
+    resultEl.textContent='❌ 오류: '+e.message;
+    resultEl.style.color='var(--r)';
+  }
+}
+
+function surfApiQuick(path,method,body){
+  var pEl=gel('api-path'),mEl=gel('api-method'),bEl=gel('api-body');
+  if(pEl)pEl.value=path;
+  if(mEl)mEl.value=method;
+  if(bEl)bEl.value=body||'';
+  surfApiExplore();
 }
 
 async function testSurfProxy(){
