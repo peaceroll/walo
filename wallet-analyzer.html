@@ -387,6 +387,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
         <input type="file" id="hwdb-load-files" accept=".csv,.txt" multiple style="display:none" onchange="loadHwDbCsvMulti(this)">
         <button class="btn dim" onclick="saveHwDbCsv()">💾 DB 저장</button>
         <button class="btn dim" style="border-color:var(--a);color:var(--a)" onclick="autoLabelFromDb()">⚡ DB로 자동 라벨링</button>
+        <button class="btn dim" onclick="cleanHwDb()">🧹 오염 제거</button>
         <button class="btn dim red" onclick="if(confirm('DB 전체를 초기화할까요?\n\nlocalStorage 저장 데이터도 함께 삭제됩니다.')){gHWDB={};saveHWDB();renderHwDb();addLog('핫월렛 DB 초기화 완료 (localStorage 포함)','warn');}">🗑 DB+localStorage 초기화</button>
       </div>
     </div>
@@ -1342,20 +1343,29 @@ async function collectExchangeWallets(query){
 
   var added=0, skipped=0;
   if(newCandidates.length>0){
-    // 배치 라벨 조회 → entity_type=exchange 인 것만 저장
     var addrs=newCandidates.map(function(c){return c.addr;});
     addLog('[탐색] '+addrs.length+'개 주소 라벨 확인 중…','dim');
     var labelMap=await fetchWalletLabels(addrs);
 
     newCandidates.forEach(function(c){
       var lrow=labelMap[c.addr];
-      // 라벨 정보 없으면 search가 cex로 분류했으므로 그대로 저장
-      // 라벨 있으면 exchange/cex 타입만 허용 (bot, bridge, protocol 제외)
-      if(lrow){
-        var t=(lrow.entity_type||'').toLowerCase();
-        if(t&&t!=='exchange'&&t!=='cex'&&t!=='miner'){skipped++;return;}
-      }
-      var finalLabel=(lrow&&lrow.entity_name&&lrow.entity_name!=='Unknown')?lrow.entity_name:c.label;
+      var labelList=(lrow&&lrow.labels||[]).map(function(l){return (l.label||'').toLowerCase();});
+      var eName=(lrow&&lrow.entity_name)||c.label;
+      var eType=(lrow&&lrow.entity_type||'').toLowerCase();
+
+      // 제외 1: 토큰 컨트랙트 (BEP20, ERC20, Token 라벨)
+      var isToken=labelList.some(function(l){
+        return l.includes('bep20')||l.includes('erc20')||l.includes('token')||l.includes('nft');
+      });
+      if(isToken){skipped++;return;}
+
+      // 제외 2: entity_name이 "Exchange: Something (TICKER)" 패턴 → 토큰/컨트랙트
+      if(/:\s*.+\([A-Z]{2,10}\)/.test(eName)){skipped++;return;}
+
+      // 제외 3: exchange 아닌 entity_type (bridge, bot, protocol, individual 등)
+      if(eType&&eType!=='exchange'&&eType!=='cex'){skipped++;return;}
+
+      var finalLabel=(eName&&eName!=='Unknown')?eName:c.label;
       gHWDB[c.addr]={label:finalLabel, chain:c.chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
       added++;
     });
@@ -2389,6 +2399,30 @@ function saveHwDbCsv(){
   var fname='hwdb-merged-'+new Date().toISOString().slice(0,10)+'.csv';
   download(fname,'\uFEFF'+lines.join('\n'),'text/csv;charset=utf-8-bom');
   addLog('DB CSV 저장: '+fname+' ('+addrs.length+'개)','ok');
+}
+
+// DB 오염 제거 — 토큰 컨트랙트 패턴 자동 감지 후 삭제
+function cleanHwDb(){
+  var addrs=Object.keys(gHWDB);
+  if(!addrs.length){addLog('DB가 비어 있습니다','warn');return;}
+  var removed=[];
+  addrs.forEach(function(addr){
+    var d=gHWDB[addr];
+    var label=(d.label||'');
+    // 제거 기준:
+    // 1. label이 "Exchange: Something (TICKER)" 패턴
+    // 2. label에 "Token", "BEP20", "ERC20" 포함
+    // 3. label에 "Proxy", "Contract" 포함
+    var isJunk=/:\s*.+\([A-Z]{2,10}\)/.test(label)
+      ||/\b(token|bep20|erc20|proxy|contract|nft)\b/i.test(label);
+    if(isJunk){removed.push(addr);delete gHWDB[addr];}
+  });
+  if(removed.length){
+    saveHWDB(); renderHwDb();
+    addLog('🧹 오염 제거: '+removed.length+'개 삭제 (토큰 컨트랙트/프록시) — DB 남은 주소: '+Object.keys(gHWDB).length+'개','ok');
+  }else{
+    addLog('오염된 항목 없음','ok');
+  }
 }
 
 // ══ 통합 UI — Alchemy + Surf 모드 전환 ══════════════════════════
