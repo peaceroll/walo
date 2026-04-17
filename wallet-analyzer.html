@@ -755,11 +755,21 @@ var CHAINS = [
 function getActiveChains(){
   if(gAnalysisMode==='surf')
     return CHAINS.filter(function(c){return c.surfTable;});
-  // Alchemy: rpc 값이 있는 체인만
-  return CHAINS.filter(function(c){
-    var el=document.getElementById('rpc-'+c.key);
-    return el&&el.value.trim();
-  });
+  // Alchemy: 체크박스 ON + RPC URL 입력된 체인만 — rpc 값을 DOM에서 읽어 객체에 포함
+  return CHAINS
+    .filter(function(c){
+      var chk=document.getElementById('on-'+c.key);
+      var url=document.getElementById('rpc-'+c.key);
+      return chk&&chk.checked&&url&&url.value.trim();
+    })
+    .map(function(c){
+      return {
+        key:c.key, name:c.name, color:c.color,
+        rpc:document.getElementById('rpc-'+c.key).value.trim(),
+        blockTime:c.blockTime, provider:c.provider||'',
+        surfTable:c.surfTable
+      };
+    });
 }
 
 var STEPS_DEF = [
