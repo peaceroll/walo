@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Wallet Cluster Analyzer</title>
 <link rel="icon" href="data:,">
-<style>
+
+
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Courier New',monospace;background:#0a0a0f;color:#c8d3e0;font-size:13px;line-height:1.6}
 :root{--g:#00ff9d;--b:#4fa3ff;--a:#ffb347;--r:#ff4d6a;--dim:#3a4a5a;--bd:#1e2d3d;--bg2:#0f1923;--bg3:#141f2e}
@@ -59,7 +60,8 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
 .snum.done{border-color:var(--g);color:var(--g);background:rgba(0,255,157,.06)}
 .slbl{font-size:11px;color:#6a8aa0;padding-top:3px}.slbl.act{color:#c8d3e0;font-weight:700}.slbl.done{color:var(--g)}
 .srow{display:flex;align-items:flex-start;gap:10px;margin-bottom:7px}
-</style>
+
+
 </head>
 <body>
 <div style="max-width:980px;margin:0 auto;padding:16px">
@@ -320,7 +322,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   <div id="summary-panel" style="font-size:10px;color:#4a6a8a">분석 완료 후 자동으로 표시됩니다</div>
 </div>
 </div>
-<script>
+
 
 const SEEDS_RAW = [
   "0x3b95232113d35f1200dc40cf22c407fdb1759340",
@@ -1192,9 +1194,9 @@ async function collectInbound(depMap,opts){
       });
     }
     setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');
-    updateStats(); renderTable();
+    updateStats(); renderTable(); // 중간 진행 중 테이블만 빠르게 갱신
   },opts.concurrency);
-  setStep(4); clusterEdges(gEdges); updateStats(); renderTable(); renderSummary(); renderHotWallets(); renderHwDb();
+  setStep(4); renderAll(); // 완료 후 모든 패널 일괄 갱신
   setProgress(1,1,'완료');
   STEPS_DEF.forEach(function(s){var n=gel('sn'+s.id);if(n){n.className='snum done';gel('sl'+s.id).className='slbl done';}});
   addLog('=== 완료 · API '+gApiCalls+'회 · 연결 '+gEdges.length+'개 ===','ok');
@@ -1339,6 +1341,7 @@ function saveSummary(){
   download(fname,L.join('\n'),'text/plain;charset=utf-8');
   addLog('요약 저장: '+fname,'ok');
 }
+
 
 // ══ 핫월렛 추정 패널 ══════════════════════════════════════════════════
 
@@ -1584,6 +1587,17 @@ function updateStats(){
   gel('s-api').textContent=gApiCalls;gel('s-dep').textContent=Object.keys(deps).length;
   gel('s-edge').textContent=gEdges.length;gel('s-wl').textContent=Object.keys(wallets).length;
   gel('s-cl').textContent=clusterEdges(gEdges.slice());
+}
+// ── 단일 렌더 진입점 ─────────────────────────────────────────────────
+// UI 업데이트가 필요한 모든 곳에서 개별 render* 함수 대신 이것을 호출
+// 어디선가 빠뜨려도 stale 상태 없음
+function renderAll(){
+  clusterEdges(gEdges);
+  updateStats();
+  renderTable();
+  renderSummary();
+  renderHotWallets();
+  renderHwDb();
 }
 
 // ── 라벨 단일 진실 공급원 ─────────────────────────────────────────
@@ -1907,6 +1921,6 @@ function lsInit(){
 })();
 
 
-</script>
+
 </body>
 </html>
