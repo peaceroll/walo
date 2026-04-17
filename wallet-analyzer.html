@@ -162,7 +162,8 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <div style="font-size:11px;font-weight:700;color:#8247e5;margin-bottom:8px">◈ Surf API 설정</div>
     <div class="row center">
       <span class="lbl">API Key</span>
-      <input type="password" id="surf-api-key" placeholder="sk-surf-..." style="flex:1" oninput="localStorage.setItem('wca_surf_key',this.value)">
+      <input type="password" id="surf-api-key" placeholder="sk-surf-..." style="flex:1" oninput="localStorage.setItem('wca_surf_key',this.value);gel('key-saved').textContent=this.value?'✓ 저장됨':''">
+      <span id="key-saved" style="font-size:10px;color:var(--g);flex-shrink:0"></span>
       <span class="hint">agents.asksurf.ai · 30 크레딧/일 무료 · <a href="https://agents.asksurf.ai" target="_blank" style="color:#8247e5">발급↗</a></span>
     </div>
     <div class="row center">
@@ -173,9 +174,12 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     </div>
     <div class="row center">
       <span class="lbl">프록시 URL</span>
-      <input type="text" id="surf-proxy-url" placeholder="http://localhost:8765 (CORS 우회용)" style="flex:1"
+      <input type="text" id="surf-proxy-url" placeholder="http://서버주소:8080/surf" style="flex:1"
         oninput="localStorage.setItem('wca_surf_proxy',this.value)">
-      <span class="hint">비워두면 직접 연결 · CORS 오류 시 surf_proxy.py 실행 후 입력</span>
+      <button class="btn dim" onclick="testSurfProxy()" style="flex-shrink:0">🔌 연결 테스트</button>
+    </div>
+    <div style="margin-left:118px;font-size:10px;color:#2a4a6a;margin-bottom:4px">
+      기존 proxy.py 서버 주소에 <code style="color:var(--a)">/surf</code> 만 붙이면 됩니다 (포트 추가 불필요)
     </div>
     <div style="margin-top:4px;font-size:10px;color:#2a4a6a">
       지원 체인: Ethereum · Arbitrum · Base · BSC · Polygon · 거래소 라벨 자동 적용
@@ -282,7 +286,10 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   <button class="btn dim" onclick="saveFiltered()" style="border-color:#8247e5;color:#8247e5">💾 필터 저장</button>
   <button class="btn dim" onclick="gel('load-results-file').click()">📂 결과 불러오기</button>
   <input type="file" id="load-results-file" accept=".json,.csv" style="display:none" onchange="loadResults(this)">
-  <button class="btn dim" onclick="gel('log').innerHTML=''">로그 초기화</button>
+  <div style="display:flex;gap:6px;margin-top:6px">
+    <button class="btn dim" onclick="gel('log').innerHTML=''">🗑 로그 초기화</button>
+    <button class="btn dim" onclick="saveLog()">💾 로그 저장</button>
+  </div>
 </div>
 <div class="pb"><div class="pf" id="pbar" style="width:0%"></div></div>
 <div style="display:flex;justify-content:space-between;font-size:10px;color:#3a6a8a;margin-bottom:8px">
@@ -1046,23 +1053,32 @@ async function surfSql(sql){
   // 크레딧 한도 사전 체크
   if(gCreditsLimit>0&&gCreditsUsed>=gCreditsLimit){
     addLog('⛔ 크레딧 한도 도달 ('+gCreditsUsed+'/'+gCreditsLimit+') — 분석 중단','err');
-    gAborted=true;
-    throw new Error('크레딧 한도 초과');
+    gAborted=true; throw new Error('크레딧 한도 초과');
   }
   gApiCalls++; updateStats();
   var key=getSurfKey();
   if(!key){addLog('⚠ Surf API Key 미설정','err');throw new Error('API Key 없음');}
+  var targetUrl=proxied(SURF_BASE);
+  // 첫 호출 시 어떤 URL 사용하는지 로그
+  if(gApiCalls===1){
+    var proxy=getSurfProxy();
+    addLog('[Surf] 연결 URL: '+targetUrl+(proxy?' (프록시 경유)':' (직접 — CORS 발생 가능)'),'info');
+  }
   var resp;
   try{
-    resp=await fetch(proxied(SURF_BASE),{
+    resp=await fetch(targetUrl,{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
       body:JSON.stringify({sql:sql})
     });
   }catch(e){
-    // TypeError: Failed to fetch = 네트워크 차단 또는 CORS
     if(e.name==='TypeError'){
-      addLog('⛔ Surf API 연결 실패 — CORS 또는 네트워크 문제\n   브라우저에서 직접 열지 말고 로컬 서버를 통해 실행하거나\n   또는 Surf API가 브라우저 CORS를 지원하는지 확인 필요','err');
+      var proxy=getSurfProxy();
+      if(proxy){
+        addLog('⛔ 프록시 연결 실패 ('+proxy+') — proxy.py가 실행 중인지 확인하세요','err');
+      }else{
+        addLog('⛔ Surf API 직접 연결 실패 — 프록시 URL을 입력하세요 (예: http://localhost:8765)','err');
+      }
     }
     throw e;
   }
@@ -2311,20 +2327,35 @@ function updateCreditDisplay(){
 function switchAnalysisMode(mode){
   gAnalysisMode=mode;
   localStorage.setItem('wca_analysis_mode',mode);
-  // 탭 스타일
   gel('modeBtn-alchemy').className='mode-btn'+(mode==='alchemy'?' active':'');
   gel('modeBtn-surf').className='mode-btn'+(mode==='surf'?' active':'');
-  // 설정 패널 교체
   gel('settings-alchemy').style.display=mode==='alchemy'?'':'none';
   gel('settings-surf').style.display=mode==='surf'?'':'none';
-  // 모드 설명 업데이트
+  // Surf 모드 전환 시 저장된 값 복원 (display:none 상태에서 설정한 값이 날아가는 문제 방지)
+  if(mode==='surf'){
+    var keyEl=gel('surf-api-key');
+    if(keyEl&&!keyEl.value){keyEl.value=localStorage.getItem('wca_surf_key')||'';}
+    var savedEl=gel('key-saved');
+    if(savedEl){savedEl.textContent=(gel('surf-api-key')&&gel('surf-api-key').value)?'✓ 저장됨':'';}
+    var proxyEl=gel('surf-proxy-url');
+    if(proxyEl&&!proxyEl.value){proxyEl.value=localStorage.getItem('wca_surf_proxy')||'';}
+    var clEl=gel('surf-credit-limit');
+    if(clEl&&!clEl.value){
+      var cl=localStorage.getItem('wca_credit_limit')||'0';
+      clEl.value=cl; gCreditsLimit=parseFloat(cl)||0;
+    }
+  }
   var desc=gel('mode-desc');
   if(desc)desc.textContent=mode==='alchemy'
     ?'체인별 RPC URL · 정밀 분석 · nonce 기반 핫월렛 감지'
     :'Surf API Key 1개 · 거래소 라벨 자동 적용 · 크레딧 과금';
-  // 크레딧 표시 업데이트
   updateCreditDisplay();
-  addLog('모드 전환: '+(mode==='alchemy'?'Alchemy RPC':'Surf API'),'info');
+  if(mode==='surf'){
+    var k=gel('surf-api-key')&&gel('surf-api-key').value;
+    addLog('모드 전환: Surf API'+(k?' (API Key 저장됨 ✓)':' — API Key 입력 필요'),'info');
+  }else{
+    addLog('모드 전환: Alchemy RPC','info');
+  }
 }
 
 // ── 진행 표시 ──────────────────────────────────────────────────
@@ -2781,6 +2812,38 @@ function lsInit(){
 }
 
 // ── 초기화 ─────────────────────────────────────────────────────
+function saveLog(){
+  var rows=gel('log').querySelectorAll('.ll');
+  if(!rows.length){addLog('저장할 로그 없음','warn');return;}
+  var lines=Array.from(rows).map(function(r){
+    var t=r.querySelector('.lt'),m=r.querySelector('.lm');
+    return (t?t.textContent:'')+' '+( m?m.textContent:'');
+  });
+  var ts=new Date().toISOString().replace('T','_').slice(0,19).replace(/:/g,'-');
+  download('log-'+ts+'.txt',lines.join('\n'),'text/plain;charset=utf-8');
+  addLog('로그 저장 완료 ('+lines.length+'줄)','ok');
+}
+
+async function testSurfProxy(){
+  var proxy=gel('surf-proxy-url')&&gel('surf-proxy-url').value.trim();
+  if(!proxy){addLog('⚠ 프록시 URL을 먼저 입력하세요 (예: http://서버주소:8080/surf)','warn');return;}
+  addLog('🔌 프록시 연결 테스트: '+proxy+'...','info');
+  try{
+    var resp=await fetch(proxy+'/gateway/v1/onchain/sql',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+(getSurfKey()||'test')},
+      body:JSON.stringify({sql:'SELECT 1'})
+    });
+    if(resp.ok||resp.status===400||resp.status===401||resp.status===422){
+      addLog('✅ 프록시 연결 성공! (HTTP '+resp.status+') — 분석을 시작할 수 있습니다','ok');
+    }else{
+      addLog('⚠ 프록시 응답: HTTP '+resp.status,'warn');
+    }
+  }catch(e){
+    addLog('❌ 프록시 연결 실패: '+e.message,'err');
+    addLog('   → proxy.py가 실행 중인지, URL이 올바른지 확인하세요','warn');
+  }
+}
 (function init(){
   buildChainUI();
   lsInit();
