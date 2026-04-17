@@ -171,6 +171,12 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
         oninput="gCreditsLimit=parseFloat(this.value)||0;updateCreditDisplay();localStorage.setItem('wca_credit_limit',this.value)">
       <span class="hint">0=무제한 · 한도 도달 시 자동 중단 · 현재 잔액: <span id="s-credits-hint" style="color:var(--b)">-</span></span>
     </div>
+    <div class="row center">
+      <span class="lbl">프록시 URL</span>
+      <input type="text" id="surf-proxy-url" placeholder="http://localhost:8765 (CORS 우회용)" style="flex:1"
+        oninput="localStorage.setItem('wca_surf_proxy',this.value)">
+      <span class="hint">비워두면 직접 연결 · CORS 오류 시 surf_proxy.py 실행 후 입력</span>
+    </div>
     <div style="margin-top:4px;font-size:10px;color:#2a4a6a">
       지원 체인: Ethereum · Arbitrum · Base · BSC · Polygon · 거래소 라벨 자동 적용
     </div>
@@ -937,6 +943,19 @@ var SURF_SQL   = 'https://api.asksurf.ai/gateway/v1/onchain/sql';
 var SURF_LABEL = 'https://api.asksurf.ai/gateway/v1/wallet/labels/batch';
 var SURF_BASE  = SURF_SQL; // 하위 호환
 
+// 프록시 URL 반환 — 설정 없으면 직접 호출
+function getSurfProxy(){
+  return (gel('surf-proxy-url')&&gel('surf-proxy-url').value.trim())
+    ||localStorage.getItem('wca_surf_proxy')||'';
+}
+// 프록시를 통한 URL 생성
+function proxied(url){
+  var p=getSurfProxy();
+  if(!p)return url;
+  // http://localhost:8765/gateway/v1/... 형태로 변환
+  return p.replace(/\/+$/,'')+url.replace('https://api.asksurf.ai','');
+}
+
 // 라벨 캐시 — 같은 주소 중복 조회 방지
 var _labelCache = {};
 
@@ -956,7 +975,7 @@ async function fetchWalletLabels(addresses){
         var key=getSurfKey();
         if(!key)break;
         gApiCalls++; updateStats();
-        var resp=await fetch(SURF_LABEL+'?addresses='+batch.join(','),{
+        var resp=await fetch(proxied(SURF_LABEL)+'?addresses='+batch.join(','),{
           headers:{'Authorization':'Bearer '+key}
         });
         if(resp.status===429){await sleep(5000);i-=100;continue;}
@@ -1033,11 +1052,20 @@ async function surfSql(sql){
   gApiCalls++; updateStats();
   var key=getSurfKey();
   if(!key){addLog('⚠ Surf API Key 미설정','err');throw new Error('API Key 없음');}
-  var resp=await fetch(SURF_BASE,{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body:JSON.stringify({sql:sql})
-  });
+  var resp;
+  try{
+    resp=await fetch(proxied(SURF_BASE),{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify({sql:sql})
+    });
+  }catch(e){
+    // TypeError: Failed to fetch = 네트워크 차단 또는 CORS
+    if(e.name==='TypeError'){
+      addLog('⛔ Surf API 연결 실패 — CORS 또는 네트워크 문제\n   브라우저에서 직접 열지 말고 로컬 서버를 통해 실행하거나\n   또는 Surf API가 브라우저 CORS를 지원하는지 확인 필요','err');
+    }
+    throw e;
+  }
   if(resp.status===429){addLog('⚠ 429 — 5초 대기','warn');await sleep(5000);return surfSql(sql);}
   if(resp.status===402){addLog('⚠ 크레딧 부족','err');throw new Error('크레딧 부족');}
   if(!resp.ok){var t=await resp.text().catch(function(){return '';});throw new Error('HTTP '+resp.status+' '+t.slice(0,100));}
@@ -1567,12 +1595,16 @@ async function runAutoMode_surf(isResume){
   addLog('시드: '+runSeeds.length+'개 · 체인: '+CHAINS.map(function(c){return c.name;}).join(','),'info');
   setStep(1);
 
+  // Surf 지원 체인만 — surfTable:null 인 체인(OP 등) 제외
+  var surfChains=CHAINS.filter(function(c){return !!c.surfTable;});
+  addLog('[STEP 1] Surf 지원 체인: '+surfChains.map(function(c){return c.name;}).join(','),'info');
+
   // STEP 1: 시드 아웃바운드 목적지 수집
   var destMap=isResume&&gSnapshot?gSnapshot.destMap:{};
   var visitedSeeds=isResume&&gSnapshot?gSnapshot.visitedSeeds:{};
   var pending=runSeeds.filter(function(s){return !visitedSeeds[s];});
   var tasks=[];
-  pending.forEach(function(seed){CHAINS.forEach(function(ch){tasks.push({seed:seed,chain:ch});});});
+  pending.forEach(function(seed){surfChains.forEach(function(ch){tasks.push({seed:seed,chain:ch});});});
   var done1=0;
   await runParallel(tasks,async function(task){
     if(gAborted)return;
@@ -1584,7 +1616,14 @@ async function runAutoMode_surf(isResume){
         if(!dest||dest===seed||isZero(dest))return;
         var k=dest+'::'+ch.key; if(!destMap[k])destMap[k]={addr:dest,chain:ch};
       });
-    }catch(e){addLog('[STEP 1] ⚠ '+short(seed)+' '+ch.name+': '+e.message,'warn');}
+    }catch(e){
+      var msg=e.message||'';
+      if(msg==='Failed to fetch'||e.name==='TypeError'){
+        addLog('[STEP 1] ⚠ '+ch.name+' 네트워크 오류 — API Key 확인 또는 CORS 문제. 브라우저 콘솔(F12) 확인','err');
+      }else{
+        addLog('[STEP 1] ⚠ '+short(seed)+' '+ch.name+': '+msg,'warn');
+      }
+    }
     visitedSeeds[seed]=true;
     setProgress(++done1,tasks.length,'STEP 1 · 시드 아웃바운드');
   },2);
@@ -2668,7 +2707,7 @@ function lsInit(){
     }
   });
 
-  // Surf API Key + 크레딧 한도 복원
+  // Surf API Key + 크레딧 한도 + 프록시 복원
   var keyEl=gel('surf-api-key');
   if(keyEl){var k=localStorage.getItem('wca_surf_key')||'';keyEl.value=k;}
   var clEl=gel('surf-credit-limit');
@@ -2676,6 +2715,8 @@ function lsInit(){
     var cl=localStorage.getItem('wca_credit_limit')||'0';
     clEl.value=cl; gCreditsLimit=parseFloat(cl)||0;
   }
+  var proxyEl=gel('surf-proxy-url');
+  if(proxyEl){proxyEl.value=localStorage.getItem('wca_surf_proxy')||'';}
 
   // 공통 파라미터 복원
   ['p-exch-min','p-exch-max','p-spread-h','p-max-senders',
