@@ -208,7 +208,8 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <span onclick="surfApiQuick('/gateway/v1/search/wallet?q=Binance&limit=20','GET','')" style="color:#8247e5;cursor:pointer;margin:0 4px">Binance 검색</span>·
       <span onclick="surfApiQuick('/gateway/v1/search/wallet?q=OKX&limit=20','GET','')" style="color:#8247e5;cursor:pointer;margin:0 4px">OKX 검색</span>·
       <span onclick="surfApiQuick('/gateway/v1/wallet/labels/batch?addresses=0x28c6c06298d514db089934071355e5743bf21d60','GET','')" style="color:#8247e5;cursor:pointer;margin:0 4px">라벨 조회 테스트</span>·
-      <span onclick="surfApiQuick('/gateway/v1/onchain/sql','POST','{"sql":"SELECT 1 AS test"}')" style="color:#8247e5;cursor:pointer;margin:0 4px">SQL 테스트</span>
+      <span onclick="surfApiQuick('/gateway/v1/onchain/sql','POST','{"sql":"SELECT 1 AS test"}')" style="color:#8247e5;cursor:pointer;margin:0 4px">SQL 테스트</span>·
+      <span onclick="diagnoseLabelFilter()" style="color:var(--a);cursor:pointer;margin:0 4px;font-weight:700">🔬 필터 진단 (DB 주소 라벨 확인)</span>
     </div>
     <div id="api-result" style="font-family:monospace;font-size:10px;color:#7a9ab8;background:#050d15;border:1px solid var(--bd);border-radius:3px;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap;display:none;margin-top:6px"></div>
   </div>
@@ -1369,35 +1370,53 @@ async function runParallel(items,asyncFn,concurrency){
 // /search/wallet?q={name} → entity_type=cex 필터 → addresses 수집
 var SURF_SEARCH = 'https://api.asksurf.ai/gateway/v1/search/wallet';
 
-// 공통 핫월렛 주소 필터 — 화이트리스트 방식
-// Surf 라벨에 "Hot Wallet" 또는 "Cold Wallet"이 있어야 저장
-// 구체적인 타입이 명시된 주소 (": Something")는 Hot/Cold 아니면 전부 제외
+// ── 핫/콜드 월렛 화이트리스트 필터 ──────────────────────────────
+// 원칙: entity_name에 ": " 있으면 반드시 "Hot Wallet" / "Cold Wallet" 이어야 저장
+// entity_name이 단순 거래소명("Binance")이면 허용
+// labels 배열에 "Hot Wallet" / "Cold Wallet" 있으면 항상 허용
+
+// 제외 키워드 — entity_name의 ": " 이후 부분에 이 중 하나라도 있으면 제외
+var HW_BLACKLIST_KEYWORDS = [
+  'proxy','msca','smart account','eip-1967','transparent','erc1967',
+  'gnosis','safe','treasury','proxyadmin','multisig','uups','beacon',
+  'diamond','dao','modular','account abstraction','erc-4337','implementation',
+  'admin proxy','batch','sweep','custody','deposit','wallet proxy',
+  'router','factory','deployer','internal','hacker','drainer',
+  '-peg',' peg ','bep-20','token','contract','dex ','exchange proxy',
+  'singleowner','smart contract','single owner'
+];
+
 function isValidHwAddress(lrow, fallbackLabel){
   var labelList=(lrow&&lrow.labels||[]).map(function(l){return (l.label||'').toLowerCase();});
   var apiName=(lrow&&lrow.entity_name)||'';
   var eType=(lrow&&lrow.entity_type||'').toLowerCase();
 
-  // entity_type 제외 (DEX, individual 등)
+  // entity_type 제외
   if(eType==='dex'||eType==='defi'||eType==='bridge'
     ||eType==='individual'||eType==='bot'||eType==='protocol'||eType==='mev')return false;
 
-  // Surf labels 배열에 "hot wallet" 또는 "cold wallet" 있으면 무조건 허용
+  // labels에 "hot wallet" / "cold wallet" → 무조건 허용
   var hasHotCold=labelList.some(function(l){
     return l.includes('hot wallet')||l.includes('cold wallet');
   });
   if(hasHotCold)return true;
 
-  // entity_name에 "hot" 또는 "cold" 포함하면 허용
-  // 예: "Binance: Hot Wallet 1", "OKX: Cold Wallet"
   var apiL=apiName.toLowerCase();
+
+  // entity_name에 "hot wallet" / "cold wallet" 포함 → 허용
   if(apiL.includes('hot wallet')||apiL.includes('cold wallet'))return true;
 
-  // entity_name에 ": " 구분자가 있으면 구체적 타입이 명시된 것
-  // Hot/Cold가 아닌 이상 제외 (Deposit, Factory, Internal, Hacker 등)
-  if(apiName.includes(': '))return false;
+  // entity_name에 ": " 구분자가 있으면 구체적 타입이 명시됨
+  // → Hot/Cold Wallet이 아닌 이상 블랙리스트 검사
+  if(apiName.includes(': ')){
+    var typeStr=apiL.split(': ').slice(1).join(': '); // ": " 이후 부분
+    var isBlacklisted=HW_BLACKLIST_KEYWORDS.some(function(kw){
+      return typeStr.includes(kw);
+    });
+    return !isBlacklisted; // 블랙리스트에 없으면 허용
+  }
 
-  // entity_name이 단순 거래소명이면 (": " 없음) → 허용
-  // 예: entity_name = "Binance", "OKX", "Upbit"
+  // entity_name이 단순 거래소명 (": " 없음) → 허용
   return true;
 }
 
@@ -2675,6 +2694,278 @@ function saveHwDbCsv(){
 function cleanHwDb(){
   var addrs=Object.keys(gHWDB);
   if(!addrs.length){addLog('DB가 비어 있습니다','warn');return;}
+  // isValidHwAddress와 동일한 기준으로 오염 항목 제거
+  var removed=[];
+  addrs.forEach(function(addr){
+    var label=(gHWDB[addr].label||'');
+    var lL=label.toLowerCase();
+    // Hot/Cold Wallet → 유지
+    if(lL.includes('hot wallet')||lL.includes('cold wallet'))return;
+    // ": " 없으면 단순 거래소명 → 유지
+    if(!label.includes(': '))return;
+    // ": " 있으면 타입 부분 검사
+    var typeStr=lL.split(': ').slice(1).join(': ');
+    var bad=['proxy','msca','smart account','eip-1967','transparent','erc1967',
+      'gnosis','safe','treasury','proxyadmin','multisig','uups','beacon',
+      'diamond','dao','modular','account abstraction','erc-4337','implementation',
+      'admin proxy','batch','sweep','custody','deposit','wallet proxy',
+      'router','factory','deployer','internal','hacker','drainer',
+      '-peg',' peg ','bep-20','token','contract','dex ','exchange proxy',
+      'singleowner','smart contract'].some(function(k){return typeStr.includes(k);});
+    if(bad){removed.push(addr);delete gHWDB[addr];}
+  });
+  if(removed.length){
+    saveHWDB(); renderHwDb();
+    addLog('🧹 오염 제거: '+removed.length+'개 삭제 · DB 남은 주소: '+Object.keys(gHWDB).length+'개','ok');
+  }else{
+    addLog('오염된 항목 없음','ok');
+  }
+}
+
+// ══ 핫월렛 추정 패널 ══════════════════════════════════════════════════
+
+// ══ 핫월렛 A: 현재 분석 핫월렛 ══════════════════════════════════════
+function renderHotWallets(){
+  var panel=gel('hw-panel'); if(!panel)return;
+  var addrs=Object.keys(gHW);
+  // 활성(del 아닌) 개수만 카운트
+  var activeCount=addrs.filter(function(a){return !gHW[a].del;}).length;
+  var cntEl=gel('hw-cnt'); if(cntEl)cntEl.textContent=activeCount;
+  if(!addrs.length){
+    panel.innerHTML='<span style="color:#2a4a6a;font-size:10px">핫월렛이 감지되지 않았습니다 (nonce > 설정값인 발신자가 없음)</span>';
+    return;
+  }
+  addrs.sort(function(a,b){return (gHW[b].nonce||0)-(gHW[a].nonce||0);});
+  panel.innerHTML=addrs.map(function(addr,i){
+    var h=gHW[addr];
+    var lbl=h.label||'';
+    var del=!!h.del;
+    var inDb=!!gHWDB[addr];
+    var selOpts='<option value="">거래소 선택...</option>'
+      +KNOWN_EXCHANGES.map(function(ex){return '<option value="'+ex+'"'+(lbl===ex?' selected':'')+'>'+ex+'</option>';}).join('')
+      +'<option value="__custom__">✎ 직접 입력...</option>';
+    var dimStyle=del?'opacity:0.35;':'';
+    var addrColor=del?'color:#2a4a6a;text-decoration:line-through;':'color:#7a8a9a;';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0a1520;'+dimStyle+'">'
+      +'<input type="checkbox" '+(del?'':'checked')+' data-addr="'+addr
+        +'" onchange="gHW[this.dataset.addr].del=!this.checked;renderHotWallets()"'
+        +' style="accent-color:var(--r);cursor:pointer;flex-shrink:0">'
+      +'<span style="font-size:9px;color:var(--r);background:rgba(255,77,106,.1);border-radius:2px;padding:1px 5px;flex-shrink:0">['+h.chain+']</span>'
+      +(inDb?'<span style="font-size:9px;color:#8247e5;flex-shrink:0" title="DB에 등록됨">DB</span>':'<span style="font-size:9px;color:#1a2a3a;flex-shrink:0" style="width:18px"> </span>')
+      +'<span style="font-family:monospace;font-size:10px;flex:1;'+addrColor+'">'+addr+'</span>'
+      +'<span style="font-size:9px;color:#3a4a5a;flex-shrink:0">nonce='+((h.nonce||0).toLocaleString())+'</span>'
+      +'<span style="font-size:9px;color:#2a4a6a;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0" title="'+(h.depositLabel||'')+'">'+((h.depositLabel||'').slice(0,18))+'</span>'
+      +'<a href="'+arkUrl(addr)+'" target="_blank" style="font-size:10px;flex-shrink:0;color:var(--b)">arkham↗</a>'
+      +'<select data-addr="'+addr+'" onchange="setHWLabel(this.dataset.addr,this.value)"'
+        +' style="background:#07101a;border:1px solid var(--bd);border-radius:3px;color:'+(lbl?'var(--r)':'#4a6a8a')+';font-family:monospace;font-size:10px;padding:2px 4px;width:150px;cursor:pointer">'
+        +selOpts+'</select>'
+      +'</div>';
+  }).join('')
+  +'<div style="margin-top:6px;font-size:9px;color:#2a4a6a">활성 '+activeCount+'개 / 전체 '+addrs.length+'개 · [→ DB에 추가] 시 체크된 항목만 병합됩니다</div>';
+}
+
+function setHWLabel(addr,val){
+  if(val==='__custom__'){var v=prompt('거래소명 직접 입력:','');if(v===null)return;val=v.trim();}
+  if(!gHW[addr])gHW[addr]={label:''};
+  gHW[addr].label=val;
+  setDepLabel(gHW[addr].deposit,val);
+  // DB에 이미 있으면 라벨 동기화
+  if(gHWDB[addr]){gHWDB[addr].label=val;saveHWDB();}
+  renderHotWallets();
+  if(val)addLog('핫월렛 라벨: '+short(addr)+' → '+val,'ok');
+}
+
+function saveHotWalletsCsv(){
+  // 체크된(del 아닌) 항목만 저장
+  var addrs=Object.keys(gHW).filter(function(a){return !gHW[a].del;});
+  if(!addrs.length){addLog('저장할 핫월렛 없음 (체크된 항목 없음)','warn');return;}
+  addrs.sort(function(a,b){return (gHW[b].nonce||0)-(gHW[a].nonce||0);});
+  var lines=['address,label,chain,nonce,deposit,deposit_label'];
+  addrs.forEach(function(addr){
+    var h=gHW[addr];
+    lines.push([addr,csvQuote(h.label||''),h.chain||'',h.nonce||0,h.deposit||'',csvQuote(h.depositLabel||'')].join(','));
+  });
+  var fname='hotwallet-'+getFileSuffix()+'.csv';
+  download(fname,'\uFEFF'+lines.join('\n'),'text/csv;charset=utf-8-bom');
+  addLog('핫월렛 CSV 저장: '+fname+' ('+addrs.length+'개)','ok');
+}
+
+// 현재 분석 gHW → DB에 병합 (체크된 항목만)
+function mergeCurrentToDb(){
+  var added=0,updated=0;
+  Object.keys(gHW).filter(function(a){return !gHW[a].del;}).forEach(function(addr){
+    var h=gHW[addr];
+    if(!gHWDB[addr]){
+      gHWDB[addr]={label:h.label||'',chain:h.chain||'',nonce:h.nonce||0,
+        sources:[h.deposit||''],depositLabels:[h.depositLabel||'']};
+      added++;
+    }else{
+      if(h.label&&!gHWDB[addr].label)gHWDB[addr].label=h.label;
+      if((h.nonce||0)>gHWDB[addr].nonce)gHWDB[addr].nonce=h.nonce||0;
+      if(h.deposit&&gHWDB[addr].sources.indexOf(h.deposit)<0){
+        gHWDB[addr].sources.push(h.deposit);
+        gHWDB[addr].depositLabels.push(h.depositLabel||'');
+      }
+      updated++;
+    }
+  });
+  saveHWDB();
+  renderHwDb();
+  addLog('DB에 병합: '+added+'개 신규 · '+updated+'개 업데이트 (체크된 항목만)','ok');
+}
+
+
+// ══ 핫월렛 B: 누적 DB ════════════════════════════════════════════════
+function renderHwDb(){
+  var panel=gel('hwdb-panel'); if(!panel)return;
+  var addrs=Object.keys(gHWDB);
+  var cntEl=gel('hwdb-cnt'); if(cntEl)cntEl.textContent=addrs.length;
+  if(!addrs.length){
+    panel.innerHTML='<span style="color:#2a4a6a;font-size:10px">DB가 비어 있습니다. CSV를 불러오거나 현재 분석 결과를 추가하세요.</span>';
+    return;
+  }
+  // 라벨 있는 것 먼저, 그 다음 nonce 내림차순
+  addrs.sort(function(a,b){
+    var la=gHWDB[a].label?1:0,lb=gHWDB[b].label?1:0;
+    if(lb!==la)return lb-la;
+    return (gHWDB[b].nonce||0)-(gHWDB[a].nonce||0);
+  });
+  var labeled=addrs.filter(function(a){return !!gHWDB[a].label;}).length;
+  panel.innerHTML=addrs.map(function(addr,i){
+    var d=gHWDB[addr];
+    var lbl=d.label||'';
+    var selOpts='<option value="">'+( lbl||'거래소 선택...')+'</option>'
+      +KNOWN_EXCHANGES.map(function(ex){return '<option value="'+ex+'"'+(lbl===ex?' selected':'')+'>'+ex+'</option>';}).join('')
+      +'<option value="__custom__">✎ 직접 입력...</option>';
+    var srcTip=(d.sources||[]).join(', ');
+    var srcLabel=d.fromExplorer?'Surf탐색':(d.sources||[]).length+'개 분석';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0a1520">'
+      +'<span style="font-size:9px;color:#2a4a6a;width:24px;text-align:right;flex-shrink:0">'+(i+1)+'</span>'
+      +'<span style="font-size:9px;color:#4a5a8a;background:rgba(130,71,229,.1);border-radius:2px;padding:1px 5px;flex-shrink:0">['+d.chain+']</span>'
+      +(d.fromExplorer?'<span style="font-size:9px;color:#8247e5;flex-shrink:0">◈</span>':'')
+      +'<span style="font-family:monospace;font-size:10px;color:'+(lbl?'#9ab8c8':'#5a6a7a')+';flex:1">'+addr+'</span>'
+      +(d.nonce?'<span style="font-size:9px;color:#3a4a5a;flex-shrink:0">nonce='+((d.nonce||0).toLocaleString())+'</span>':'')
+      +'<span style="font-size:9px;color:#2a4a6a;flex-shrink:0" title="'+srcTip+'">'+srcLabel+'</span>'
+      +'<a href="'+arkUrl(addr)+'" target="_blank" style="font-size:10px;flex-shrink:0;color:var(--b)">arkham↗</a>'
+      +'<select data-addr="'+addr+'" onchange="setHwDbLabel(this.dataset.addr,this.value)"'
+        +' style="background:#07101a;border:1px solid '+(lbl?'rgba(130,71,229,.4)':'var(--bd)')+';border-radius:3px;color:'+(lbl?'#8247e5':'#4a6a8a')+';font-family:monospace;font-size:10px;padding:2px 4px;width:150px;cursor:pointer">'
+        +selOpts+'</select>'
+      +'<button data-addr="'+addr+'" onclick="delete gHWDB[this.dataset.addr];saveHWDB();renderHwDb()" style="background:none;border:none;color:var(--r);cursor:pointer;font-size:11px;flex-shrink:0">✕</button>'
+      +'</div>';
+  }).join('')
+  +'<div style="margin-top:6px;font-size:9px;color:#2a4a6a">총 '+addrs.length+'개 · 라벨 있음: '+labeled+'개 · 저장 시 localStorage에도 자동 보존</div>';
+}
+
+function setHwDbLabel(addr,val){
+  if(val==='__custom__'){var v=prompt('거래소명 직접 입력:','');if(v===null)return;val=v.trim();}
+  if(!gHWDB[addr])return;
+  gHWDB[addr].label=val;
+  saveHWDB();
+  // 현재 gHW에도 있으면 동기화
+  if(gHW[addr])gHW[addr].label=val;
+  // 현재 분석 결과 입금주소에 즉시 적용
+  var deposit=(gHWDB[addr].sources||[])[0]||(gHW[addr]&&gHW[addr].deposit)||'';
+  if(val&&deposit&&!depLabel(deposit,''))setDepLabel(deposit,val);
+  renderHwDb();
+  renderHotWallets();
+  if(val)addLog('DB 라벨: '+short(addr)+' → '+val,'ok');
+}
+
+// DB로 현재 분석 입금주소 자동 라벨링
+function autoLabelFromDb(){
+  var applied=0;
+  // DB의 라벨 있는 핫월렛으로 먼저 적용
+  Object.keys(gHWDB).forEach(function(addr){
+    var d=gHWDB[addr]; if(!d.label)return;
+    // 이 핫월렛이 현재 분석에서 발견된 입금주소의 발신자라면 라벨 적용
+    if(gHW[addr]&&gHW[addr].deposit&&!depLabel(gHW[addr].deposit,'')){
+      setDepLabel(gHW[addr].deposit,d.label); applied++;
+    }
+  });
+  // 현재 gHW 자체 라벨도 적용
+  Object.keys(gHW).forEach(function(addr){
+    var h=gHW[addr]; if(!h.label||!h.deposit)return;
+    if(!depLabel(h.deposit,'')){setDepLabel(h.deposit,h.label);applied++;}
+  });
+  addLog('DB 자동 라벨링: '+applied+'개 적용','ok');
+  renderSummary(); renderHotWallets();
+}
+
+// 여러 CSV 파일 병합 (multi-file input)
+function loadHwDbCsvMulti(input){
+  var files=Array.prototype.slice.call(input.files);
+  if(!files.length)return;
+  var totalAdded=0,totalUpdated=0,pending=files.length;
+  files.forEach(function(file){
+    var reader=new FileReader();
+    reader.onload=function(ev){
+      var result=_parseHwCsv(ev.target.result);
+      totalAdded+=result.added; totalUpdated+=result.updated;
+      pending--;
+      if(pending===0){
+        saveHWDB(); renderHwDb();
+        addLog('CSV '+files.length+'개 병합 완료: 신규 '+totalAdded+'개 · 업데이트 '+totalUpdated+'개 (DB 총 '+Object.keys(gHWDB).length+'개)','ok');
+      }
+    };
+    reader.readAsText(file,'utf-8');
+  });
+  input.value='';
+}
+
+function _parseHwCsv(text){
+  var lines=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').filter(function(l){return l.trim();});
+  var start=lines[0].toLowerCase().startsWith('address')?1:0;
+  var added=0,updated=0;
+  for(var i=start;i<lines.length;i++){
+    var c=lines[i].split(',');
+    var addr=(c[0]||'').trim().toLowerCase().replace(/^"|"$/g,'');
+    var lbl=(c[1]||'').trim().replace(/^"|"$/g,'');
+    var chain=(c[2]||'').trim();
+    var nonce=parseInt(c[3]||'0')||0;
+    var deposit=(c[4]||'').trim().toLowerCase().replace(/^"|"$/g,'');
+    var depLbl=(c[5]||'').trim().replace(/^"|"$/g,'');
+    if(!addr||!addr.startsWith('0x')||addr.length!==42)continue;
+    if(!gHWDB[addr]){
+      gHWDB[addr]={label:lbl,chain:chain,nonce:nonce,
+        sources:deposit?[deposit]:[],depositLabels:depLbl?[depLbl]:[]};
+      added++;
+    }else{
+      if(lbl&&!gHWDB[addr].label)gHWDB[addr].label=lbl;
+      if(nonce>gHWDB[addr].nonce)gHWDB[addr].nonce=nonce;
+      if(deposit&&gHWDB[addr].sources.indexOf(deposit)<0){
+        gHWDB[addr].sources.push(deposit);
+        gHWDB[addr].depositLabels.push(depLbl);
+      }
+      updated++;
+    }
+  }
+  return {added:added,updated:updated};
+}
+
+function saveHwDbCsv(){
+  var addrs=Object.keys(gHWDB);
+  if(!addrs.length){addLog('DB가 비어 있습니다','warn');return;}
+  addrs.sort(function(a,b){
+    var la=gHWDB[a].label?1:0,lb=gHWDB[b].label?1:0;
+    if(lb!==la)return lb-la;
+    return (gHWDB[b].nonce||0)-(gHWDB[a].nonce||0);
+  });
+  var lines=['address,label,chain,nonce,deposit,deposit_label'];
+  addrs.forEach(function(addr){
+    var d=gHWDB[addr];
+    var dep=(d.sources||[])[0]||'';
+    var depLbl=(d.depositLabels||[])[0]||'';
+    lines.push([addr,csvQuote(d.label||''),d.chain||'',d.nonce||0,dep,csvQuote(depLbl)].join(','));
+  });
+  var fname='hwdb-merged-'+new Date().toISOString().slice(0,10)+'.csv';
+  download(fname,'\uFEFF'+lines.join('\n'),'text/csv;charset=utf-8-bom');
+  addLog('DB CSV 저장: '+fname+' ('+addrs.length+'개)','ok');
+}
+
+// DB 오염 제거 — 토큰 컨트랙트 패턴 자동 감지 후 삭제
+function cleanHwDb(){
+  var addrs=Object.keys(gHWDB);
+  if(!addrs.length){addLog('DB가 비어 있습니다','warn');return;}
   var removed=[];
   addrs.forEach(function(addr){
     var label=(gHWDB[addr].label||'');
@@ -3422,6 +3713,49 @@ async function testSurfProxy(){
   addLog('준비 완료 — 모드를 선택하고 분석을 시작하세요','ok');
   addLog('Alchemy 모드: RPC URL 입력 | Surf 모드: API Key 입력','info');
 })();
+
+// 필터 진단 — DB 주소 5개의 실제 Surf 라벨 응답을 로그에 출력
+// 이 결과를 보고 어떤 필드로 Hot/Cold Wallet을 구분해야 하는지 파악
+async function diagnoseLabelFilter(){
+  var addrs=Object.keys(gHWDB);
+  if(!addrs.length){addLog('DB가 비어 있습니다. 먼저 주소를 수집하세요.','warn');return;}
+  // 최대 5개 샘플
+  var sample=addrs.slice(0,5);
+  addLog('🔬 필터 진단 시작 — DB 첫 5개 주소의 Surf 라벨 확인','info');
+  var key=getSurfKey();
+  var proxy=getSurfProxy();
+  var url=(proxy?proxy.replace(/\/+$/,''):'https://api.asksurf.ai')
+    +'/gateway/v1/wallet/labels/batch?addresses='+sample.join(',');
+  try{
+    var resp=await fetch(url,{headers:{'Authorization':'Bearer '+key}});
+    var d=await resp.json();
+    var items=d.data||[];
+    addLog('── 응답 (HTTP '+resp.status+') ──────────────','info');
+    if(!items.length){addLog('라벨 정보 없음 (모두 미라벨 주소)','warn');return;}
+    items.forEach(function(row){
+      var lbs=(row.labels||[]).map(function(l){return l.label;}).join(' | ')||'(없음)';
+      addLog(
+        short(row.address)+' │ entity_name: "'+( row.entity_name||'null')+'"'
+        +' │ entity_type: "'+( row.entity_type||'null')+'"'
+        +' │ labels: ['+lbs+']',
+        'info'
+      );
+    });
+    addLog('── 필터 결과 ────────────────────────','info');
+    items.forEach(function(row){
+      var pass=isValidHwAddress(row, '');
+      addLog((pass?'✅ 저장':'❌ 제외')+' : '+short(row.address)+' "'+( row.entity_name||'')+'"','info');
+    });
+    // api-result에도 전체 JSON 표시
+    var resultEl=gel('api-result');
+    if(resultEl){
+      resultEl.style.display='block';
+      resultEl.textContent=JSON.stringify(d,null,2);
+    }
+  }catch(e){
+    addLog('진단 실패: '+e.message,'err');
+  }
+}
 
 </script>
 </body>
