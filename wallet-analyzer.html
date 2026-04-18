@@ -1721,13 +1721,26 @@ async function autoCollectExchangeWallets(exchanges, creditBudget, chainFilter){
       }
       await sleep(300);
     }
-    // 무제한: 신규 발견 시 재탐색 (최대 10패스)
-    if(isUnlimited&&passAdded>0&&!gAborted)_exploredKeys={};
-  }while(isUnlimited&&!gAborted&&passNum<10);
+    // 무제한: 신규 발견 시 재탐색, 신규 없으면 60초 대기 후 재시도
+    if(isUnlimited&&!gAborted){
+      if(passAdded>0){
+        _exploredKeys={}; // 다음 패스를 위해 초기화
+      }else{
+        // 신규 없음 → 60초 대기 후 다시 시도 (Surf 데이터 업데이트 대기)
+        addLog('── 신규 없음 · 60초 대기 후 재시도 (중단 버튼으로 종료) ──','dim');
+        for(var w=0;w<60;w++){
+          if(gAborted)break;
+          await sleep(1000);
+        }
+        _exploredKeys={};
+      }
+    }
+  }while(isUnlimited&&!gAborted); // 중단 버튼 누를 때까지 무한 반복
 
   renderHwDb();
   var spent=+(gCreditsUsed-startCredits).toFixed(1);
-  addLog('=== 자동 수집 완료 · 신규 '+totalAdded+'개 · 크레딧 소모 '+spent+' · DB 총 '+Object.keys(gHWDB).length+'개 ('+passNum+'패스) ===','ok');
+  var reason=gAborted?'중단됨':('크레딧 한도 '+creditBudget+' 도달');
+  addLog('=== 자동 수집 '+reason+' · 신규 '+totalAdded+'개 · 크레딧 소모 '+spent+' · DB 총 '+Object.keys(gHWDB).length+'개 ('+passNum+'패스) ===','ok');
 }
 
 // ══ 섹션 6: 스윕 계산 ═══════════════════════════════════════════════
