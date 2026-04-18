@@ -154,6 +154,20 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   </div>
 </div>
 
+<!-- Alchemy 진단 테스트 -->
+<div class="panel" style="margin-top:0;border-color:rgba(79,163,255,.15)">
+  <div style="font-size:11px;font-weight:700;color:var(--b);margin-bottom:8px">⬡ Alchemy 연결 테스트 <span style="font-size:10px;color:#2a4a6a;font-weight:normal">· RPC 입력 후 클릭</span></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+    <button class="btn dim" onclick="testAlchemy()">🔌 RPC 연결 테스트</button>
+    <button class="btn dim" onclick="testAlchemyAddr()">📋 단일 주소 테스트</button>
+  </div>
+  <div class="row center">
+    <span class="lbl">테스트 주소</span>
+    <input type="text" id="alchemy-test-addr" placeholder="0x... (테스트할 지갑 주소)" style="flex:1">
+  </div>
+  <div id="alchemy-test-result" style="margin-top:6px;font-size:10px;color:#4a6a8a;display:none"></div>
+</div>
+
 </div><!-- /settings-alchemy -->
 
 <div id="settings-surf" style="display:none">
@@ -1939,6 +1953,13 @@ async function collectInbound_alchemy(depMap,opts){
     Object.keys(fromMap).forEach(function(a){
       if(seedSet[a])return;
       if(gSenderBl[a]){addLog('[STEP 3] '+short(a)+' 블랙리스트 → 제거','dim');delete fromMap[a];return;}
+      // gHWDB: Surf로 수집한 거래소 핫월렛 DB — 즉시 핫월렛으로 분류
+      if(gHWDB[a]&&gHWDB[a].label){
+        fromMap[a].isHot=true;
+        fromMap[a].exchLabel=gHWDB[a].label;
+        addLog('[STEP 3] DB핫월렛: '+short(a)+' → '+gHWDB[a].label,'dim');
+        return;
+      }
       // gHotTargets: STEP 2에서 스윕 목적지로 반복 확인된 진짜 핫월렛은 제거
       if(gHotTargets[a]&&gHotTargets[a].sources.length>=2){delete fromMap[a];return;}
       var v=fromMap[a];
@@ -1993,19 +2014,24 @@ async function collectInbound_alchemy(depMap,opts){
       Object.keys(fromMap).forEach(function(from){
         var meta=fromMap[from];
         if(meta.isHot){
-          // gHW에 기록 (라벨이 이미 있으면 유지)
           if(!gHW[from])gHW[from]={label:''};
+          // DB에서 가져온 거래소 라벨 우선 적용
+          if(meta.exchLabel)gHW[from].label=meta.exchLabel;
           gHW[from].chain=ch.name;
           gHW[from].nonce=meta.nonce||0;
           gHW[from].deposit=dm.addr;
           gHW[from].depositLabel=dm.label;
+          // 입금주소에 거래소 라벨 자동 적용
+          if(meta.exchLabel&&!depLabel(dm.addr,'')){
+            setDepLabel(dm.addr, meta.exchLabel);
+          }
         }
-        // isHot=true: cssClass를 'hotwallet'으로 표시하고 클러스터링 제외 플래그
         gEdges.push({
-          wallet:from,deposit:dm.addr,exchange:dm.label,
+          wallet:from, deposit:dm.addr,
+          exchange:meta.exchLabel||dm.label,
           cssClass:meta.isHot?'hotwallet':(dm.cssClass||''),
-          chain:ch.name,userLabel:'',_cluster:'',
-          noCluster:meta.isHot  // 핫월렛은 Union-Find에서 제외
+          chain:ch.name, userLabel:'', _cluster:'',
+          noCluster:meta.isHot
         });
       });
     }
@@ -3722,6 +3748,72 @@ async function diagnoseLabelFilter(){
     }
   }catch(e){
     addLog('진단 실패: '+e.message,'err');
+  }
+}
+
+// ── Alchemy 진단 테스트 ──────────────────────────────────────────
+// RPC 연결 확인
+async function testAlchemy(){
+  var chains=getActiveChains();
+  if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 먼저 선택하세요','err');return;}
+  addLog('🔌 RPC 연결 테스트 시작 ('+chains.length+'개 체인)…','info');
+  var resultEl=gel('alchemy-test-result');
+  if(resultEl){resultEl.style.display='block';resultEl.innerHTML='';}
+  for(var i=0;i<chains.length;i++){
+    var ch=chains[i];
+    try{
+      // eth_blockNumber로 연결 확인
+      var resp=await fetch(ch.rpc,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_blockNumber',params:[]})
+      });
+      var d=await resp.json();
+      if(d.result){
+        var block=parseInt(d.result,16);
+        addLog('✅ '+ch.name+' 연결 성공 · 최신 블록: '+block.toLocaleString(),'ok');
+        if(resultEl)resultEl.innerHTML+='<div style="color:var(--g)">✅ '+ch.name+': 블록 '+block.toLocaleString()+'</div>';
+      }else{
+        addLog('⚠ '+ch.name+' 응답 이상: '+JSON.stringify(d.error||d),'warn');
+      }
+    }catch(e){
+      addLog('❌ '+ch.name+' 연결 실패: '+e.message,'err');
+      if(resultEl)resultEl.innerHTML+='<div style="color:var(--r)">❌ '+ch.name+': '+e.message+'</div>';
+    }
+  }
+  addLog('🔌 RPC 테스트 완료','info');
+}
+
+// 단일 주소 트랜잭션 조회 테스트
+async function testAlchemyAddr(){
+  var chains=getActiveChains();
+  if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 먼저 선택하세요','err');return;}
+  var addr=(gel('alchemy-test-addr')&&gel('alchemy-test-addr').value.trim().toLowerCase())||'';
+  if(!addr||!addr.startsWith('0x')||addr.length!==42){
+    addLog('⚠ 테스트할 주소를 입력하세요','err');return;
+  }
+  addLog('📋 주소 테스트: '+short(addr),'info');
+  var ch=chains[0]; // 첫 번째 체인으로 테스트
+  addLog('체인: '+ch.name+' · RPC: '+ch.rpc.slice(0,40)+'…','dim');
+  try{
+    // nonce 조회
+    var nonce=await getNonce(ch.rpc,addr);
+    addLog('nonce: '+nonce.toLocaleString(),'info');
+    // getCode로 컨트랙트 여부
+    var isContract=await getCode(ch.rpc,addr);
+    addLog('컨트랙트: '+(isContract?'예 (CA)':'아니오 (EOA)'),'info');
+    // DB에 있는지
+    var inDb=!!gHWDB[addr];
+    addLog('핫월렛 DB: '+(inDb?gHWDB[addr].label+'으로 등록됨':'미등록'),'info');
+    // Alchemy transfers 1건만 빠르게 조회
+    var result=await alchemyCall(ch.rpc,ch.key,ch.provider,'out',addr,null,false,ch.blockTime,'30');
+    var cnt=(result.transfers||[]).length;
+    addLog('최근 30일 아웃바운드 TX: '+cnt+'건 조회됨','ok');
+    if(cnt===0)addLog('⚠ TX 0건 — 주소 활동 없거나 기간 내 전송 없음','warn');
+  }catch(e){
+    addLog('❌ 테스트 실패: '+e.message,'err');
+    if(e.message.includes('401'))addLog('→ API Key 오류 또는 RPC URL이 잘못됨','warn');
+    if(e.message.includes('429'))addLog('→ Rate limit 초과 (잠시 후 재시도)','warn');
   }
 }
 
