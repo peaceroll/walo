@@ -1610,26 +1610,23 @@ async function removeInactiveAddresses(days){
   for(var i=0;i<tables.length;i++){
     var tbl=tables[i];
     var batch=byTable[tbl];
-    var BATCH=BATCH_BY_CHAIN[tbl]||8;
-    // 배치 단위로 쪼개서 쿼리
-    for(var b=0;b<batch.length;b+=BATCH){
+    // 주소 1개씩 쿼리 (IN 조건은 타임아웃)
+    for(var b=0;b<batch.length;b++){
       if(gAborted)break;
-      var slice=batch.slice(b,b+BATCH);
-      var inList=slice.map(function(a){return "'"+a+"'";}).join(',');
-      var sql='SELECT lower(tx_from) AS addr, max(block_date) AS last_date'
+      var addr=batch[b];
+      var sql='SELECT max(block_date) AS last_date'
         +' FROM agent.'+tbl+'_transfers'
-        +' WHERE lower(tx_from) IN ('+inList+')'
+        +' WHERE lower(`to`) = \''+addr+'\''
         +' AND block_date >= today() - '+days
-        +' GROUP BY tx_from'
-        +' LIMIT '+slice.length;
+        +' LIMIT 1';
       try{
         var r=await surfSql(sql);
-        (r.data||[]).forEach(function(row){if(row.addr)activeSet[row.addr]=row.last_date;});
-        addLog('[비활성제거] '+tbl+' '+slice.length+'개 → 활성 '+(r.data||[]).length+'개','dim');
+        var row=(r.data||[])[0];
+        if(row&&row.last_date)activeSet[addr]=row.last_date;
       }catch(e){
         addLog('[비활성제거] '+tbl+' 조회 실패 (건너뜀): '+e.message,'warn');
       }
-      await sleep(800);
+      await sleep(500);
     }
   }
 
