@@ -2404,9 +2404,14 @@ function renderSummary(){
   html+='</div>';
 
   // ── 새 지갑
-  // 버그 수정: opacity를 background 있는 div에 적용하면 완전히 안 보임
-  // del 상태는 테두리/텍스트 색상+취소선으로만 표현 (거래소 입금주소와 동일 패턴)
-  html+='<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:8px">발견된 새 지갑 — '+S.newW.length+'개</div>';
+  var newOpen=gel('summary-new-open');
+  var newCollapsed=newOpen?newOpen.dataset.open!=='1':true;
+  html+='<div style="margin-bottom:14px">';
+  html+='<div style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px" onclick="var b=gel(\'summary-new-body\'),a=gel(\'summary-new-arrow\');b.style.display=b.style.display===\'none\'?\'\':\'none\';a.textContent=b.style.display===\'none\'?\'▼\':\'▲\'">';
+  html+='<span style="font-size:12px;font-weight:700;color:var(--g)">발견된 새 지갑 — '+S.newW.length+'개</span>';
+  html+='<span id="summary-new-arrow" style="font-size:10px;color:#4a6a8a">▼</span>';
+  html+='</div>';
+  html+='<div id="summary-new-body" style="display:none">';
   S.newW.forEach(function(w){
     var deps=Object.keys(S.wInfo[w].deps);
     var lbl=(gSS.w[w]&&gSS.w[w].label)||'';
@@ -2437,8 +2442,14 @@ function renderSummary(){
   });
   html+='</div>';
 
-  // ── 거래소 추정 입금주소 (체크박스 → renderTable, <select> 라벨)
-  html+='<div><div style="font-size:12px;font-weight:700;color:var(--b);margin-bottom:8px">거래소 추정 입금주소 — '+activeExch.length+'개</div>';
+  // ── 거래소 추정 입금주소
+  html+='</div></div>'; // 새 지갑 body/section 닫기
+  html+='<div>';
+  html+='<div style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px" onclick="var b=gel(\'summary-dep-body\'),a=gel(\'summary-dep-arrow\');b.style.display=b.style.display===\'none\'?\'\':\'none\';a.textContent=b.style.display===\'none\'?\'▼\':\'▲\'">';
+  html+='<span style="font-size:12px;font-weight:700;color:var(--b)">거래소 추정 입금주소 — '+activeExch.length+'개</span>';
+  html+='<span id="summary-dep-arrow" style="font-size:10px;color:#4a6a8a">▼</span>';
+  html+='</div>';
+  html+='<div id="summary-dep-body" style="display:none">';
   S.exchList.forEach(function(x,i){
     var del=dDel(x.dep);
     var lbl=depLabel(x.dep,'');
@@ -2461,7 +2472,7 @@ function renderSummary(){
         +selOpts+'</select>'
       +'</div>';
   });
-  html+='</div>';
+  html+='</div></div>'; // 입금주소 body/section 닫기
   panel.innerHTML=html;
 }
 
