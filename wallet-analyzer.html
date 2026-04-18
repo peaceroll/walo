@@ -1376,51 +1376,26 @@ var SURF_SEARCH = 'https://api.asksurf.ai/gateway/v1/search/wallet';
 // labels 배열에 "Hot Wallet" / "Cold Wallet" 있으면 항상 허용
 
 // 제외 키워드 — entity_name의 ": " 이후 부분에 이 중 하나라도 있으면 제외
-var HW_BLACKLIST_KEYWORDS = [
-  'proxy','msca','smart account','eip-1967','transparent','erc1967',
-  'gnosis','safe','treasury','proxyadmin','multisig','uups','beacon',
-  'diamond','dao','modular','account abstraction','erc-4337','implementation',
-  'admin proxy','batch','sweep','custody','deposit','wallet proxy',
-  'router','factory','deployer','internal','hacker','drainer',
-  '-peg',' peg ','bep-20','token','contract','dex ','exchange proxy',
-  'singleowner','smart contract','single owner'
-];
-
+// ── 핫월렛/콜드월렛 필터 ─────────────────────────────────────────
+// 실제 Surf 라벨 응답 기반 (데이터 확인 후 작성):
+//   labels: ["Hot Wallet"]  → ✅ 핫월렛
+//   labels: ["Cold Wallet"] → ✅ 콜드월렛
+//   labels: ["Binance 60"]  → ❌ 입금주소 (번호 지갑)
+//   labels: ["SingleOwnerMSCA (Proxy)"] → ❌ 컨트랙트
+//   entity_name 없음        → ❌ 미라벨 컨트랙트
+//
+// 규칙: entity_name 있고 + labels에 "hot wallet" 또는 "cold wallet" 포함
 function isValidHwAddress(lrow, fallbackLabel){
-  var labelList=(lrow&&lrow.labels||[]).map(function(l){return (l.label||'').toLowerCase();});
-  var apiName=(lrow&&lrow.entity_name)||'';
-  var eType=(lrow&&lrow.entity_type||'').toLowerCase();
-
-  // entity_type 제외
+  if(!lrow||!lrow.entity_name)return false;
+  var eType=(lrow.entity_type||'').toLowerCase();
   if(eType==='dex'||eType==='defi'||eType==='bridge'
     ||eType==='individual'||eType==='bot'||eType==='protocol'||eType==='mev')return false;
-
-  // labels에 "hot wallet" / "cold wallet" → 무조건 허용
-  var hasHotCold=labelList.some(function(l){
-    return l.includes('hot wallet')||l.includes('cold wallet');
+  var labelList=(lrow.labels||[]).map(function(l){return (l.label||'').toLowerCase();});
+  return labelList.some(function(l){
+    return l==='hot wallet'||l==='cold wallet'
+      ||l.includes('hot wallet')||l.includes('cold wallet');
   });
-  if(hasHotCold)return true;
-
-  var apiL=apiName.toLowerCase();
-
-  // entity_name에 "hot wallet" / "cold wallet" 포함 → 허용
-  if(apiL.includes('hot wallet')||apiL.includes('cold wallet'))return true;
-
-  // entity_name에 ": " 구분자가 있으면 구체적 타입이 명시됨
-  // → Hot/Cold Wallet이 아닌 이상 블랙리스트 검사
-  if(apiName.includes(': ')){
-    var typeStr=apiL.split(': ').slice(1).join(': '); // ": " 이후 부분
-    var isBlacklisted=HW_BLACKLIST_KEYWORDS.some(function(kw){
-      return typeStr.includes(kw);
-    });
-    return !isBlacklisted; // 블랙리스트에 없으면 허용
-  }
-
-  // entity_name이 단순 거래소명 (": " 없음) → 허용
-  return true;
-}
-
-async function surfSearchExchange(query, limit, offset){
+}async function surfSearchExchange(query, limit, offset){
   limit = limit||20;
   offset = offset||0;
   var proxy=getSurfProxy();
@@ -2694,25 +2669,19 @@ function saveHwDbCsv(){
 function cleanHwDb(){
   var addrs=Object.keys(gHWDB);
   if(!addrs.length){addLog('DB가 비어 있습니다','warn');return;}
-  // isValidHwAddress와 동일한 기준으로 오염 항목 제거
+  // labels에 Hot/Cold Wallet 없는 항목 제거
+  // (fromExplorer=true인 항목은 Surf 라벨 기준으로 판단)
   var removed=[];
   addrs.forEach(function(addr){
-    var label=(gHWDB[addr].label||'');
-    var lL=label.toLowerCase();
-    // Hot/Cold Wallet → 유지
-    if(lL.includes('hot wallet')||lL.includes('cold wallet'))return;
-    // ": " 없으면 단순 거래소명 → 유지
-    if(!label.includes(': '))return;
-    // ": " 있으면 타입 부분 검사
-    var typeStr=lL.split(': ').slice(1).join(': ');
-    var bad=['proxy','msca','smart account','eip-1967','transparent','erc1967',
-      'gnosis','safe','treasury','proxyadmin','multisig','uups','beacon',
-      'diamond','dao','modular','account abstraction','erc-4337','implementation',
-      'admin proxy','batch','sweep','custody','deposit','wallet proxy',
-      'router','factory','deployer','internal','hacker','drainer',
-      '-peg',' peg ','bep-20','token','contract','dex ','exchange proxy',
-      'singleowner','smart contract'].some(function(k){return typeStr.includes(k);});
-    if(bad){removed.push(addr);delete gHWDB[addr];}
+    var d=gHWDB[addr];
+    var label=(d.label||'').toLowerCase();
+    // 분석으로 수집된 항목(fromExplorer 아님)은 건드리지 않음
+    if(!d.fromExplorer)return;
+    // 라벨이 거래소명 자체거나 Hot/Cold Wallet 포함이면 유지
+    // "Binance 60", "Binance: Internal" 등 번호/타입 지갑은 제거
+    var isHotCold=label.includes('hot wallet')||label.includes('cold wallet');
+    var isSimpleName=!label.includes(' ')||label===label.split(' ')[0]; // "Binance" 등 단일 단어
+    if(!isHotCold&&!isSimpleName){removed.push(addr);delete gHWDB[addr];}
   });
   if(removed.length){
     saveHWDB(); renderHwDb();
@@ -2721,7 +2690,6 @@ function cleanHwDb(){
     addLog('오염된 항목 없음','ok');
   }
 }
-
 // ══ 핫월렛 추정 패널 ══════════════════════════════════════════════════
 
 // ══ 핫월렛 A: 현재 분석 핫월렛 ══════════════════════════════════════
