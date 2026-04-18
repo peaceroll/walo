@@ -3196,6 +3196,13 @@ function getFileSuffix(){
 
 // ── 결과 테이블 ────────────────────────────────────────────────
 
+function _seedMeta(){
+  clusterEdges(gEdges);
+  var seedSet={};gSeeds.forEach(function(a){seedSet[a]=1;});
+  var seedClusters={};gEdges.forEach(function(e){if(seedSet[e.wallet]&&e._cluster)seedClusters[e._cluster]=1;});
+  return {seedSet:seedSet,seedClusters:seedClusters};
+}
+
 function renderTable(){
   var fw=gel('fw').value.toLowerCase(),fd=(gel('fd')&&gel('fd').value||'').toLowerCase();
   var fe=gel('fe').value.toLowerCase(),fc=gel('fc').value.toLowerCase();
