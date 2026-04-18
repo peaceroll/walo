@@ -990,6 +990,8 @@ function getOpts(){
 }
 
 // ══ 섹션 4: Rate Limiter ════════════════════════════════════════════
+var gRateQueue=[], gRateRun=false, gRateRPS=2, gRateTs=0;
+var gBlockCache={};
 function rateCall(fn){return new Promise(function(res,rej){gRateQueue.push({fn:fn,res:res,rej:rej});if(!gRateRun)drainQueue();});}
 async function drainQueue(){
   gRateRun=true;
