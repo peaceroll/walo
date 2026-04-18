@@ -380,17 +380,21 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   <!-- 섹션 B: 누적 DB -->
   <div>
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-      <h2 style="margin:0;color:#8247e5">🗄 핫월렛 DB &nbsp;<span class="bdg" id="hwdb-cnt" style="background:rgba(130,71,229,.15);color:#8247e5">0</span>
-        <span style="font-size:10px;color:#2a4a6a;font-weight:normal;margin-left:6px">· 여러 분석에서 누적한 거래소 핫월렛 목록</span></h2>
+      <h2 style="margin:0;color:#8247e5;cursor:pointer" onclick="toggleEl('hwdb-body','hwdb-arrow')">
+        🗄 핫월렛 DB &nbsp;<span class="bdg" id="hwdb-cnt" style="background:rgba(130,71,229,.15);color:#8247e5">0</span>
+        <span style="font-size:10px;color:#2a4a6a;font-weight:normal;margin-left:6px">· 여러 분석에서 누적한 거래소 핫월렛 목록</span>
+        <span id="hwdb-arrow" style="font-size:10px;color:#4a6a8a;margin-left:8px">▲</span>
+      </h2>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn dim" style="border-color:#8247e5;color:#8247e5" onclick="gel('hwdb-load-files').click()">📂 CSV 여러개 병합</button>
         <input type="file" id="hwdb-load-files" accept=".csv,.txt" multiple style="display:none" onchange="loadHwDbCsvMulti(this)">
         <button class="btn dim" onclick="saveHwDbCsv()">💾 DB 저장</button>
         <button class="btn dim" style="border-color:var(--a);color:var(--a)" onclick="autoLabelFromDb()">⚡ DB로 자동 라벨링</button>
         <button class="btn dim" onclick="cleanHwDb()">🧹 오염 제거</button>
-        <button class="btn dim red" onclick="if(confirm('DB 전체를 초기화할까요?\n\nlocalStorage 저장 데이터도 함께 삭제됩니다.')){gHWDB={};saveHWDB();renderHwDb();addLog('핫월렛 DB 초기화 완료 (localStorage 포함)','warn');}">🗑 DB+localStorage 초기화</button>
+        <button class="btn dim red" onclick="if(confirm('DB 목록을 전체 삭제할까요?')){gHWDB={};saveHWDB();renderHwDb();addLog('핫월렛 DB 초기화 완료','warn');}">🗑 전체 삭제</button>
       </div>
     </div>
+    <div id="hwdb-body">
     <div style="font-size:10px;color:#2a4a6a;margin-bottom:6px">라벨 있는 항목만 자동 라벨링에 사용됩니다 · 저장 시 localStorage에도 자동 보존</div>
     <!-- Surf 탐색기 — Surf 모드일 때 표시 -->
     <div id="hwdb-explorer" style="margin-bottom:8px;padding:10px 12px;background:#060e18;border:1px solid rgba(130,71,229,.2);border-radius:3px;display:none">
@@ -443,6 +447,16 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
         <button class="btn dim red" style="font-size:11px" onclick="gAborted=true;addLog('수집 중단','warn')">⬛ 중단</button>
       </div>
       <div style="margin-top:5px;font-size:9px;color:#2a4a6a">offset 페이지네이션으로 같은 거래소 여러 페이지 수집 · 이미 수집한 쿼리 자동 건너뜀 · DB에 자동 저장</div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap">
+        <span style="font-size:10px;color:#4a6a8a;flex-shrink:0">비활성 주소 제거:</span>
+        <select id="inactive-days" style="background:#07101a;border:1px solid var(--bd);border-radius:3px;color:#c8d3e0;font-size:10px;padding:3px 6px">
+          <option value="365">최근 1년 이내 활동 없음</option>
+          <option value="730">최근 2년 이내 활동 없음</option>
+          <option value="1095">최근 3년 이내 활동 없음</option>
+        </select>
+        <button class="btn dim" style="font-size:10px;padding:3px 10px" onclick="var d=parseInt(gel('inactive-days').value);removeInactiveAddresses(d)">🔍 적용</button>
+        <span style="font-size:9px;color:#2a4a6a">DB 주소를 Surf SQL로 확인 후 제거 · 체인당 1크레딧</span>
+      </div>
       <hr style="border:none;border-top:1px solid #0a1520;margin:8px 0">
       <div style="font-size:10px;color:#4a6a8a;margin-bottom:4px">주소 직접 추가 (Upbit·Bithumb 등 검색 안 되는 거래소)</div>
       <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
@@ -455,6 +469,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <div style="margin-top:3px;font-size:9px;color:#2a4a6a">라벨 조회: Surf에서 entity_type=exchange 확인 후 저장 · 직접 추가: 라벨 직접 입력</div>
     </div>
     <div id="hwdb-panel" style="font-size:10px;color:#4a6a8a">CSV를 불러오거나 현재 분석 결과를 DB에 추가하세요</div>
+    </div><!-- /hwdb-body -->
   </div>
 </div>
 
@@ -1434,23 +1449,25 @@ async function collectExchangeWallets(query){
 
 // 여러 거래소 일괄 수집
 // 거래소별 검색 aliases — 여러 검색어를 순서대로 시도
+// 거래소별 검색 aliases + 허용 entity_name 키워드
+// keywords: entity_name이 이 중 하나를 포함해야 저장 (없으면 무제한)
 var CEX_ALIASES = {
-  'Binance':  ['Binance','Binance Hot Wallet','Binance Cold'],
-  'OKX':      ['OKX','OKEx','OKCoin'],
-  'Bybit':    ['Bybit','Bybit Hot'],
-  'Coinbase': ['Coinbase','Coinbase Prime','Coinbase Cold'],
-  'Kraken':   ['Kraken','Kraken Hot'],
-  'Bitget':   ['Bitget'],
-  'KuCoin':   ['KuCoin','Kucoin Hot'],
-  'Gate':     ['Gate','Gate.io'],
-  'Upbit':    ['Upbit','UPbit'],
-  'Bithumb':  ['Bithumb','Bithumb Global','빗썸'],
-  'Huobi':    ['Huobi','HTX','Huobi Hot'],
-  'MEXC':     ['MEXC','MEXC Hot'],
-  'Crypto.com':['Crypto.com','Crypto.com Hot'],
-  'Bitfinex': ['Bitfinex'],
-  'Gemini':   ['Gemini'],
-  'Korbit':   ['Korbit'],
+  'Binance':   {aliases:['Binance','Binance Hot Wallet'],  keywords:['binance']},
+  'OKX':       {aliases:['OKX','OKEx'],                    keywords:['okx','okex']},
+  'Bybit':     {aliases:['Bybit','Bybit Hot'],             keywords:['bybit']},
+  'Coinbase':  {aliases:['Coinbase','Coinbase Prime'],      keywords:['coinbase']},
+  'Kraken':    {aliases:['Kraken','Kraken Hot'],           keywords:['kraken']},
+  'Bitget':    {aliases:['Bitget'],                        keywords:['bitget']},
+  'KuCoin':    {aliases:['KuCoin','Kucoin Hot'],           keywords:['kucoin']},
+  'Gate':      {aliases:['Gate','Gate.io'],                keywords:['gate']},
+  'Upbit':     {aliases:['Upbit','UPbit'],                 keywords:['upbit']},
+  'Bithumb':   {aliases:['Bithumb','Bithumb Global'],      keywords:['bithumb','빗썸']},
+  'Huobi':     {aliases:['Huobi','HTX','Huobi Hot'],       keywords:['huobi','htx']},
+  'MEXC':      {aliases:['MEXC','MEXC Hot'],               keywords:['mexc']},
+  'Crypto.com':{aliases:['Crypto.com','Crypto.com Hot'],   keywords:['crypto.com']},
+  'Bitfinex':  {aliases:['Bitfinex'],                      keywords:['bitfinex']},
+  'Gemini':    {aliases:['Gemini'],                        keywords:['gemini']},
+  'Korbit':    {aliases:['Korbit'],                        keywords:['korbit']},
 };
 var KNOWN_CEX_QUERIES=Object.keys(CEX_ALIASES);
 
@@ -1469,11 +1486,11 @@ async function autoCollectExchangeWallets(exchanges, creditBudget){
   // 각 거래소 × alias × offset 으로 작업 큐 생성
   var queue=[];
   targets.forEach(function(name){
-    var aliases=CEX_ALIASES[name]||[name];
+    var def=CEX_ALIASES[name]||{aliases:[name],keywords:[]};
+    var aliases=def.aliases||[name];
     aliases.forEach(function(alias){
-      // offset 0,20,40,60,80 까지 시도 (각 20개씩)
       for(var offset=0;offset<100;offset+=20){
-        queue.push({name:name, alias:alias, offset:offset});
+        queue.push({name:name, alias:alias, offset:offset, keywords:def.keywords||[]});
       }
     });
   });
@@ -1495,7 +1512,7 @@ async function autoCollectExchangeWallets(exchanges, creditBudget){
     _exploredKeys[key]=true;
 
     try{
-      var result=await collectExchangeWalletsPaged(task.name, task.alias, task.offset);
+      var result=await collectExchangeWalletsPaged(task.name, task.alias, task.offset, task.keywords);
       totalAdded+=result.added;
       totalSkipped+=result.skipped;
       // 결과가 없으면 같은 alias의 더 높은 offset은 의미없음
@@ -1517,14 +1534,24 @@ async function autoCollectExchangeWallets(exchanges, creditBudget){
 }
 
 // 단일 alias + offset 수집 (내부용)
-async function collectExchangeWalletsPaged(name, alias, offset){
+async function collectExchangeWalletsPaged(name, alias, offset, keywords){
+  keywords=keywords||[];
   var d=await surfSearchExchange(alias, 20, offset);
   var items=(d.data||[]);
   var cexItems=items.filter(function(x){
-    return x.addresses&&x.addresses.length&&
-      (x.entity_type==='cex'||x.entity_type==='exchange'||x.entity_type==='cefi');
+    if(!x.addresses||!x.addresses.length)return false;
+    // entity_type 필터
+    var et=(x.entity_type||'').toLowerCase();
+    var typeOk=et==='cex'||et==='exchange'||et==='cefi';
+    if(!typeOk&&et)return false;
+    // entity_name 키워드 검증 — 다른 거래소 섞이는 것 방지
+    if(keywords.length){
+      var eName=(x.entity_name||'').toLowerCase();
+      var match=keywords.some(function(k){return eName.indexOf(k)>=0;});
+      if(!match)return false;
+    }
+    return true;
   });
-  if(!cexItems.length)cexItems=items.filter(function(x){return x.addresses&&x.addresses.length;});
 
   var candidates=[];
   cexItems.forEach(function(item){
@@ -1558,6 +1585,56 @@ async function collectExchangeWalletsPaged(name, alias, offset){
     if(added>0){saveHWDB(); renderHwDb(); addLog('[자동수집] '+alias+' offset='+offset+' → '+added+'개 신규 (DB 총 '+Object.keys(gHWDB).length+'개)','ok');}
   }
   return {added:added, skipped:skipped, total:items.length};
+}
+
+// ── 비활성 주소 제거 ─────────────────────────────────────────────
+// gHWDB의 주소들 중 최근 N일 이내 활동이 없는 주소를 Surf SQL로 확인 후 제거
+async function removeInactiveAddresses(days){
+  var addrs=Object.keys(gHWDB);
+  if(!addrs.length){addLog('DB가 비어 있습니다','warn');return;}
+  addLog('🔍 비활성 주소 제거 시작 (기준: '+days+'일 이내 활동 없는 주소)…','info');
+
+  // 체인별로 주소를 그룹화
+  var byChain={};
+  addrs.forEach(function(addr){
+    var chain=(gHWDB[addr].chain||'ethereum').toLowerCase()
+      .replace('arbitrum_one','arbitrum').replace('arbitrum','arb')
+      .replace('base','bse').replace('polygon','pol');
+    if(!byChain[chain])byChain[chain]=[];
+    byChain[chain].push(addr);
+  });
+
+  var activeSet={};
+  var chains=Object.keys(byChain);
+  for(var i=0;i<chains.length;i++){
+    var chain=chains[i];
+    var tbl='agent.'+chain+'_transfers';
+    var batch=byChain[chain];
+    var inList=batch.map(function(a){return "'"+a+"'";}).join(',');
+    var sql='SELECT lower(tx_from) AS addr, max(block_date) AS last_date'
+      +' FROM '+tbl
+      +' WHERE lower(tx_from) IN ('+inList+')'
+      +' AND block_date >= today() - '+days
+      +' GROUP BY tx_from';
+    try{
+      var r=await surfSql(sql);
+      (r.data||[]).forEach(function(row){if(row.addr)activeSet[row.addr]=row.last_date;});
+      addLog('[비활성제거] '+chain+': '+batch.length+'개 중 '+(r.data||[]).length+'개 활성','dim');
+    }catch(e){
+      addLog('[비활성제거] '+chain+' 조회 실패: '+e.message,'warn');
+    }
+    await sleep(300);
+  }
+
+  var removed=0;
+  addrs.forEach(function(addr){
+    if(!activeSet[addr]){
+      delete gHWDB[addr];
+      removed++;
+    }
+  });
+  saveHWDB(); renderHwDb();
+  addLog('🔍 비활성 제거 완료: '+removed+'개 삭제 · '+Object.keys(gHWDB).length+'개 남음','ok');
 }
 
 // ══ 섹션 6: 스윕 계산 ═══════════════════════════════════════════════
