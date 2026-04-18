@@ -2400,6 +2400,9 @@ function stopAnalysis(){
 // renderSummary, saveSummary 모두 buildSummary() + depLabel() 사용
 function renderSummary(){
   var panel=gel('summary-panel'); if(!panel||!gEdges.length)return;
+  // 현재 열림 상태 기억
+  var newOpen=gel('summary-new-body')&&gel('summary-new-body').style.display!=='none';
+  var depOpen=gel('summary-dep-body')&&gel('summary-dep-body').style.display!=='none';
   var S=buildSummary();
   function wDel(w){return !!(gSS.w[w]&&gSS.w[w].del);}
   function dDel(dep){return !!(gSS.d[dep]&&gSS.d[dep].del);}
@@ -2489,6 +2492,11 @@ function renderSummary(){
   });
   html+='</div></div>'; // 입금주소 body/section 닫기
   panel.innerHTML=html;
+  // 열림 상태 복원
+  var nb=gel('summary-new-body'), na=gel('summary-new-arrow');
+  var db=gel('summary-dep-body'), da=gel('summary-dep-arrow');
+  if(nb&&newOpen){nb.style.display='';if(na)na.textContent='▲';}
+  if(db&&depOpen){db.style.display='';if(da)da.textContent='▲';}
 }
 
 // 거래소 추정 입금주소로 필터링:
