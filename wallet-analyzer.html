@@ -2075,16 +2075,20 @@ async function collectInbound_alchemy(depMap,opts){
     setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');
     updateStats(); renderTable(); // 중간 진행 중 테이블만 빠르게 갱신
   },opts.concurrency);
-  setStep(4); renderAll();
+  setStep(4);
   setProgress(1,1,'완료');
   STEPS_DEF.forEach(function(s){var n=gel('sn'+s.id);if(n){n.className='snum done';gel('sl'+s.id).className='slbl done';}});
   var edgeCnt=gEdges.filter(function(e){return !e.noCluster;}).length;
   var hwCnt=Object.keys(gHW).length;
   addLog('=== ✅ 분석 완료 · 총 엣지: '+gEdges.length+'개 · 클러스터 대상: '+edgeCnt+'개 · 핫월렛: '+hwCnt+'개 ===','ok');
   if(gEdges.length===0){
-    addLog('⚠ 결과 없음 — 원인: maxSenders('+opts.maxSenders+') 초과로 전체 스킵되었거나 발신자 필터링됨','warn');
+    addLog('⚠ 결과 없음 — maxSenders('+opts.maxSenders+') 초과로 전체 스킵되었거나 발신자 필터링됨','warn');
     addLog('→ 파라미터 조정: 최대 발신자 수 늘리기 또는 TX 범위 확대','warn');
   }
+  // renderAll은 비동기로 지연 실행 (대용량 데이터 렌더링 시 UI 블로킹 방지)
+  setTimeout(function(){
+    try{renderAll();}catch(e){addLog('렌더링 오류: '+e.message,'warn');}
+  },100);
 }
 
 
@@ -2500,14 +2504,26 @@ function saveSummary(){
 function renderHotWallets(){
   var panel=gel('hw-panel'); if(!panel)return;
   var addrs=Object.keys(gHW);
-  // 활성(del 아닌) 개수만 카운트
-  var activeCount=addrs.filter(function(a){return !gHW[a].del;}).length;
+  // DB에 없는 것만 표시 (DB 있는 것은 이미 HWDB 패널에서 관리)
+  var newAddrs=addrs.filter(function(a){return !gHW[a].del&&!gHWDB[a];});
+  var dbAddrs=addrs.filter(function(a){return !gHW[a].del&&gHWDB[a];});
+  var activeCount=newAddrs.length+dbAddrs.length;
   var cntEl=gel('hw-cnt'); if(cntEl)cntEl.textContent=activeCount;
   if(!addrs.length){
     panel.innerHTML='<span style="color:#2a4a6a;font-size:10px">핫월렛이 감지되지 않았습니다 (nonce > 설정값인 발신자가 없음)</span>';
     return;
   }
-  addrs.sort(function(a,b){return (gHW[b].nonce||0)-(gHW[a].nonce||0);});
+  var html='';
+  if(dbAddrs.length>0){
+    html+='<div style="font-size:9px;color:#8247e5;margin-bottom:4px">◈ DB 매칭 핫월렛 '+dbAddrs.length+'개 (자동 라벨링 완료 — HWDB 패널에서 관리)</div>';
+  }
+  if(newAddrs.length===0){
+    html+='<div style="font-size:10px;color:#2a4a6a">새로 발견된 핫월렛 없음 (모두 DB에 등록된 주소)</div>';
+    panel.innerHTML=html; return;
+  }
+  newAddrs.sort(function(a,b){return (gHW[b].nonce||0)-(gHW[a].nonce||0);});
+  // addrs를 newAddrs로 교체해서 기존 렌더링 로직 사용
+  var addrs=newAddrs;
   panel.innerHTML=addrs.map(function(addr,i){
     var h=gHW[addr];
     var lbl=h.label||'';
@@ -2763,44 +2779,6 @@ function cleanHwDb(){
 // ══ 핫월렛 추정 패널 ══════════════════════════════════════════════════
 
 // ══ 핫월렛 A: 현재 분석 핫월렛 ══════════════════════════════════════
-function renderHotWallets(){
-  var panel=gel('hw-panel'); if(!panel)return;
-  var addrs=Object.keys(gHW);
-  // 활성(del 아닌) 개수만 카운트
-  var activeCount=addrs.filter(function(a){return !gHW[a].del;}).length;
-  var cntEl=gel('hw-cnt'); if(cntEl)cntEl.textContent=activeCount;
-  if(!addrs.length){
-    panel.innerHTML='<span style="color:#2a4a6a;font-size:10px">핫월렛이 감지되지 않았습니다 (nonce > 설정값인 발신자가 없음)</span>';
-    return;
-  }
-  addrs.sort(function(a,b){return (gHW[b].nonce||0)-(gHW[a].nonce||0);});
-  panel.innerHTML=addrs.map(function(addr,i){
-    var h=gHW[addr];
-    var lbl=h.label||'';
-    var del=!!h.del;
-    var inDb=!!gHWDB[addr];
-    var selOpts='<option value="">거래소 선택...</option>'
-      +KNOWN_EXCHANGES.map(function(ex){return '<option value="'+ex+'"'+(lbl===ex?' selected':'')+'>'+ex+'</option>';}).join('')
-      +'<option value="__custom__">✎ 직접 입력...</option>';
-    var dimStyle=del?'opacity:0.35;':'';
-    var addrColor=del?'color:#2a4a6a;text-decoration:line-through;':'color:#7a8a9a;';
-    return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0a1520;'+dimStyle+'">'
-      +'<input type="checkbox" '+(del?'':'checked')+' data-addr="'+addr
-        +'" onchange="gHW[this.dataset.addr].del=!this.checked;renderHotWallets()"'
-        +' style="accent-color:var(--r);cursor:pointer;flex-shrink:0">'
-      +'<span style="font-size:9px;color:var(--r);background:rgba(255,77,106,.1);border-radius:2px;padding:1px 5px;flex-shrink:0">['+h.chain+']</span>'
-      +(inDb?'<span style="font-size:9px;color:#8247e5;flex-shrink:0" title="DB에 등록됨">DB</span>':'<span style="font-size:9px;color:#1a2a3a;flex-shrink:0" style="width:18px"> </span>')
-      +'<span style="font-family:monospace;font-size:10px;flex:1;'+addrColor+'">'+addr+'</span>'
-      +'<span style="font-size:9px;color:#3a4a5a;flex-shrink:0">nonce='+((h.nonce||0).toLocaleString())+'</span>'
-      +'<span style="font-size:9px;color:#2a4a6a;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0" title="'+(h.depositLabel||'')+'">'+((h.depositLabel||'').slice(0,18))+'</span>'
-      +'<a href="'+arkUrl(addr)+'" target="_blank" style="font-size:10px;flex-shrink:0;color:var(--b)">arkham↗</a>'
-      +'<select data-addr="'+addr+'" onchange="setHWLabel(this.dataset.addr,this.value)"'
-        +' style="background:#07101a;border:1px solid var(--bd);border-radius:3px;color:'+(lbl?'var(--r)':'#4a6a8a')+';font-family:monospace;font-size:10px;padding:2px 4px;width:150px;cursor:pointer">'
-        +selOpts+'</select>'
-      +'</div>';
-  }).join('')
-  +'<div style="margin-top:6px;font-size:9px;color:#2a4a6a">활성 '+activeCount+'개 / 전체 '+addrs.length+'개 · [→ DB에 추가] 시 체크된 항목만 병합됩니다</div>';
-}
 
 function setHWLabel(addr,val){
   if(val==='__custom__'){var v=prompt('거래소명 직접 입력:','');if(v===null)return;val=v.trim();}
