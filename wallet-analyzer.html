@@ -3801,34 +3801,57 @@ async function testAlchemyAddr(){
   var chains=getActiveChains();
   if(!chains.length){addLog('⚠ RPC URL이 입력된 체인을 먼저 선택하세요','err');return;}
   var addr=(gel('alchemy-test-addr')&&gel('alchemy-test-addr').value.trim().toLowerCase())||'';
-  if(!addr||!addr.startsWith('0x')||addr.length!==42){
-    addLog('⚠ 테스트할 주소를 입력하세요','err');return;
-  }
+  if(!addr||!addr.startsWith('0x')||addr.length!==42){addLog('⚠ 테스트할 주소를 입력하세요','err');return;}
+  var ch=chains[0];
   addLog('📋 주소 테스트: '+short(addr),'info');
-  var ch=chains[0]; // 첫 번째 체인으로 테스트
-  addLog('체인: '+ch.name+' · RPC: '+ch.rpc.slice(0,40)+'…','dim');
+  addLog('체인: '+ch.name+' · RPC: '+ch.rpc.slice(0,50)+'…','dim');
+
+  // 직접 RPC 호출 (gBlockCache 불필요)
+  async function rpcCall(method, params){
+    var resp=await fetch(ch.rpc,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({jsonrpc:'2.0',id:1,method:method,params:params})
+    });
+    var d=await resp.json();
+    if(d.error)throw new Error(d.error.message||JSON.stringify(d.error));
+    return d.result;
+  }
+
   try{
-    // nonce 조회
-    var nonce=await getNonce(ch.rpc,addr);
-    addLog('nonce: '+nonce.toLocaleString(),'info');
-    // getCode로 컨트랙트 여부
-    var isContract=await getCode(ch.rpc,addr);
-    addLog('컨트랙트: '+(isContract?'예 (CA)':'아니오 (EOA)'),'info');
-    // DB에 있는지
-    var inDb=!!gHWDB[addr];
-    addLog('핫월렛 DB: '+(inDb?gHWDB[addr].label+'으로 등록됨':'미등록'),'info');
-    // Alchemy transfers 1건만 빠르게 조회
-    var result=await alchemyCall(ch.rpc,ch.key,ch.provider,'out',addr,null,false,ch.blockTime,'30');
-    var cnt=(result.transfers||[]).length;
-    addLog('최근 30일 아웃바운드 TX: '+cnt+'건 조회됨','ok');
-    if(cnt===0)addLog('⚠ TX 0건 — 주소 활동 없거나 기간 내 전송 없음','warn');
+    // nonce
+    var nonceHex=await rpcCall('eth_getTransactionCount',[addr,'latest']);
+    var nonce=parseInt(nonceHex,16);
+    addLog('nonce: '+nonce.toLocaleString()+(nonce===0?' (활동 없음)':nonce>5000?' (고빈도 — 핫월렛/인프라 가능성)':''),'info');
+
+    // 컨트랙트 여부
+    var code=await rpcCall('eth_getCode',[addr,'latest']);
+    var isCon=code&&code!=='0x'&&code.length>4;
+    addLog('타입: '+(isCon?'컨트랙트 (CA)':'일반 지갑 (EOA)'),'info');
+
+    // 잔액
+    var balHex=await rpcCall('eth_getBalance',[addr,'latest']);
+    var balEth=(parseInt(balHex,16)/1e18).toFixed(4);
+    addLog('잔액: '+balEth+' ETH','info');
+
+    // DB 확인
+    if(gHWDB[addr]){
+      addLog('✅ 핫월렛 DB 등록됨: '+gHWDB[addr].label,'ok');
+    }else{
+      addLog('핫월렛 DB: 미등록','dim');
+    }
+
+    addLog('✅ 테스트 완료 — RPC 정상 작동','ok');
   }catch(e){
     addLog('❌ 테스트 실패: '+e.message,'err');
-    if(e.message.includes('401'))addLog('→ API Key 오류 또는 RPC URL이 잘못됨','warn');
-    if(e.message.includes('429'))addLog('→ Rate limit 초과 (잠시 후 재시도)','warn');
+    if(e.message.includes('401')||e.message.includes('403'))
+      addLog('→ API Key 오류 또는 RPC URL이 잘못됨','warn');
+    else if(e.message.includes('429'))
+      addLog('→ Rate limit 초과 (잠시 후 재시도)','warn');
+    else if(e.message.includes('Failed to fetch'))
+      addLog('→ 네트워크 오류 또는 RPC URL 확인 필요','warn');
   }
 }
-
 </script>
 </body>
 </html>
