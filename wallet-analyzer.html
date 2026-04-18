@@ -419,6 +419,12 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
           <span style="font-size:10px;color:#4a6a8a">자동 수집 (크레딧 한도까지 연속 실행):</span>
           <button onclick="document.querySelectorAll('#cex-selector input').forEach(function(c){c.checked=true})" style="background:none;border:none;font-size:10px;color:#8247e5;cursor:pointer;padding:0">전체선택</button>
           <button onclick="document.querySelectorAll('#cex-selector input').forEach(function(c){c.checked=false})" style="background:none;border:none;font-size:10px;color:#4a6a8a;cursor:pointer;padding:0">전체해제</button>
+          <span style="font-size:10px;color:#2a4a6a;margin-left:8px">체인:</span>
+          <label style="font-size:10px;color:#4fa3ff;display:flex;align-items:center;gap:2px"><input type="checkbox" class="chain-filter" value="eth" checked style="accent-color:#4fa3ff">ETH</label>
+          <label style="font-size:10px;color:#28a0f0;display:flex;align-items:center;gap:2px"><input type="checkbox" class="chain-filter" value="arb" checked style="accent-color:#28a0f0">ARB</label>
+          <label style="font-size:10px;color:#3a7bff;display:flex;align-items:center;gap:2px"><input type="checkbox" class="chain-filter" value="bse" checked style="accent-color:#3a7bff">BSE</label>
+          <label style="font-size:10px;color:#f0b90b;display:flex;align-items:center;gap:2px"><input type="checkbox" class="chain-filter" value="bsc" checked style="accent-color:#f0b90b">BSC</label>
+          <label style="font-size:10px;color:#8247e5;display:flex;align-items:center;gap:2px"><input type="checkbox" class="chain-filter" value="pol" checked style="accent-color:#8247e5">POL</label>
         </div>
         <div style="display:flex;gap:5px;flex-wrap:wrap" id="cex-selector">
           <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Binance" checked style="accent-color:#8247e5">Binance</label>
@@ -900,6 +906,11 @@ var gHWDB = (function(){
   try{var s=localStorage.getItem('wca_hwdb');return s?JSON.parse(s):{};}catch(e){return {};}
 })();
 function saveHWDB(){try{localStorage.setItem('wca_hwdb',JSON.stringify(gHWDB));}catch(e){}}
+
+// 핫월렛 수집 블랙리스트 — 비활성 제거된 주소 재수집 방지
+var gHWBlacklist=(function(){
+  try{var s=localStorage.getItem('wca_hw_blacklist');return s?JSON.parse(s):{};}catch(e){return {};}
+})();
 gSeeds.forEach(function(a){gSelected[a]=true;});
 
 var KNOWN_EXCHANGES = [
@@ -1354,6 +1365,29 @@ async function runParallel(items,asyncFn,concurrency){
 // /search/wallet?q={name} → entity_type=cex 필터 → addresses 수집
 var SURF_SEARCH = 'https://api.asksurf.ai/gateway/v1/search/wallet';
 
+// 공통 핫월렛 주소 필터 — 토큰/DEX/Router/Proxy 등 제외
+// returns true = 저장 가능, false = 제외
+function isValidHwAddress(lrow, fallbackLabel){
+  var labelList=(lrow&&lrow.labels||[]).map(function(l){return (l.label||'').toLowerCase();});
+  var eName=(lrow&&lrow.entity_name)||fallbackLabel||'';
+  var eType=(lrow&&lrow.entity_type||'').toLowerCase();
+  var eNameL=eName.toLowerCase();
+
+  // 토큰 컨트랙트 라벨
+  if(labelList.some(function(l){return l.includes('bep20')||l.includes('erc20')||l.includes('token')||l.includes('nft');}))return false;
+
+  // entity_name 패턴: "Exchange: Something (TICKER)"
+  if(/:\s*.+\([A-Z]{2,10}\)/.test(eName))return false;
+
+  // DEX / Router / Proxy 이름
+  if(eNameL.includes('router')||eNameL.includes('proxy')||eNameL.includes('dex ')||eNameL.includes(' dex')||eNameL.startsWith('dex'))return false;
+
+  // entity_type 제외 목록
+  if(eType==='dex'||eType==='defi'||eType==='bridge'||eType==='individual'||eType==='bot'||eType==='protocol'||eType==='mev')return false;
+
+  return true;
+}
+
 async function surfSearchExchange(query, limit, offset){
   limit = limit||20;
   offset = offset||0;
@@ -1402,8 +1436,10 @@ async function collectExchangeWallets(query){
   });
   if(!candidates.length){addLog('[탐색] "'+query+'" — EVM 주소 없음','warn');return 0;}
 
-  // 이미 DB에 있는 주소는 건너뜀 (재검색 방지)
-  var newCandidates=candidates.filter(function(c){return !gHWDB[c.addr];});
+  // 이미 DB에 있거나 블랙리스트인 주소 건너뜀
+  var newCandidates=candidates.filter(function(c){
+    return !gHWDB[c.addr]&&!gHWBlacklist[c.addr];
+  });
   var skippedExisting=candidates.length-newCandidates.length;
   if(skippedExisting>0)addLog('[탐색] '+skippedExisting+'개 기존 DB 주소 건너뜀','dim');
 
@@ -1415,22 +1451,8 @@ async function collectExchangeWallets(query){
 
     newCandidates.forEach(function(c){
       var lrow=labelMap[c.addr];
-      var labelList=(lrow&&lrow.labels||[]).map(function(l){return (l.label||'').toLowerCase();});
       var eName=(lrow&&lrow.entity_name)||c.label;
-      var eType=(lrow&&lrow.entity_type||'').toLowerCase();
-
-      // 제외 1: 토큰 컨트랙트 (BEP20, ERC20, Token 라벨)
-      var isToken=labelList.some(function(l){
-        return l.includes('bep20')||l.includes('erc20')||l.includes('token')||l.includes('nft');
-      });
-      if(isToken){skipped++;return;}
-
-      // 제외 2: entity_name이 "Exchange: Something (TICKER)" 패턴 → 토큰/컨트랙트
-      if(/:\s*.+\([A-Z]{2,10}\)/.test(eName)){skipped++;return;}
-
-      // 제외 3: exchange 아닌 entity_type (individual, bridge, bot, protocol 등)
-      if(eType&&(eType==='individual'||eType==='bridge'||eType==='bot'||eType==='protocol'||eType==='mev')){skipped++;return;}
-
+      if(!isValidHwAddress(lrow, c.label)){skipped++;return;}
       var finalLabel=(eName&&eName!=='Unknown')?eName:c.label;
       gHWDB[c.addr]={label:finalLabel, chain:c.chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
       added++;
@@ -1477,11 +1499,12 @@ var _exploredKeys={};
 // 크레딧 한도 내에서 지정된 거래소들을 자동 반복 수집
 // exchanges: 거래소명 배열 (빈 배열이면 전체)
 // creditBudget: 이 함수에서 소모할 크레딧 한도
-async function autoCollectExchangeWallets(exchanges, creditBudget){
+async function autoCollectExchangeWallets(exchanges, creditBudget, chainFilter){
   var targets=exchanges&&exchanges.length?exchanges:KNOWN_CEX_QUERIES;
+  chainFilter=chainFilter&&chainFilter.length?chainFilter:['eth','arb','bse','bsc','pol'];
   var startCredits=gCreditsUsed;
   var budgetMsg=creditBudget>0?creditBudget+'크레딧 한도':'무제한';
-  addLog('=== 자동 수집 시작 ('+targets.length+'개 거래소 · '+budgetMsg+') ===','info');
+  addLog('=== 자동 수집 시작 ('+targets.length+'개 거래소 · '+budgetMsg+' · 체인: '+chainFilter.join(',')+') ===','info');
 
   // 각 거래소 × alias × offset 으로 작업 큐 생성
   var queue=[];
@@ -1512,7 +1535,7 @@ async function autoCollectExchangeWallets(exchanges, creditBudget){
     _exploredKeys[key]=true;
 
     try{
-      var result=await collectExchangeWalletsPaged(task.name, task.alias, task.offset, task.keywords);
+      var result=await collectExchangeWalletsPaged(task.name, task.alias, task.offset, task.keywords, chainFilter);
       totalAdded+=result.added;
       totalSkipped+=result.skipped;
       // 결과가 없으면 같은 alias의 더 높은 offset은 의미없음
@@ -1534,8 +1557,14 @@ async function autoCollectExchangeWallets(exchanges, creditBudget){
 }
 
 // 단일 alias + offset 수집 (내부용)
-async function collectExchangeWalletsPaged(name, alias, offset, keywords){
+async function collectExchangeWalletsPaged(name, alias, offset, keywords, chainFilter){
   keywords=keywords||[];
+  chainFilter=chainFilter&&chainFilter.length?chainFilter:['eth','arb','bse','bsc','pol'];
+  // 체인 키 정규화 맵
+  var CHAIN_NORM={
+    'ethereum':'eth','eth':'eth','arbitrum_one':'arb','arbitrum':'arb','arb':'arb',
+    'base':'bse','bse':'bse','bsc':'bsc','polygon':'pol','polygon_mainnet':'pol','pol':'pol'
+  };
   var d=await surfSearchExchange(alias, 20, offset);
   var items=(d.data||[]);
   var cexItems=items.filter(function(x){
@@ -1559,12 +1588,19 @@ async function collectExchangeWalletsPaged(name, alias, offset, keywords){
     (item.addresses||[]).forEach(function(a){
       var addr=(a.address||'').toLowerCase();
       if(!addr||!addr.startsWith('0x'))return;
-      var chain=(a.chain||'').replace('arbitrum_one','arbitrum').replace('_mainnet','');
-      candidates.push({addr:addr, chain:chain, label:label});
+      var rawChain=(a.chain||'').replace('_mainnet','').replace('arbitrum_one','arbitrum');
+      var normChain=CHAIN_NORM[rawChain.toLowerCase()]||rawChain;
+      // 체인 필터 적용
+      if(chainFilter.indexOf(normChain)<0)return;
+      candidates.push({addr:addr, chain:rawChain, label:label});
     });
   });
 
-  var newCandidates=candidates.filter(function(c){return !gHWDB[c.addr];});
+  var newCandidates=candidates.filter(function(c){
+    if(gHWDB[c.addr])return false; // 이미 DB에 있음
+    if(gHWBlacklist[c.addr])return false; // 블랙리스트 (비활성 제거됨)
+    return true;
+  });
   var added=0, skipped=0;
 
   if(newCandidates.length>0){
@@ -1572,14 +1608,10 @@ async function collectExchangeWalletsPaged(name, alias, offset, keywords){
     var labelMap=await fetchWalletLabels(addrs);
     newCandidates.forEach(function(c){
       var lrow=labelMap[c.addr];
-      var labelList=(lrow&&lrow.labels||[]).map(function(l){return (l.label||'').toLowerCase();});
       var eName=(lrow&&lrow.entity_name)||c.label;
-      var eType=(lrow&&lrow.entity_type||'').toLowerCase();
-      var isToken=labelList.some(function(l){return l.includes('bep20')||l.includes('erc20')||l.includes('token')||l.includes('nft');});
-      if(isToken||(eType&&eType!=='exchange'&&eType!=='cex')){skipped++;return;}
-      if(/:\s*.+\([A-Z]{2,10}\)/.test(eName)){skipped++;return;}
+      if(!isValidHwAddress(lrow, c.label)){skipped++;return;}
       var finalLabel=(eName&&eName!=='Unknown')?eName:c.label;
-      gHWDB[c.addr]={label:finalLabel, chain:c.chain||chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
+      gHWDB[c.addr]={label:finalLabel, chain:c.chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
       added++;
     });
     if(added>0){saveHWDB(); renderHwDb(); addLog('[자동수집] '+alias+' offset='+offset+' → '+added+'개 신규 (DB 총 '+Object.keys(gHWDB).length+'개)','ok');}
@@ -1594,49 +1626,76 @@ async function removeInactiveAddresses(days){
   if(!addrs.length){addLog('DB가 비어 있습니다','warn');return;}
   addLog('🔍 비활성 주소 제거 시작 (기준: '+days+'일 이내 활동 없는 주소)…','info');
 
-  // 체인별로 주소를 그룹화
-  var byChain={};
+  // Surf 지원 체인만 — 나머지는 스킵
+  var SURF_CHAIN_MAP={
+    'ethereum':'eth','eth':'eth',
+    'arbitrum':'arb','arb':'arb','arbitrum_one':'arb',
+    'base':'bse','bse':'bse',
+    'bsc':'bsc',
+    'polygon':'pol','pol':'pol','polygon_mainnet':'pol'
+  };
+
+  // 지원 체인별로 주소 그룹화
+  var byTable={};
+  var unsupported={};
   addrs.forEach(function(addr){
-    var chain=(gHWDB[addr].chain||'ethereum').toLowerCase()
-      .replace('arbitrum_one','arbitrum').replace('arbitrum','arb')
-      .replace('base','bse').replace('polygon','pol');
-    if(!byChain[chain])byChain[chain]=[];
-    byChain[chain].push(addr);
+    var raw=(gHWDB[addr].chain||'ethereum').toLowerCase().replace('_mainnet','');
+    var key=SURF_CHAIN_MAP[raw];
+    if(!key){unsupported[addr]=true;return;}
+    var tbl=surfTable(key);
+    if(!tbl){unsupported[addr]=true;return;}
+    if(!byTable[tbl])byTable[tbl]=[];
+    byTable[tbl].push(addr);
   });
+
+  if(Object.keys(unsupported).length>0)
+    addLog('[비활성제거] Surf 미지원 체인 '+Object.keys(unsupported).length+'개 주소는 스킵 (sonic,mantle 등)','dim');
 
   var activeSet={};
-  var chains=Object.keys(byChain);
-  for(var i=0;i<chains.length;i++){
-    var chain=chains[i];
-    var tbl='agent.'+chain+'_transfers';
-    var batch=byChain[chain];
-    var inList=batch.map(function(a){return "'"+a+"'";}).join(',');
-    var sql='SELECT lower(tx_from) AS addr, max(block_date) AS last_date'
-      +' FROM '+tbl
-      +' WHERE lower(tx_from) IN ('+inList+')'
-      +' AND block_date >= today() - '+days
-      +' GROUP BY tx_from';
-    try{
-      var r=await surfSql(sql);
-      (r.data||[]).forEach(function(row){if(row.addr)activeSet[row.addr]=row.last_date;});
-      addLog('[비활성제거] '+chain+': '+batch.length+'개 중 '+(r.data||[]).length+'개 활성','dim');
-    }catch(e){
-      addLog('[비활성제거] '+chain+' 조회 실패: '+e.message,'warn');
+  var tables=Object.keys(byTable);
+  var BATCH=30; // BSC 타임아웃 방지용 배치 크기
+
+  for(var i=0;i<tables.length;i++){
+    var tbl=tables[i];
+    var batch=byTable[tbl];
+    // 배치 단위로 쪼개서 쿼리
+    for(var b=0;b<batch.length;b+=BATCH){
+      if(gAborted)break;
+      var slice=batch.slice(b,b+BATCH);
+      var inList=slice.map(function(a){return "'"+a+"'";}).join(',');
+      var sql='SELECT lower(tx_from) AS addr, max(block_date) AS last_date'
+        +' FROM agent.'+tbl+'_transfers'
+        +' WHERE lower(tx_from) IN ('+inList+')'
+        +' AND block_date >= today() - '+days
+        +' GROUP BY tx_from'
+        +' LIMIT '+slice.length;
+      try{
+        var r=await surfSql(sql);
+        (r.data||[]).forEach(function(row){if(row.addr)activeSet[row.addr]=row.last_date;});
+        addLog('[비활성제거] '+tbl+' '+slice.length+'개 → 활성 '+(r.data||[]).length+'개','dim');
+      }catch(e){
+        addLog('[비활성제거] '+tbl+' 조회 실패: '+e.message,'warn');
+      }
+      await sleep(500);
     }
-    await sleep(300);
   }
 
-  var removed=0;
+  // 비활성 주소 삭제 + 블랙리스트 등록
+  var removed=[];
   addrs.forEach(function(addr){
+    if(unsupported[addr])return; // 미지원 체인은 삭제 안 함
     if(!activeSet[addr]){
+      removed.push(addr);
+      // 블랙리스트 등록 — 다음 수집에서 자동 제외
+      gHWBlacklist[addr]=(gHWDB[addr].label||'비활성')+'_removed';
       delete gHWDB[addr];
-      removed++;
     }
   });
-  saveHWDB(); renderHwDb();
-  addLog('🔍 비활성 제거 완료: '+removed+'개 삭제 · '+Object.keys(gHWDB).length+'개 남음','ok');
+  saveHWDB();
+  localStorage.setItem('wca_hw_blacklist',JSON.stringify(gHWBlacklist));
+  renderHwDb();
+  addLog('🔍 비활성 제거 완료: '+removed.length+'개 삭제 → 블랙리스트 자동 등록 · DB 남은 주소: '+Object.keys(gHWDB).length+'개','ok');
 }
-
 // ══ 섹션 6: 스윕 계산 ═══════════════════════════════════════════════
 // 원칙: 토큰별 독립 추적 → 가스비 ETH가 비율을 낮추지 않음
 function computeSweep(inTxs,outTxs,addrLow){
@@ -3312,9 +3371,12 @@ function startAutoCollect(){
   var checkboxes=document.querySelectorAll('#cex-selector input[type=checkbox]:checked');
   var selected=Array.from(checkboxes).map(function(c){return c.value;});
   if(!selected.length){addLog('수집할 거래소를 하나 이상 선택하세요','warn');return;}
+  var chainBoxes=document.querySelectorAll('.chain-filter:checked');
+  var selectedChains=Array.from(chainBoxes).map(function(c){return c.value;});
+  if(!selectedChains.length){addLog('수집할 체인을 하나 이상 선택하세요','warn');return;}
   var budget=parseInt((gel('collect-credit-budget')&&gel('collect-credit-budget').value)||'0')||0;
   gAborted=false;
-  autoCollectExchangeWallets(selected, budget);
+  autoCollectExchangeWallets(selected, budget, selectedChains);
 }
 async function surfApiExplore(){
   var method=(gel('api-method')&&gel('api-method').value)||'GET';
