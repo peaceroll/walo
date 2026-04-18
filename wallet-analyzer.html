@@ -540,6 +540,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <div style="display:flex;gap:6px">
       <button class="btn dim" onclick="resetSummary()">↺ 새로고침</button>
       <button class="btn dim" style="border-color:var(--a);color:var(--a)" onclick="filterWalletsByExch()">⬡ 거래소 입금주소로 필터링</button>
+      <button class="btn dim" style="border-color:var(--r);color:var(--r)" onclick="filterByHotWallet()">🔥 핫월렛 필터링</button>
       <button class="btn dim" style="border-color:var(--g);color:var(--g)" onclick="saveSummary()">💾 요약 저장</button>
     </div>
   </div>
@@ -2475,14 +2476,13 @@ function resetSummary(){
 
 function filterWalletsByExch(){
   var S=buildSummary();
-  // 현재 활성 입금주소 집합
   var activeDepSet={};
   S.exchList.forEach(function(x){
     if(!(gSS.d[x.dep]&&gSS.d[x.dep].del))activeDepSet[x.dep]=1;
   });
   var removed=0;
   S.newW.forEach(function(w){
-    if(gSS.w[w]&&gSS.w[w].del)return; // 이미 제거됨
+    if(gSS.w[w]&&gSS.w[w].del)return;
     var deps=Object.keys(S.wInfo[w].deps);
     var hasActiveDep=deps.some(function(dep){return activeDepSet[dep];});
     if(!hasActiveDep){
@@ -2492,6 +2492,62 @@ function filterWalletsByExch(){
     }
   });
   addLog('거래소 입금주소 필터링: '+removed+'개 제거','ok');
+  renderSummary();
+  renderTable();
+}
+
+// 핫월렛 필터링 — 라벨 있는 핫월렛과 연결된 입금주소만 유지
+// 그 외 입금주소(거래소 미확인)는 요약에서 제거
+function filterByHotWallet(){
+  // 라벨 있는 핫월렛 → 각자의 입금주소 수집
+  var hwDepSet={};
+  var hwLabelMap={};
+  Object.keys(gHW).forEach(function(addr){
+    var h=gHW[addr];
+    if(h.del)return;
+    var label=h.label||(gHWDB[addr]&&gHWDB[addr].label)||'';
+    if(!label||!h.deposit)return;
+    hwDepSet[h.deposit]=label;
+    hwLabelMap[h.deposit]=label;
+  });
+
+  if(!Object.keys(hwDepSet).length){
+    addLog('🔥 핫월렛 필터링: 라벨 있는 핫월렛이 없습니다. 핫월렛 패널에서 거래소 선택 후 시도하세요.','warn');
+    return;
+  }
+
+  var S=buildSummary();
+  var removedDep=0, removedWallet=0;
+
+  // 핫월렛과 연결 없는 입금주소 제거
+  S.exchList.forEach(function(x){
+    if(gSS.d[x.dep]&&gSS.d[x.dep].del)return;
+    if(!hwDepSet[x.dep]){
+      if(!gSS.d[x.dep])gSS.d[x.dep]={};
+      gSS.d[x.dep].del=true;
+      removedDep++;
+    }else{
+      // 라벨 자동 적용
+      if(!depLabel(x.dep,'')&&hwLabelMap[x.dep]){
+        setDepLabel(x.dep, hwLabelMap[x.dep]);
+      }
+    }
+  });
+
+  // 활성 입금주소 없는 지갑 제거
+  var activeDepSet={};
+  S.exchList.forEach(function(x){if(!(gSS.d[x.dep]&&gSS.d[x.dep].del))activeDepSet[x.dep]=1;});
+  S.newW.forEach(function(w){
+    if(gSS.w[w]&&gSS.w[w].del)return;
+    var deps=Object.keys(S.wInfo[w].deps);
+    if(!deps.some(function(dep){return activeDepSet[dep];})){
+      if(!gSS.w[w])gSS.w[w]={};
+      gSS.w[w].del=true;
+      removedWallet++;
+    }
+  });
+
+  addLog('🔥 핫월렛 필터링: 입금주소 '+removedDep+'개 · 지갑 '+removedWallet+'개 제거 · 라벨 확인된 거래소만 유지','ok');
   renderSummary();
   renderTable();
 }
