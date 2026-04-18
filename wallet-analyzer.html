@@ -500,7 +500,16 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       <div style="margin-bottom:3px">2. <span style="color:var(--b)">Alchemy 모드</span>로 전환 → <b>📂 CSV 여러개 병합</b>으로 CSV 불러오기</div>
       <div>3. RPC URL 입력 → <b>▶ 분석 시작</b> → DB 주소 발견 시 자동으로 거래소 라벨 적용</div>
     </div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+      <span style="font-size:10px;color:#2a4a6a">주소 목록</span>
+      <span id="hwdb-list-cnt" style="font-size:10px;color:#8247e5"></span>
+      <button onclick="toggleEl('hwdb-list-body','hwdb-list-arrow')" style="background:none;border:none;cursor:pointer;font-size:10px;color:#4a6a8a;padding:0">
+        <span id="hwdb-list-arrow">▲</span>
+      </button>
+    </div>
+    <div id="hwdb-list-body">
     <div id="hwdb-panel" style="font-size:10px;color:#4a6a8a">CSV를 불러오거나 현재 분석 결과를 DB에 추가하세요</div>
+    </div>
     </div><!-- /hwdb-body -->
   </div>
 </div>
@@ -1982,7 +1991,20 @@ async function collectInbound_alchemy(depMap,opts){
       if(opts.txMax>0&&v.txCount>opts.txMax){delete fromMap[a];return;}
     });
     var fromKeys=Object.keys(fromMap);
-    if(fromKeys.length>opts.maxSenders){addLog('[STEP 3] ⚠ '+short(dm.addr)+' 발신자 '+fromKeys.length+'명 초과 → 스킵','warn');}
+    if(fromKeys.length>opts.maxSenders){
+      addLog('[STEP 3] ⚠ '+short(dm.addr)+' 발신자 '+fromKeys.length+'명 초과(한도:'+opts.maxSenders+') — DB핫월렛만 수집','warn');
+      // maxSenders 초과해도 DB에 있는 핫월렛은 gEdges에 추가
+      fromKeys.forEach(function(from){
+        var meta=fromMap[from];
+        if(meta.isHot&&meta.exchLabel){
+          if(!gHW[from])gHW[from]={label:meta.exchLabel};
+          gHW[from].chain=ch.name; gHW[from].deposit=dm.addr; gHW[from].depositLabel=dm.label;
+          if(!depLabel(dm.addr,''))setDepLabel(dm.addr,meta.exchLabel);
+          gEdges.push({wallet:from,deposit:dm.addr,exchange:meta.exchLabel,cssClass:'hotwallet',chain:ch.name,userLabel:'',_cluster:'',noCluster:true});
+          addLog('[STEP 3] DB핫월렛 추가: '+short(from)+' → '+meta.exchLabel,'dim');
+        }
+      });
+    }
     else{
       var checks=fromKeys.filter(function(a){return !seedSet[a];}).map(function(addr){
         return Promise.all([
@@ -2053,10 +2075,16 @@ async function collectInbound_alchemy(depMap,opts){
     setProgress(++done3,depKeys.length,'STEP 3 · 인바운드 발신자 수집');
     updateStats(); renderTable(); // 중간 진행 중 테이블만 빠르게 갱신
   },opts.concurrency);
-  setStep(4); renderAll(); // 완료 후 모든 패널 일괄 갱신
+  setStep(4); renderAll();
   setProgress(1,1,'완료');
   STEPS_DEF.forEach(function(s){var n=gel('sn'+s.id);if(n){n.className='snum done';gel('sl'+s.id).className='slbl done';}});
-  addLog('=== 완료 · API '+gApiCalls+'회 · 연결 '+gEdges.length+'개 ===','ok');
+  var edgeCnt=gEdges.filter(function(e){return !e.noCluster;}).length;
+  var hwCnt=Object.keys(gHW).length;
+  addLog('=== ✅ 분석 완료 · 총 엣지: '+gEdges.length+'개 · 클러스터 대상: '+edgeCnt+'개 · 핫월렛: '+hwCnt+'개 ===','ok');
+  if(gEdges.length===0){
+    addLog('⚠ 결과 없음 — 원인: maxSenders('+opts.maxSenders+') 초과로 전체 스킵되었거나 발신자 필터링됨','warn');
+    addLog('→ 파라미터 조정: 최대 발신자 수 늘리기 또는 TX 범위 확대','warn');
+  }
 }
 
 
@@ -2564,6 +2592,7 @@ function renderHwDb(){
   var panel=gel('hwdb-panel'); if(!panel)return;
   var addrs=Object.keys(gHWDB);
   var cntEl=gel('hwdb-cnt'); if(cntEl)cntEl.textContent=addrs.length;
+  var listCntEl=gel('hwdb-list-cnt'); if(listCntEl)listCntEl.textContent=addrs.length+'개';
   if(!addrs.length){
     panel.innerHTML='<span style="color:#2a4a6a;font-size:10px">DB가 비어 있습니다. CSV를 불러오거나 현재 분석 결과를 추가하세요.</span>';
     return;
@@ -2825,45 +2854,6 @@ function mergeCurrentToDb(){
 
 
 // ══ 핫월렛 B: 누적 DB ════════════════════════════════════════════════
-function renderHwDb(){
-  var panel=gel('hwdb-panel'); if(!panel)return;
-  var addrs=Object.keys(gHWDB);
-  var cntEl=gel('hwdb-cnt'); if(cntEl)cntEl.textContent=addrs.length;
-  if(!addrs.length){
-    panel.innerHTML='<span style="color:#2a4a6a;font-size:10px">DB가 비어 있습니다. CSV를 불러오거나 현재 분석 결과를 추가하세요.</span>';
-    return;
-  }
-  // 라벨 있는 것 먼저, 그 다음 nonce 내림차순
-  addrs.sort(function(a,b){
-    var la=gHWDB[a].label?1:0,lb=gHWDB[b].label?1:0;
-    if(lb!==la)return lb-la;
-    return (gHWDB[b].nonce||0)-(gHWDB[a].nonce||0);
-  });
-  var labeled=addrs.filter(function(a){return !!gHWDB[a].label;}).length;
-  panel.innerHTML=addrs.map(function(addr,i){
-    var d=gHWDB[addr];
-    var lbl=d.label||'';
-    var selOpts='<option value="">'+( lbl||'거래소 선택...')+'</option>'
-      +KNOWN_EXCHANGES.map(function(ex){return '<option value="'+ex+'"'+(lbl===ex?' selected':'')+'>'+ex+'</option>';}).join('')
-      +'<option value="__custom__">✎ 직접 입력...</option>';
-    var srcTip=(d.sources||[]).join(', ');
-    var srcLabel=d.fromExplorer?'Surf탐색':(d.sources||[]).length+'개 분석';
-    return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0a1520">'
-      +'<span style="font-size:9px;color:#2a4a6a;width:24px;text-align:right;flex-shrink:0">'+(i+1)+'</span>'
-      +'<span style="font-size:9px;color:#4a5a8a;background:rgba(130,71,229,.1);border-radius:2px;padding:1px 5px;flex-shrink:0">['+d.chain+']</span>'
-      +(d.fromExplorer?'<span style="font-size:9px;color:#8247e5;flex-shrink:0">◈</span>':'')
-      +'<span style="font-family:monospace;font-size:10px;color:'+(lbl?'#9ab8c8':'#5a6a7a')+';flex:1">'+addr+'</span>'
-      +(d.nonce?'<span style="font-size:9px;color:#3a4a5a;flex-shrink:0">nonce='+((d.nonce||0).toLocaleString())+'</span>':'')
-      +'<span style="font-size:9px;color:#2a4a6a;flex-shrink:0" title="'+srcTip+'">'+srcLabel+'</span>'
-      +'<a href="'+arkUrl(addr)+'" target="_blank" style="font-size:10px;flex-shrink:0;color:var(--b)">arkham↗</a>'
-      +'<select data-addr="'+addr+'" onchange="setHwDbLabel(this.dataset.addr,this.value)"'
-        +' style="background:#07101a;border:1px solid '+(lbl?'rgba(130,71,229,.4)':'var(--bd)')+';border-radius:3px;color:'+(lbl?'#8247e5':'#4a6a8a')+';font-family:monospace;font-size:10px;padding:2px 4px;width:150px;cursor:pointer">'
-        +selOpts+'</select>'
-      +'<button data-addr="'+addr+'" onclick="delete gHWDB[this.dataset.addr];saveHWDB();renderHwDb()" style="background:none;border:none;color:var(--r);cursor:pointer;font-size:11px;flex-shrink:0">✕</button>'
-      +'</div>';
-  }).join('')
-  +'<div style="margin-top:6px;font-size:9px;color:#2a4a6a">총 '+addrs.length+'개 · 라벨 있음: '+labeled+'개 · 저장 시 localStorage에도 자동 보존</div>';
-}
 
 function setHwDbLabel(addr,val){
   if(val==='__custom__'){var v=prompt('거래소명 직접 입력:','');if(v===null)return;val=v.trim();}
