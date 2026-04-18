@@ -452,7 +452,11 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
         <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:11px" onclick="startAutoCollect()">🚀 자동 수집 시작</button>
         <button class="btn dim red" style="font-size:11px" onclick="gAborted=true;addLog('수집 중단','warn')">⬛ 중단</button>
       </div>
-      <div style="margin-top:5px;font-size:9px;color:#2a4a6a">offset 페이지네이션으로 같은 거래소 여러 페이지 수집 · 이미 수집한 쿼리 자동 건너뜀 · DB에 자동 저장</div>
+      <div style="margin-top:5px;font-size:9px;color:#2a4a6a;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span>offset 페이지네이션으로 같은 거래소 여러 페이지 수집 · 이미 수집한 쿼리 자동 건너뜀 · DB에 자동 저장</span>
+        <button onclick="gHWBlacklist={};localStorage.removeItem('wca_hw_blacklist');addLog('블랙리스트 초기화 — 비활성 제거 주소 재수집 가능','ok')" 
+          style="background:none;border:1px solid #2a4a6a;border-radius:3px;font-size:9px;color:#4a6a8a;cursor:pointer;padding:2px 8px;flex-shrink:0">🔓 블랙리스트 초기화</button>
+      </div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap">
         <span style="font-size:10px;color:#4a6a8a;flex-shrink:0">비활성 주소 제거:</span>
         <select id="inactive-days" style="background:#07101a;border:1px solid var(--bd);border-radius:3px;color:#c8d3e0;font-size:10px;padding:3px 6px">
@@ -1365,22 +1369,28 @@ async function runParallel(items,asyncFn,concurrency){
 // /search/wallet?q={name} → entity_type=cex 필터 → addresses 수집
 var SURF_SEARCH = 'https://api.asksurf.ai/gateway/v1/search/wallet';
 
-// 공통 핫월렛 주소 필터 — 토큰/DEX/Router/Proxy 등 제외
-// returns true = 저장 가능, false = 제외
+// 공통 핫월렛 주소 필터 — 토큰/DEX/Router/Proxy/Internal 등 제외
+// lrow: Surf 라벨 배치 결과, fallbackLabel: 검색결과 entity_name (둘 다 체크)
 function isValidHwAddress(lrow, fallbackLabel){
   var labelList=(lrow&&lrow.labels||[]).map(function(l){return (l.label||'').toLowerCase();});
-  var eName=(lrow&&lrow.entity_name)||fallbackLabel||'';
+  var apiName=(lrow&&lrow.entity_name)||'';
+  var searchName=fallbackLabel||'';
   var eType=(lrow&&lrow.entity_type||'').toLowerCase();
-  var eNameL=eName.toLowerCase();
 
-  // 토큰 컨트랙트 라벨
+  // 토큰 컨트랙트 라벨 (bep20/erc20/nft/token)
   if(labelList.some(function(l){return l.includes('bep20')||l.includes('erc20')||l.includes('token')||l.includes('nft');}))return false;
 
-  // entity_name 패턴: "Exchange: Something (TICKER)"
-  if(/:\s*.+\([A-Z]{2,10}\)/.test(eName))return false;
-
-  // DEX / Router / Proxy 이름
-  if(eNameL.includes('router')||eNameL.includes('proxy')||eNameL.includes('dex ')||eNameL.includes(' dex')||eNameL.startsWith('dex'))return false;
+  // entity_name 패턴 체크 — API 이름과 검색 이름 둘 다 확인
+  var namesToCheck=[apiName, searchName];
+  for(var i=0;i<namesToCheck.length;i++){
+    var n=namesToCheck[i];
+    if(!n)continue;
+    var nL=n.toLowerCase();
+    // "Exchange: Something (TICKER)" 패턴
+    if(/:\s*.+\([A-Z]{2,10}\)/.test(n))return false;
+    // Router/Proxy/DEX/Internal
+    if(nL.includes('router')||nL.includes('proxy')||nL.includes(' dex')||nL.startsWith('dex ')||nL.includes('internal'))return false;
+  }
 
   // entity_type 제외 목록
   if(eType==='dex'||eType==='defi'||eType==='bridge'||eType==='individual'||eType==='bot'||eType==='protocol'||eType==='mev')return false;
@@ -1407,220 +1417,102 @@ async function surfSearchExchange(query, limit, offset){
 }
 
 // 거래소 검색 → cex 엔티티만 필터 → 배치 라벨로 exchange 확인 → gHWDB에 저장
-async function collectExchangeWallets(query){
-  addLog('[탐색] "'+query+'" 거래소 주소 수집…','info');
-  var d=await surfSearchExchange(query, 5);
-  var items=d.data||[];
-  // entity_type이 cex, exchange, 또는 주소가 있는 항목 모두 수집
-  // (Upbit/Bithumb 등 한국 거래소는 "exchange" 또는 다른 타입으로 분류될 수 있음)
-  var cexItems=items.filter(function(x){
-    return x.addresses&&x.addresses.length&&
-      (x.entity_type==='cex'||x.entity_type==='exchange'||x.entity_type==='cefi');
-  });
-  // 위 필터로 결과 없으면 주소가 있는 모든 항목 시도
-  if(!cexItems.length){
-    cexItems=items.filter(function(x){return x.addresses&&x.addresses.length;});
-  }
-  if(!cexItems.length){addLog('[탐색] "'+query+'" — cex 엔티티 없음','warn');return 0;}
+// ── 단일 수집 함수 ───────────────────────────────────────────────
+// 개별 버튼(alias=query, offset=0, keywords=[], chainFilter=[])
+// 자동 수집(alias/offset/keywords/chainFilter 모두 지정)
+async function collectExchange(name, alias, offset, keywords, chainFilter){
+  alias = alias||name;
+  offset = offset||0;
+  keywords = keywords||[];
+  chainFilter = chainFilter&&chainFilter.length?chainFilter:[];
 
-  // EVM 주소 수집
-  var candidates=[];
-  cexItems.forEach(function(item){
-    var label=item.entity_name||query;
-    (item.addresses||[]).forEach(function(a){
-      var addr=(a.address||'').toLowerCase();
-      if(!addr||!addr.startsWith('0x'))return;
-      var chain=(a.chain||'').replace('arbitrum_one','arbitrum').replace('_mainnet','');
-      candidates.push({addr:addr, chain:chain, label:label});
-    });
-  });
-  if(!candidates.length){addLog('[탐색] "'+query+'" — EVM 주소 없음','warn');return 0;}
-
-  // 이미 DB에 있거나 블랙리스트인 주소 건너뜀
-  var newCandidates=candidates.filter(function(c){
-    return !gHWDB[c.addr]&&!gHWBlacklist[c.addr];
-  });
-  var skippedExisting=candidates.length-newCandidates.length;
-  if(skippedExisting>0)addLog('[탐색] '+skippedExisting+'개 기존 DB 주소 건너뜀','dim');
-
-  var added=0, skipped=0;
-  if(newCandidates.length>0){
-    var addrs=newCandidates.map(function(c){return c.addr;});
-    addLog('[탐색] '+addrs.length+'개 주소 라벨 확인 중…','dim');
-    var labelMap=await fetchWalletLabels(addrs);
-
-    newCandidates.forEach(function(c){
-      var lrow=labelMap[c.addr];
-      var eName=(lrow&&lrow.entity_name)||c.label;
-      if(!isValidHwAddress(lrow, c.label)){skipped++;return;}
-      var finalLabel=(eName&&eName!=='Unknown')?eName:c.label;
-      gHWDB[c.addr]={label:finalLabel, chain:c.chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
-      added++;
-    });
-  }
-
-  saveHWDB();
-  renderHwDb();
-  var msg='[탐색] "'+query+'" → '+added+'개 신규';
-  if(skippedExisting)msg+=' · '+skippedExisting+'개 DB에 이미 있음';
-  if(skipped)msg+=' · '+skipped+'개 제외(거래소 아님)';
-  msg+=' (DB 총 '+Object.keys(gHWDB).length+'개)';
-  addLog(msg,'ok');
-  return added;
-}
-
-// 여러 거래소 일괄 수집
-// 거래소별 검색 aliases — 여러 검색어를 순서대로 시도
-// 거래소별 검색 aliases + 허용 entity_name 키워드
-// keywords: entity_name이 이 중 하나를 포함해야 저장 (없으면 무제한)
-var CEX_ALIASES = {
-  'Binance':   {aliases:['Binance','Binance Hot Wallet'],  keywords:['binance']},
-  'OKX':       {aliases:['OKX','OKEx'],                    keywords:['okx','okex']},
-  'Bybit':     {aliases:['Bybit','Bybit Hot'],             keywords:['bybit']},
-  'Coinbase':  {aliases:['Coinbase','Coinbase Prime'],      keywords:['coinbase']},
-  'Kraken':    {aliases:['Kraken','Kraken Hot'],           keywords:['kraken']},
-  'Bitget':    {aliases:['Bitget'],                        keywords:['bitget']},
-  'KuCoin':    {aliases:['KuCoin','Kucoin Hot'],           keywords:['kucoin']},
-  'Gate':      {aliases:['Gate','Gate.io'],                keywords:['gate']},
-  'Upbit':     {aliases:['Upbit','UPbit'],                 keywords:['upbit']},
-  'Bithumb':   {aliases:['Bithumb','Bithumb Global'],      keywords:['bithumb','빗썸']},
-  'Huobi':     {aliases:['Huobi','HTX','Huobi Hot'],       keywords:['huobi','htx']},
-  'MEXC':      {aliases:['MEXC','MEXC Hot'],               keywords:['mexc']},
-  'Crypto.com':{aliases:['Crypto.com','Crypto.com Hot'],   keywords:['crypto.com']},
-  'Bitfinex':  {aliases:['Bitfinex'],                      keywords:['bitfinex']},
-  'Gemini':    {aliases:['Gemini'],                        keywords:['gemini']},
-  'Korbit':    {aliases:['Korbit'],                        keywords:['korbit']},
-};
-var KNOWN_CEX_QUERIES=Object.keys(CEX_ALIASES);
-
-// 이미 수집한 쿼리+오프셋 추적 (세션 내 중복 방지)
-var _exploredKeys={};
-
-// 크레딧 한도 내에서 지정된 거래소들을 자동 반복 수집
-// exchanges: 거래소명 배열 (빈 배열이면 전체)
-// creditBudget: 이 함수에서 소모할 크레딧 한도
-async function autoCollectExchangeWallets(exchanges, creditBudget, chainFilter){
-  var targets=exchanges&&exchanges.length?exchanges:KNOWN_CEX_QUERIES;
-  chainFilter=chainFilter&&chainFilter.length?chainFilter:['eth','arb','bse','bsc','pol'];
-  var startCredits=gCreditsUsed;
-  var budgetMsg=creditBudget>0?creditBudget+'크레딧 한도':'무제한';
-  addLog('=== 자동 수집 시작 ('+targets.length+'개 거래소 · '+budgetMsg+' · 체인: '+chainFilter.join(',')+') ===','info');
-
-  // 각 거래소 × alias × offset 으로 작업 큐 생성
-  var queue=[];
-  targets.forEach(function(name){
-    var def=CEX_ALIASES[name]||{aliases:[name],keywords:[]};
-    var aliases=def.aliases||[name];
-    aliases.forEach(function(alias){
-      for(var offset=0;offset<100;offset+=20){
-        queue.push({name:name, alias:alias, offset:offset, keywords:def.keywords||[]});
-      }
-    });
-  });
-
-  var totalAdded=0, totalSkipped=0;
-  for(var i=0;i<queue.length;i++){
-    if(gAborted)break;
-    var task=queue[i];
-    var key=task.alias+'::'+task.offset;
-
-    // 크레딧 한도 체크
-    if(creditBudget>0&&(gCreditsUsed-startCredits)>=creditBudget){
-      addLog('=== 크레딧 한도 도달 ('+creditBudget+'크레딧 소모) — 수집 중단 ===','warn');
-      break;
-    }
-
-    // 이미 이 세션에서 수집한 쿼리 건너뜀
-    if(_exploredKeys[key])continue;
-    _exploredKeys[key]=true;
-
-    try{
-      var result=await collectExchangeWalletsPaged(task.name, task.alias, task.offset, task.keywords, chainFilter);
-      totalAdded+=result.added;
-      totalSkipped+=result.skipped;
-      // 결과가 없으면 같은 alias의 더 높은 offset은 의미없음
-      if(result.total===0){
-        // 이 alias의 나머지 offset도 완료 처리
-        for(var j=i+1;j<queue.length;j++){
-          if(queue[j].alias===task.alias)_exploredKeys[queue[j].alias+'::'+queue[j].offset]=true;
-        }
-      }
-      await sleep(300);
-    }catch(e){
-      addLog('[자동수집] '+task.alias+' offset='+task.offset+': '+e.message,'warn');
-    }
-  }
-
-  renderHwDb();
-  var spent=+(gCreditsUsed-startCredits).toFixed(1);
-  addLog('=== 자동 수집 완료 · 신규 '+totalAdded+'개 · 크레딧 소모 '+spent+' · DB 총 '+Object.keys(gHWDB).length+'개 ===','ok');
-}
-
-// 단일 alias + offset 수집 (내부용)
-async function collectExchangeWalletsPaged(name, alias, offset, keywords, chainFilter){
-  keywords=keywords||[];
-  chainFilter=chainFilter&&chainFilter.length?chainFilter:['eth','arb','bse','bsc','pol'];
-  // 체인 키 정규화 맵
   var CHAIN_NORM={
     'ethereum':'eth','eth':'eth','arbitrum_one':'arb','arbitrum':'arb','arb':'arb',
     'base':'bse','bse':'bse','bsc':'bsc','polygon':'pol','polygon_mainnet':'pol','pol':'pol'
   };
-  var d=await surfSearchExchange(alias, 20, offset);
-  var items=(d.data||[]);
+
+  var d=await surfSearchExchange(alias, offset?20:5, offset);
+  var items=d.data||[];
+
+  // Step 1: entity 필터
   var cexItems=items.filter(function(x){
     if(!x.addresses||!x.addresses.length)return false;
-    // entity_type 필터
     var et=(x.entity_type||'').toLowerCase();
-    var typeOk=et==='cex'||et==='exchange'||et==='cefi';
-    if(!typeOk&&et)return false;
-    // entity_name 키워드 검증 — 다른 거래소 섞이는 것 방지
+    var eName=(x.entity_name||'').toLowerCase();
+    // 개인/bot 제외
+    if(et==='individual'||et==='bot')return false;
+    // keywords 있으면 entity_name 매칭 필수
     if(keywords.length){
-      var eName=(x.entity_name||'').toLowerCase();
-      var match=keywords.some(function(k){return eName.indexOf(k)>=0;});
-      if(!match)return false;
+      return keywords.some(function(k){return eName.indexOf(k)>=0;});
     }
-    return true;
+    // keywords 없으면 cex/exchange/cefi 또는 전체 fallback
+    if(et==='cex'||et==='exchange'||et==='cefi'||!et)return true;
+    return false;
   });
+  // fallback: 아무것도 안 잡히면 주소 있는 전체 (Upbit/Bithumb 대응)
+  if(!cexItems.length)
+    cexItems=items.filter(function(x){return x.addresses&&x.addresses.length;});
+  if(!cexItems.length){
+    addLog('[탐색] "'+alias+'" — 엔티티 없음','dim');
+    return {added:0, total:0};
+  }
 
+  // Step 2: 주소 수집 (EVM + 체인 필터)
   var candidates=[];
   cexItems.forEach(function(item){
     var label=item.entity_name||name;
     (item.addresses||[]).forEach(function(a){
       var addr=(a.address||'').toLowerCase();
       if(!addr||!addr.startsWith('0x'))return;
-      var rawChain=(a.chain||'').replace('_mainnet','').replace('arbitrum_one','arbitrum');
-      var normChain=CHAIN_NORM[rawChain.toLowerCase()]||rawChain;
-      // 체인 필터 적용
-      if(chainFilter.indexOf(normChain)<0)return;
-      candidates.push({addr:addr, chain:rawChain, label:label});
+      var raw=(a.chain||'').replace('_mainnet','');
+      var norm=CHAIN_NORM[raw.toLowerCase()]||raw;
+      if(chainFilter.length&&chainFilter.indexOf(norm)<0)return;
+      candidates.push({addr:addr, chain:raw, label:label, norm:norm});
     });
   });
+  if(!candidates.length){
+    addLog('[탐색] "'+alias+'" — EVM 주소 없음','dim');
+    return {added:0, total:items.length};
+  }
 
-  var newCandidates=candidates.filter(function(c){
-    if(gHWDB[c.addr])return false; // 이미 DB에 있음
-    if(gHWBlacklist[c.addr])return false; // 블랙리스트 (비활성 제거됨)
-    return true;
-  });
+  // Step 3: DB/블랙리스트 제외
+  var fresh=candidates.filter(function(c){return !gHWDB[c.addr];});
+  var blCount=fresh.filter(function(c){return gHWBlacklist[c.addr];}).length;
+  fresh=fresh.filter(function(c){return !gHWBlacklist[c.addr];});
+  var skippedDb=candidates.length-fresh.length-blCount;
+  if(skippedDb>0)addLog('[탐색] '+skippedDb+'개 DB에 이미 있음','dim');
+  if(blCount>0)addLog('[탐색] '+blCount+'개 블랙리스트 건너뜀 (비활성 제거됨 · 🔓블랙리스트 초기화로 재수집 가능)','dim');
+
   var added=0, skipped=0;
-
-  if(newCandidates.length>0){
-    var addrs=newCandidates.map(function(c){return c.addr;});
+  if(fresh.length>0){
+    var addrs=fresh.map(function(c){return c.addr;});
     var labelMap=await fetchWalletLabels(addrs);
-    newCandidates.forEach(function(c){
+    fresh.forEach(function(c){
       var lrow=labelMap[c.addr];
-      var eName=(lrow&&lrow.entity_name)||c.label;
       if(!isValidHwAddress(lrow, c.label)){skipped++;return;}
-      var finalLabel=(eName&&eName!=='Unknown')?eName:c.label;
-      gHWDB[c.addr]={label:finalLabel, chain:c.chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
+      var eName=(lrow&&lrow.entity_name&&lrow.entity_name!=='Unknown')?lrow.entity_name:c.label;
+      gHWDB[c.addr]={label:eName, chain:c.chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
       added++;
     });
-    if(added>0){saveHWDB(); renderHwDb(); addLog('[자동수집] '+alias+' offset='+offset+' → '+added+'개 신규 (DB 총 '+Object.keys(gHWDB).length+'개)','ok');}
+    if(added>0){saveHWDB(); renderHwDb();}
   }
-  return {added:added, skipped:skipped, total:items.length};
+
+  var msg='[탐색] "'+alias+'"'+(offset?' offset='+offset:'');
+  if(added)msg+=' → '+added+'개 신규';
+  if(skipped)msg+=' · '+skipped+'개 제외';
+  msg+=' (DB 총 '+Object.keys(gHWDB).length+'개)';
+  if(added||skipped)addLog(msg,'ok');
+  return {added:added, total:items.length};
 }
 
-// ── 비활성 주소 제거 ─────────────────────────────────────────────
-// gHWDB의 주소들 중 최근 N일 이내 활동이 없는 주소를 Surf SQL로 확인 후 제거
+// 개별 버튼용 래퍼 (기존 UI 호환)
+async function collectExchangeWallets(query){
+  addLog('[탐색] "'+query+'" 거래소 주소 수집…','info');
+  var result=await collectExchange(query, query, 0, [], []);
+  if(result.total===0)addLog('[탐색] "'+query+'" — Surf에 데이터 없음','warn');
+  return result.added;
+}
+
 async function removeInactiveAddresses(days){
   var addrs=Object.keys(gHWDB);
   if(!addrs.length){addLog('DB가 비어 있습니다','warn');return;}
@@ -1653,7 +1545,7 @@ async function removeInactiveAddresses(days){
 
   var activeSet={};
   var tables=Object.keys(byTable);
-  var BATCH=30; // BSC 타임아웃 방지용 배치 크기
+  var BATCH=10; // 타임아웃 방지 — 10개씩 배치
 
   for(var i=0;i<tables.length;i++){
     var tbl=tables[i];
@@ -1674,9 +1566,22 @@ async function removeInactiveAddresses(days){
         (r.data||[]).forEach(function(row){if(row.addr)activeSet[row.addr]=row.last_date;});
         addLog('[비활성제거] '+tbl+' '+slice.length+'개 → 활성 '+(r.data||[]).length+'개','dim');
       }catch(e){
-        addLog('[비활성제거] '+tbl+' 조회 실패: '+e.message,'warn');
+        // tx_from 실패 시 from 컬럼으로 재시도
+        try{
+          var sql2='SELECT lower(\) AS addr, max(block_date) AS last_date'
+            +' FROM agent.'+tbl+'_transfers'
+            +' WHERE lower(\) IN ('+inList+')'
+            +' AND block_date >= today() - '+days
+            +' GROUP BY '
+            +' LIMIT '+slice.length;
+          var r2=await surfSql(sql2);
+          (r2.data||[]).forEach(function(row){if(row.addr)activeSet[row.addr]=row.last_date;});
+          addLog('[비활성제거] '+tbl+' (from컬럼) → 활성 '+(r2.data||[]).length+'개','dim');
+        }catch(e2){
+          addLog('[비활성제거] '+tbl+' 조회 실패: '+e2.message,'warn');
+        }
       }
-      await sleep(500);
+      await sleep(800);
     }
   }
 
