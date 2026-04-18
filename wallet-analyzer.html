@@ -493,6 +493,13 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     </div>
     <div id="hwdb-body">
     <div style="font-size:10px;color:#2a4a6a;margin-bottom:6px">라벨 있는 항목만 자동 라벨링에 사용됩니다 · 저장 시 localStorage에도 자동 보존</div>
+    <!-- Alchemy 모드 DB 사용 안내 -->
+    <div id="hwdb-alchemy-guide" style="margin-bottom:8px;padding:8px 10px;background:#050d15;border:1px solid rgba(79,163,255,.2);border-radius:3px;font-size:10px;color:#4a6a8a">
+      <div style="color:var(--b);font-weight:700;margin-bottom:4px">⬡ Alchemy 모드에서 DB 활용 방법</div>
+      <div style="margin-bottom:3px">1. <span style="color:#7a9ab8">Surf 모드</span>에서 거래소 핫월렛 수집 → <b>💾 DB 저장</b> (CSV 파일 다운로드)</div>
+      <div style="margin-bottom:3px">2. <span style="color:var(--b)">Alchemy 모드</span>로 전환 → <b>📂 CSV 여러개 병합</b>으로 CSV 불러오기</div>
+      <div>3. RPC URL 입력 → <b>▶ 분석 시작</b> → DB 주소 발견 시 자동으로 거래소 라벨 적용</div>
+    </div>
     <div id="hwdb-panel" style="font-size:10px;color:#4a6a8a">CSV를 불러오거나 현재 분석 결과를 DB에 추가하세요</div>
     </div><!-- /hwdb-body -->
   </div>
@@ -3704,6 +3711,11 @@ async function testSurfProxy(){
   updateStats();
   setMode('auto');
   renderHwDb();
+  // hwdb-body 항상 펼침 상태 유지
+  var hwBody=gel('hwdb-body');
+  var hwArrow=gel('hwdb-arrow');
+  if(hwBody)hwBody.style.display='';
+  if(hwArrow)hwArrow.textContent='▲';
   addLog('준비 완료 — 모드를 선택하고 분석을 시작하세요','ok');
   addLog('Alchemy 모드: RPC URL 입력 | Surf 모드: API Key 입력','info');
 })();
