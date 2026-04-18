@@ -3789,6 +3789,11 @@ async function testSurfProxy(){
   var hwArrow=gel('hwdb-arrow');
   if(hwBody)hwBody.style.display='';
   if(hwArrow)hwArrow.textContent='▲';
+  // DB 목록은 기본 접힘
+  var listBody=gel('hwdb-list-body');
+  var listArrow=gel('hwdb-list-arrow');
+  if(listBody)listBody.style.display='none';
+  if(listArrow)listArrow.textContent='▼';
   // 저장된 분석 모드 프리셋 복원
   var savedPreset=localStorage.getItem('wca_analysis_preset');
   if(savedPreset&&ANALYSIS_PRESETS[savedPreset]){
