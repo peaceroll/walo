@@ -1666,53 +1666,61 @@ async function autoCollectExchangeWallets(exchanges, creditBudget, chainFilter){
   var targets=exchanges&&exchanges.length?exchanges:KNOWN_CEX_QUERIES;
   chainFilter=chainFilter&&chainFilter.length?chainFilter:['eth','arb','bse','bsc','pol'];
   var startCredits=gCreditsUsed;
-  var budgetMsg=creditBudget>0?creditBudget+'크레딧 한도':'무제한';
-  _exploredKeys={}; // 이전 실행 상태 초기화
+  var isUnlimited=!creditBudget||creditBudget<=0;
+  var budgetMsg=isUnlimited?'새 주소 없을 때까지':creditBudget+'크레딧 한도';
+  _exploredKeys={};
   addLog('=== 자동 수집 시작 ('+targets.length+'개 거래소 · '+budgetMsg+' · 체인: '+chainFilter.join(',')+') ===','info');
 
-  // 큐 생성: 거래소 × alias × offset
-  var queue=[];
-  targets.forEach(function(name){
-    var def=CEX_ALIASES[name]||{aliases:[name],keywords:[]};
-    (def.aliases||[name]).forEach(function(alias){
-      for(var offset=0;offset<100;offset+=20){
-        queue.push({name:name, alias:alias, offset:offset, keywords:def.keywords||[]});
-      }
-    });
-  });
+  var totalAdded=0, passNum=0;
 
-  var totalAdded=0;
-  for(var i=0;i<queue.length;i++){
-    if(gAborted)break;
-    var task=queue[i];
-    var key=task.alias+'::'+task.offset;
-    // 크레딧 한도 체크
-    if(creditBudget>0&&(gCreditsUsed-startCredits)>=creditBudget){
-      addLog('=== 크레딧 한도 도달 ('+creditBudget+' 소모) — 중단 ===','warn');
-      break;
-    }
-    // 세션 내 중복 방지
-    if(_exploredKeys[key]){continue;}
-    _exploredKeys[key]=true;
+  do {
+    passNum++;
+    if(isUnlimited&&passNum>1)addLog('── 패스 '+passNum+' 재탐색 ──','dim');
 
-    try{
-      var result=await collectExchange(task.name, task.alias, task.offset, task.keywords, chainFilter);
-      totalAdded+=result.added||0;
-      // 결과 없으면 이 alias 나머지 offset도 스킵
-      if(result.total===0){
-        for(var j=i+1;j<queue.length;j++){
-          if(queue[j].alias===task.alias)_exploredKeys[queue[j].alias+'::'+queue[j].offset]=true;
+    var queue=[];
+    targets.forEach(function(name){
+      var def=CEX_ALIASES[name]||{aliases:[name],keywords:[]};
+      (def.aliases||[name]).forEach(function(alias){
+        for(var offset=0;offset<100;offset+=20){
+          var key=alias+'::'+offset;
+          if(!_exploredKeys[key])queue.push({name:name,alias:alias,offset:offset,keywords:def.keywords||[]});
         }
+      });
+    });
+    if(!queue.length)break;
+
+    var passAdded=0;
+    for(var i=0;i<queue.length;i++){
+      if(gAborted)break;
+      var task=queue[i];
+      var key=task.alias+'::'+task.offset;
+      if(_exploredKeys[key])continue;
+      _exploredKeys[key]=true;
+      if(!isUnlimited&&creditBudget>0&&(gCreditsUsed-startCredits)>=creditBudget){
+        addLog('=== 크레딧 한도 도달 ('+creditBudget+' 소모) — 중단 ===','warn');
+        gAborted=true; break;
       }
-    }catch(e){
-      addLog('[자동수집] '+task.alias+' offset='+task.offset+': '+e.message,'warn');
+      try{
+        var result=await collectExchange(task.name,task.alias,task.offset,task.keywords,chainFilter);
+        var added=result.added||0;
+        passAdded+=added; totalAdded+=added;
+        if(result.total===0){
+          for(var j=i+1;j<queue.length;j++){
+            if(queue[j].alias===task.alias)_exploredKeys[queue[j].alias+'::'+queue[j].offset]=true;
+          }
+        }
+      }catch(e){
+        addLog('[자동수집] '+task.alias+' offset='+task.offset+': '+e.message,'warn');
+      }
+      await sleep(300);
     }
-    await sleep(300);
-  }
+    // 무제한: 신규 발견 시 재탐색 (최대 10패스)
+    if(isUnlimited&&passAdded>0&&!gAborted)_exploredKeys={};
+  }while(isUnlimited&&!gAborted&&passNum<10);
 
   renderHwDb();
   var spent=+(gCreditsUsed-startCredits).toFixed(1);
-  addLog('=== 자동 수집 완료 · 신규 '+totalAdded+'개 · 크레딧 소모 '+spent+' · DB 총 '+Object.keys(gHWDB).length+'개 ===','ok');
+  addLog('=== 자동 수집 완료 · 신규 '+totalAdded+'개 · 크레딧 소모 '+spent+' · DB 총 '+Object.keys(gHWDB).length+'개 ('+passNum+'패스) ===','ok');
 }
 
 // ══ 섹션 6: 스윕 계산 ═══════════════════════════════════════════════
