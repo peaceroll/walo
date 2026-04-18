@@ -1871,8 +1871,14 @@ async function runAutoMode_alchemy(chains,opts,isResume){
     if(gAborted)return;
     var seed=task.seed,ch=task.chain;
     addLog('[STEP 1] '+short(seed)+' ('+ch.name+')','dim');
-    var txs=await fetchAll(ch.rpc,ch.key,ch.provider,'out',seed,ch.blockTime,opts.days,function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+')','dim');});
-    addLog('[STEP 1] → '+txs.length+'건 ('+ch.name+')','ok');
+    var txs=[];
+    try{
+      txs=await fetchAll(ch.rpc,ch.key,ch.provider,'out',seed,ch.blockTime,opts.days,function(pg,cnt,tot){addLog('  └ p'+pg+': '+cnt+'건 ('+tot+')','dim');});
+      addLog('[STEP 1] → '+txs.length+'건 ('+ch.name+')',(txs.length>0?'ok':'dim'));
+      if(txs.length===0)addLog('  └ 아웃바운드 TX 없음 — 기간('+( opts.days||'전체')+')·주소 확인 필요','dim');
+    }catch(e){
+      addLog('[STEP 1] ⚠ '+ch.name+' 오류: '+e.message,'err');
+    }
     txs.forEach(function(tx){
       var to=(tx.to||'').toLowerCase();
       if(!to||to===seed||isZero(to))return;
@@ -3828,6 +3834,7 @@ async function testAlchemyAddr(){
     var code=await rpcCall('eth_getCode',[addr,'latest']);
     var isCon=code&&code!=='0x'&&code.length>4;
     addLog('타입: '+(isCon?'컨트랙트 (CA)':'일반 지갑 (EOA)'),'info');
+    if(isCon)addLog('⚠ CA 주소 — 스마트 컨트랙트 지갑(AA/멀티시그)은 Alchemy TX 조회가 제한될 수 있음','warn');
 
     // 잔액
     var balHex=await rpcCall('eth_getBalance',[addr,'latest']);
