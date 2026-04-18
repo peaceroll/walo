@@ -393,15 +393,20 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
   <!-- 섹션 A: 현재 분석 핫월렛 -->
   <div style="margin-bottom:14px">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-      <h2 style="margin:0;color:var(--r)">🔥 현재 분석 핫월렛 &nbsp;<span class="bdg" id="hw-cnt" style="background:rgba(255,77,106,.15);color:var(--r)">0</span>
-        <span style="font-size:10px;color:#2a4a6a;font-weight:normal;margin-left:6px">· nonce 초과 발신자 · 클러스터 제외됨</span></h2>
+      <h2 style="margin:0;color:var(--r);cursor:pointer" onclick="toggleEl('hw-body','hw-arrow')">
+        🔥 현재 분석 핫월렛 &nbsp;<span class="bdg" id="hw-cnt" style="background:rgba(255,77,106,.15);color:var(--r)">0</span>
+        <span style="font-size:10px;color:#2a4a6a;font-weight:normal;margin-left:6px">· nonce 초과 발신자 · 클러스터 제외됨</span>
+        <span id="hw-arrow" style="font-size:10px;color:#4a6a8a;margin-left:6px">▲</span>
+      </h2>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn dim" onclick="renderHotWallets()">↺ 새로고침</button>
         <button class="btn dim" onclick="saveHotWalletsCsv()">💾 CSV 저장</button>
         <button class="btn dim" style="border-color:var(--a);color:var(--a)" onclick="mergeCurrentToDb()">→ DB에 추가</button>
       </div>
     </div>
+    <div id="hw-body">
     <div id="hw-panel" style="font-size:10px;color:#4a6a8a">분석 완료 후 자동으로 표시됩니다</div>
+    </div>
   </div>
 
   <hr style="border:none;border-top:1px solid var(--bd);margin:4px 0 14px">
@@ -2547,6 +2552,12 @@ function renderHotWallets(){
   newAddrs.sort(function(a,b){return (gHW[b].nonce||0)-(gHW[a].nonce||0);});
   // addrs를 newAddrs로 교체해서 기존 렌더링 로직 사용
   var addrs=newAddrs;
+  // HWDB 라벨 자동 적용 (아직 라벨 없는 경우)
+  addrs.forEach(function(addr){
+    if(!gHW[addr].label&&gHWDB[addr]&&gHWDB[addr].label){
+      gHW[addr].label=gHWDB[addr].label;
+    }
+  });
   panel.innerHTML=addrs.map(function(addr,i){
     var h=gHW[addr];
     var lbl=h.label||'';
