@@ -2873,7 +2873,6 @@ function cleanHwDb(){
   var addrs=Object.keys(gHWDB);
   if(!addrs.length){addLog('DB가 비어 있습니다','warn');return;}
   var removed=[];
-  // 지원 체인 (Surf SQL 지원 + EVM 기준)
   var VALID_CHAINS=['ethereum','eth','arbitrum','arb','arbitrum_one',
     'base','bse','bsc','polygon','pol','optimism','op'];
   addrs.forEach(function(addr){
@@ -2881,37 +2880,21 @@ function cleanHwDb(){
     var label=(d.label||'').toLowerCase();
     var chain=(d.chain||'').toLowerCase();
     // 비지원 체인 제거 (avalanche, sonic, mantle 등)
-    var chainOk=VALID_CHAINS.some(function(c){return chain.includes(c);});
-    if(!chainOk){removed.push(addr+'('+d.chain+')');delete gHWDB[addr];return;}
-    // fromExplorer=true인 항목만 라벨 검사
-    if(!d.fromExplorer)return;
-    // Hot/Cold Wallet 포함이면 유지
+    var chainOk=!chain||VALID_CHAINS.some(function(c){return chain===c||chain.includes(c);});
+    if(!chainOk){removed.push(addr);delete gHWDB[addr];return;}
+    // Hot/Cold Wallet 포함이면 유지 (fromExplorer 여부 무관)
     if(label.includes('hot wallet')||label.includes('cold wallet'))return;
-    // 단순 거래소명만 있으면 제거 (검증 안 된 것)
-    removed.push(addr+'(라벨:'+d.label+')');
+    // 그 외 전부 제거 (단순 거래소명, 번호 지갑 등)
+    removed.push(addr);
     delete gHWDB[addr];
   });
   if(removed.length){
     saveHWDB(); renderHwDb();
     addLog('🧹 오염 제거: '+removed.length+'개 삭제 · DB 남은 주소: '+Object.keys(gHWDB).length+'개','ok');
   }else{
-    addLog('오염된 항목 없음','ok');
+    addLog('오염된 항목 없음 — DB의 모든 주소에 Hot/Cold Wallet 라벨이 있습니다','ok');
   }
-}// ══ 핫월렛 추정 패널 ══════════════════════════════════════════════════
-
-// ══ 핫월렛 A: 현재 분석 핫월렛 ══════════════════════════════════════
-
-function setHWLabel(addr,val){
-  if(val==='__custom__'){var v=prompt('거래소명 직접 입력:','');if(v===null)return;val=v.trim();}
-  if(!gHW[addr])gHW[addr]={label:''};
-  gHW[addr].label=val;
-  setDepLabel(gHW[addr].deposit,val);
-  // DB에 이미 있으면 라벨 동기화
-  if(gHWDB[addr]){gHWDB[addr].label=val;saveHWDB();}
-  renderHotWallets();
-  if(val)addLog('핫월렛 라벨: '+short(addr)+' → '+val,'ok');
 }
-
 function saveHotWalletsCsv(){
   // 체크된(del 아닌) 항목만 저장
   var addrs=Object.keys(gHW).filter(function(a){return !gHW[a].del;});
