@@ -1589,6 +1589,82 @@ async function removeInactiveAddresses(days){
   renderHwDb();
   addLog('🔍 비활성 제거 완료: '+removed.length+'개 삭제 → 블랙리스트 자동 등록 · DB 남은 주소: '+Object.keys(gHWDB).length+'개','ok');
 }
+// ── 거래소별 검색 aliases + 키워드 ───────────────────────────────
+var CEX_ALIASES = {
+  'Binance':   {aliases:['Binance','Binance Hot Wallet'],  keywords:['binance']},
+  'OKX':       {aliases:['OKX','OKEx'],                    keywords:[]},
+  'Bybit':     {aliases:['Bybit'],                         keywords:['bybit']},
+  'Coinbase':  {aliases:['Coinbase','Coinbase Prime'],      keywords:['coinbase']},
+  'Kraken':    {aliases:['Kraken'],                        keywords:['kraken']},
+  'Bitget':    {aliases:['Bitget'],                        keywords:['bitget']},
+  'KuCoin':    {aliases:['KuCoin'],                        keywords:['kucoin']},
+  'Gate':      {aliases:['Gate','Gate.io'],                keywords:['gate']},
+  'Upbit':     {aliases:['Upbit','UPbit'],                 keywords:['upbit']},
+  'Bithumb':   {aliases:['Bithumb'],                       keywords:['bithumb']},
+  'Huobi':     {aliases:['Huobi','HTX'],                   keywords:['huobi','htx']},
+  'MEXC':      {aliases:['MEXC'],                          keywords:['mexc']},
+  'Crypto.com':{aliases:['Crypto.com'],                    keywords:['crypto.com']},
+  'Bitfinex':  {aliases:['Bitfinex'],                      keywords:['bitfinex']},
+  'Gemini':    {aliases:['Gemini'],                        keywords:['gemini']},
+  'Korbit':    {aliases:['Korbit'],                        keywords:['korbit']},
+};
+var KNOWN_CEX_QUERIES=Object.keys(CEX_ALIASES);
+var _exploredKeys={};
+
+// ── 크레딧 한도 내 자동 수집 ─────────────────────────────────────
+async function autoCollectExchangeWallets(exchanges, creditBudget, chainFilter){
+  var targets=exchanges&&exchanges.length?exchanges:KNOWN_CEX_QUERIES;
+  chainFilter=chainFilter&&chainFilter.length?chainFilter:['eth','arb','bse','bsc','pol'];
+  var startCredits=gCreditsUsed;
+  var budgetMsg=creditBudget>0?creditBudget+'크레딧 한도':'무제한';
+  _exploredKeys={}; // 이전 실행 상태 초기화
+  addLog('=== 자동 수집 시작 ('+targets.length+'개 거래소 · '+budgetMsg+' · 체인: '+chainFilter.join(',')+') ===','info');
+
+  // 큐 생성: 거래소 × alias × offset
+  var queue=[];
+  targets.forEach(function(name){
+    var def=CEX_ALIASES[name]||{aliases:[name],keywords:[]};
+    (def.aliases||[name]).forEach(function(alias){
+      for(var offset=0;offset<100;offset+=20){
+        queue.push({name:name, alias:alias, offset:offset, keywords:def.keywords||[]});
+      }
+    });
+  });
+
+  var totalAdded=0;
+  for(var i=0;i<queue.length;i++){
+    if(gAborted)break;
+    var task=queue[i];
+    var key=task.alias+'::'+task.offset;
+    // 크레딧 한도 체크
+    if(creditBudget>0&&(gCreditsUsed-startCredits)>=creditBudget){
+      addLog('=== 크레딧 한도 도달 ('+creditBudget+' 소모) — 중단 ===','warn');
+      break;
+    }
+    // 세션 내 중복 방지
+    if(_exploredKeys[key]){continue;}
+    _exploredKeys[key]=true;
+
+    try{
+      var result=await collectExchange(task.name, task.alias, task.offset, task.keywords, chainFilter);
+      totalAdded+=result.added||0;
+      // 결과 없으면 이 alias 나머지 offset도 스킵
+      if(result.total===0){
+        for(var j=i+1;j<queue.length;j++){
+          if(queue[j].alias===task.alias)_exploredKeys[queue[j].alias+'::'+queue[j].offset]=true;
+        }
+      }
+    }catch(e){
+      addLog('[자동수집] '+task.alias+' offset='+task.offset+': '+e.message,'warn');
+    }
+    await sleep(300);
+  }
+
+  renderHwDb();
+  var spent=+(gCreditsUsed-startCredits).toFixed(1);
+  addLog('=== 자동 수집 완료 · 신규 '+totalAdded+'개 · 크레딧 소모 '+spent+' · DB 총 '+Object.keys(gHWDB).length+'개 ===','ok');
+}
+
 // ══ 섹션 6: 스윕 계산 ═══════════════════════════════════════════════
 // 원칙: 토큰별 독립 추적 → 가스비 ETH가 비율을 낮추지 않음
 function computeSweep(inTxs,outTxs,addrLow){
