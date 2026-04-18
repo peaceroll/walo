@@ -3261,14 +3261,15 @@ async function lookupAndAddAddr(){
   }catch(e){addLog('오류: '+e.message,'err');}
 }
 function startAutoCollect(){
-  var checkboxes=document.querySelectorAll('#cex-selector input[type=checkbox]:checked');
-  var selected=Array.from(checkboxes).map(function(c){return c.value;});
+  var allCex=Array.from(document.querySelectorAll('#cex-selector input[type=checkbox]'));
+  var selected=allCex.filter(function(c){return c.checked;}).map(function(c){return c.value;});
   if(!selected.length){addLog('수집할 거래소를 하나 이상 선택하세요','warn');return;}
-  var chainBoxes=document.querySelectorAll('.chain-filter:checked');
-  var selectedChains=Array.from(chainBoxes).map(function(c){return c.value;});
+  var allChain=Array.from(document.querySelectorAll('.chain-filter'));
+  var selectedChains=allChain.filter(function(c){return c.checked;}).map(function(c){return c.value;});
   if(!selectedChains.length){addLog('수집할 체인을 하나 이상 선택하세요','warn');return;}
   var budget=parseInt((gel('collect-credit-budget')&&gel('collect-credit-budget').value)||'0')||0;
   gAborted=false;
+  addLog('거래소: '+selected.join(', '),'dim');
   autoCollectExchangeWallets(selected, budget, selectedChains);
 }
 async function surfApiExplore(){
