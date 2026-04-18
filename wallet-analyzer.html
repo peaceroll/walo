@@ -1541,7 +1541,15 @@ async function collectExchange(name, alias, offset, keywords, chainFilter){
       var lrow=labelMap[c.addr];
       if(!isValidHwAddress(lrow, c.label)){skipped++;return;}
       var eName=(lrow&&lrow.entity_name&&lrow.entity_name!=='Unknown')?lrow.entity_name:c.label;
-      gHWDB[c.addr]={label:eName, chain:c.chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
+      // Surf labels 배열에서 Hot/Cold Wallet 라벨 추출
+      var hwLabel='';
+      (lrow&&lrow.labels||[]).forEach(function(l){
+        var ll=(l.label||'').toLowerCase();
+        if(ll.includes('hot wallet')||ll.includes('cold wallet'))hwLabel=l.label;
+      });
+      // 저장 라벨: "Binance Hot Wallet" 또는 "Binance Cold Wallet" 형태
+      var finalLabel=eName+(hwLabel?' '+hwLabel:'');
+      gHWDB[c.addr]={label:finalLabel, chain:c.chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
       added++;
     });
     if(added>0){saveHWDB(); renderHwDb();}
@@ -2864,19 +2872,24 @@ function saveHwDbCsv(){
 function cleanHwDb(){
   var addrs=Object.keys(gHWDB);
   if(!addrs.length){addLog('DB가 비어 있습니다','warn');return;}
-  // labels에 Hot/Cold Wallet 없는 항목 제거
-  // (fromExplorer=true인 항목은 Surf 라벨 기준으로 판단)
   var removed=[];
+  // 지원 체인 (Surf SQL 지원 + EVM 기준)
+  var VALID_CHAINS=['ethereum','eth','arbitrum','arb','arbitrum_one',
+    'base','bse','bsc','polygon','pol','optimism','op'];
   addrs.forEach(function(addr){
     var d=gHWDB[addr];
     var label=(d.label||'').toLowerCase();
-    // 분석으로 수집된 항목(fromExplorer 아님)은 건드리지 않음
+    var chain=(d.chain||'').toLowerCase();
+    // 비지원 체인 제거 (avalanche, sonic, mantle 등)
+    var chainOk=VALID_CHAINS.some(function(c){return chain.includes(c);});
+    if(!chainOk){removed.push(addr+'('+d.chain+')');delete gHWDB[addr];return;}
+    // fromExplorer=true인 항목만 라벨 검사
     if(!d.fromExplorer)return;
-    // 라벨이 거래소명 자체거나 Hot/Cold Wallet 포함이면 유지
-    // "Binance 60", "Binance: Internal" 등 번호/타입 지갑은 제거
-    var isHotCold=label.includes('hot wallet')||label.includes('cold wallet');
-    var isSimpleName=!label.includes(' ')||label===label.split(' ')[0]; // "Binance" 등 단일 단어
-    if(!isHotCold&&!isSimpleName){removed.push(addr);delete gHWDB[addr];}
+    // Hot/Cold Wallet 포함이면 유지
+    if(label.includes('hot wallet')||label.includes('cold wallet'))return;
+    // 단순 거래소명만 있으면 제거 (검증 안 된 것)
+    removed.push(addr+'(라벨:'+d.label+')');
+    delete gHWDB[addr];
   });
   if(removed.length){
     saveHWDB(); renderHwDb();
@@ -2884,8 +2897,7 @@ function cleanHwDb(){
   }else{
     addLog('오염된 항목 없음','ok');
   }
-}
-// ══ 핫월렛 추정 패널 ══════════════════════════════════════════════════
+}// ══ 핫월렛 추정 패널 ══════════════════════════════════════════════════
 
 // ══ 핫월렛 A: 현재 분석 핫월렛 ══════════════════════════════════════
 
