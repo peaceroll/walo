@@ -393,25 +393,47 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     </div>
     <div style="font-size:10px;color:#2a4a6a;margin-bottom:6px">라벨 있는 항목만 자동 라벨링에 사용됩니다 · 저장 시 localStorage에도 자동 보존</div>
     <!-- Surf 탐색기 — Surf 모드일 때 표시 -->
-    <div id="hwdb-explorer" style="margin-bottom:8px;padding:8px 10px;background:#060e18;border:1px solid rgba(130,71,229,.2);border-radius:3px;display:none">
-      <div style="font-size:10px;font-weight:700;color:#8247e5;margin-bottom:6px">◈ Surf 거래소 핫월렛 탐색기 <span style="color:#2a4a6a;font-weight:normal">· API Key + 프록시 설정 필요</span></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
-        <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Binance')">Binance</button>
-        <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('OKX')">OKX</button>
-        <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Bybit')">Bybit</button>
-        <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Coinbase')">Coinbase</button>
-        <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Kraken')">Kraken</button>
-        <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Upbit')">Upbit</button>
-        <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Bithumb')">Bithumb</button>
-        <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Bitget')">Bitget</button>
-        <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('KuCoin')">KuCoin</button>
+    <div id="hwdb-explorer" style="margin-bottom:8px;padding:10px 12px;background:#060e18;border:1px solid rgba(130,71,229,.2);border-radius:3px;display:none">
+      <div style="font-size:11px;font-weight:700;color:#8247e5;margin-bottom:8px">◈ Surf 거래소 핫월렛 자동 수집 <span style="color:#2a4a6a;font-weight:normal;font-size:10px">· API Key + 프록시 설정 필요</span></div>
+      <div style="margin-bottom:6px">
+        <div style="font-size:10px;color:#4a6a8a;margin-bottom:4px">수집할 거래소 선택:</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap" id="cex-selector">
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Binance" checked style="accent-color:#8247e5">Binance</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="OKX" checked style="accent-color:#8247e5">OKX</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Bybit" checked style="accent-color:#8247e5">Bybit</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Coinbase" checked style="accent-color:#8247e5">Coinbase</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Kraken" checked style="accent-color:#8247e5">Kraken</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Upbit" checked style="accent-color:#8247e5">Upbit</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Bithumb" checked style="accent-color:#8247e5">Bithumb</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Bitget" checked style="accent-color:#8247e5">Bitget</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="KuCoin" checked style="accent-color:#8247e5">KuCoin</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Gate" checked style="accent-color:#8247e5">Gate</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Huobi" checked style="accent-color:#8247e5">Huobi</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="MEXC" checked style="accent-color:#8247e5">MEXC</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Crypto.com" style="accent-color:#8247e5">Crypto.com</label>
+          <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Gemini" style="accent-color:#8247e5">Gemini</label>
+        </div>
       </div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <input type="text" id="hwdb-custom-exchange" placeholder="직접 입력 (예: Huobi)" style="flex:1;font-size:10px;padding:3px 6px">
-        <button class="btn dim" style="font-size:10px;padding:3px 10px" onclick="var v=gel('hwdb-custom-exchange').value.trim();if(v)collectExchangeWallets(v)">+ 수집</button>
-        <button class="btn dim" style="border-color:var(--a);color:var(--a);font-size:10px;padding:3px 10px" onclick="collectAllExchangeWallets()">🌐 전체 수집</button>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:5px">
+        <span style="font-size:10px;color:#4a6a8a;flex-shrink:0">크레딧 예산</span>
+        <input type="number" id="collect-credit-budget" value="500" min="10" style="width:70px;font-size:10px;padding:3px 6px" placeholder="0=무제한">
+        <span style="font-size:10px;color:#2a4a6a">크레딧 소모 후 자동 중단 · 현재 잔액 기준 입력</span>
       </div>
-      <div style="margin-top:4px;font-size:9px;color:#2a4a6a">수집된 주소는 DB에 자동 저장 · Alchemy 모드에서 자동 라벨링 소스로 사용</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:11px" onclick="startAutoCollect()">🚀 자동 수집 시작</button>
+        <button class="btn dim red" style="font-size:11px" onclick="gAborted=true;addLog('수집 중단','warn')">⬛ 중단</button>
+      </div>
+      <div style="margin-top:5px;font-size:9px;color:#2a4a6a">offset 페이지네이션으로 같은 거래소 여러 페이지 수집 · 이미 수집한 쿼리 자동 건너뜀 · DB에 자동 저장</div>
+      <hr style="border:none;border-top:1px solid #0a1520;margin:8px 0">
+      <div style="font-size:10px;color:#4a6a8a;margin-bottom:4px">주소 직접 추가 (Upbit·Bithumb 등 검색 안 되는 거래소)</div>
+      <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="manual-addr" placeholder="0x... (주소)" style="width:300px;font-size:10px;padding:3px 6px">
+        <input type="text" id="manual-label" placeholder="라벨 (예: Upbit Hot Wallet)" style="flex:1;min-width:140px;font-size:10px;padding:3px 6px">
+        <input type="text" id="manual-chain" placeholder="chain (ethereum)" style="width:90px;font-size:10px;padding:3px 6px" value="ethereum">
+        <button class="btn dim" style="font-size:10px;padding:3px 10px" onclick="addManualHwAddr()">+ DB 추가</button>
+        <button class="btn dim" style="font-size:10px;padding:3px 10px;border-color:#8247e5;color:#8247e5" onclick="lookupAndAddAddr()">◈ 라벨 조회 후 추가</button>
+      </div>
+      <div style="margin-top:3px;font-size:9px;color:#2a4a6a">라벨 조회: Surf에서 entity_type=exchange 확인 후 저장 · 직접 추가: 라벨 직접 입력</div>
     </div>
     <div id="hwdb-panel" style="font-size:10px;color:#4a6a8a">CSV를 불러오거나 현재 분석 결과를 DB에 추가하세요</div>
   </div>
@@ -1298,11 +1320,12 @@ async function runParallel(items,asyncFn,concurrency){
 // /search/wallet?q={name} → entity_type=cex 필터 → addresses 수집
 var SURF_SEARCH = 'https://api.asksurf.ai/gateway/v1/search/wallet';
 
-async function surfSearchExchange(query, limit){
-  limit = limit||5;
+async function surfSearchExchange(query, limit, offset){
+  limit = limit||20;
+  offset = offset||0;
   var proxy=getSurfProxy();
   var url=(proxy?proxy.replace(/\/+$/,''):'https://api.asksurf.ai')
-    +'/gateway/v1/search/wallet?q='+encodeURIComponent(query)+'&limit='+limit;
+    +'/gateway/v1/search/wallet?q='+encodeURIComponent(query)+'&limit='+limit+'&offset='+offset;
   var key=getSurfKey();
   if(!key)throw new Error('API Key 없음');
   gApiCalls++; updateStats();
@@ -1382,20 +1405,127 @@ async function collectExchangeWallets(query){
 }
 
 // 여러 거래소 일괄 수집
-var KNOWN_CEX_QUERIES=['Binance','OKX','Bybit','Coinbase','Kraken','Bitget','KuCoin','Gate','Upbit','Bithumb','Huobi','MEXC'];
-async function collectAllExchangeWallets(){
-  addLog('=== 거래소 핫월렛 전체 수집 시작 ('+KNOWN_CEX_QUERIES.length+'개) ===','info');
-  var total=0;
-  for(var i=0;i<KNOWN_CEX_QUERIES.length;i++){
+// 거래소별 검색 aliases — 여러 검색어를 순서대로 시도
+var CEX_ALIASES = {
+  'Binance':  ['Binance','Binance Hot Wallet','Binance Cold'],
+  'OKX':      ['OKX','OKEx','OKCoin'],
+  'Bybit':    ['Bybit','Bybit Hot'],
+  'Coinbase': ['Coinbase','Coinbase Prime','Coinbase Cold'],
+  'Kraken':   ['Kraken','Kraken Hot'],
+  'Bitget':   ['Bitget'],
+  'KuCoin':   ['KuCoin','Kucoin Hot'],
+  'Gate':     ['Gate','Gate.io'],
+  'Upbit':    ['Upbit','UPbit'],
+  'Bithumb':  ['Bithumb','Bithumb Global','빗썸'],
+  'Huobi':    ['Huobi','HTX','Huobi Hot'],
+  'MEXC':     ['MEXC','MEXC Hot'],
+  'Crypto.com':['Crypto.com','Crypto.com Hot'],
+  'Bitfinex': ['Bitfinex'],
+  'Gemini':   ['Gemini'],
+  'Korbit':   ['Korbit'],
+};
+var KNOWN_CEX_QUERIES=Object.keys(CEX_ALIASES);
+
+// 이미 수집한 쿼리+오프셋 추적 (세션 내 중복 방지)
+var _exploredKeys={};
+
+// 크레딧 한도 내에서 지정된 거래소들을 자동 반복 수집
+// exchanges: 거래소명 배열 (빈 배열이면 전체)
+// creditBudget: 이 함수에서 소모할 크레딧 한도
+async function autoCollectExchangeWallets(exchanges, creditBudget){
+  var targets=exchanges&&exchanges.length?exchanges:KNOWN_CEX_QUERIES;
+  var startCredits=gCreditsUsed;
+  var budgetMsg=creditBudget>0?creditBudget+'크레딧 한도':'무제한';
+  addLog('=== 자동 수집 시작 ('+targets.length+'개 거래소 · '+budgetMsg+') ===','info');
+
+  // 각 거래소 × alias × offset 으로 작업 큐 생성
+  var queue=[];
+  targets.forEach(function(name){
+    var aliases=CEX_ALIASES[name]||[name];
+    aliases.forEach(function(alias){
+      // offset 0,20,40,60,80 까지 시도 (각 20개씩)
+      for(var offset=0;offset<100;offset+=20){
+        queue.push({name:name, alias:alias, offset:offset});
+      }
+    });
+  });
+
+  var totalAdded=0, totalSkipped=0;
+  for(var i=0;i<queue.length;i++){
     if(gAborted)break;
+    var task=queue[i];
+    var key=task.alias+'::'+task.offset;
+
+    // 크레딧 한도 체크
+    if(creditBudget>0&&(gCreditsUsed-startCredits)>=creditBudget){
+      addLog('=== 크레딧 한도 도달 ('+creditBudget+'크레딧 소모) — 수집 중단 ===','warn');
+      break;
+    }
+
+    // 이미 이 세션에서 수집한 쿼리 건너뜀
+    if(_exploredKeys[key])continue;
+    _exploredKeys[key]=true;
+
     try{
-      var n=await collectExchangeWallets(KNOWN_CEX_QUERIES[i]);
-      total+=n;
-    }catch(e){addLog('[탐색] '+KNOWN_CEX_QUERIES[i]+' 오류: '+e.message,'warn');}
-    await sleep(500); // 크레딧 절약
+      var result=await collectExchangeWalletsPaged(task.name, task.alias, task.offset);
+      totalAdded+=result.added;
+      totalSkipped+=result.skipped;
+      // 결과가 없으면 같은 alias의 더 높은 offset은 의미없음
+      if(result.total===0){
+        // 이 alias의 나머지 offset도 완료 처리
+        for(var j=i+1;j<queue.length;j++){
+          if(queue[j].alias===task.alias)_exploredKeys[queue[j].alias+'::'+queue[j].offset]=true;
+        }
+      }
+      await sleep(300);
+    }catch(e){
+      addLog('[자동수집] '+task.alias+' offset='+task.offset+': '+e.message,'warn');
+    }
   }
+
   renderHwDb();
-  addLog('=== 수집 완료 · 총 '+total+'개 · DB: '+Object.keys(gHWDB).length+'개 ===','ok');
+  var spent=+(gCreditsUsed-startCredits).toFixed(1);
+  addLog('=== 자동 수집 완료 · 신규 '+totalAdded+'개 · 크레딧 소모 '+spent+' · DB 총 '+Object.keys(gHWDB).length+'개 ===','ok');
+}
+
+// 단일 alias + offset 수집 (내부용)
+async function collectExchangeWalletsPaged(name, alias, offset){
+  var d=await surfSearchExchange(alias, 20, offset);
+  var items=(d.data||[]);
+  var cexItems=items.filter(function(x){return x.entity_type==='cex'&&x.addresses&&x.addresses.length;});
+
+  var candidates=[];
+  cexItems.forEach(function(item){
+    var label=item.entity_name||name;
+    (item.addresses||[]).forEach(function(a){
+      var addr=(a.address||'').toLowerCase();
+      if(!addr||!addr.startsWith('0x'))return;
+      var chain=(a.chain||'').replace('arbitrum_one','arbitrum').replace('_mainnet','');
+      candidates.push({addr:addr, chain:chain, label:label});
+    });
+  });
+
+  var newCandidates=candidates.filter(function(c){return !gHWDB[c.addr];});
+  var added=0, skipped=0;
+
+  if(newCandidates.length>0){
+    var addrs=newCandidates.map(function(c){return c.addr;});
+    var labelMap=await fetchWalletLabels(addrs);
+    newCandidates.forEach(function(c){
+      var lrow=labelMap[c.addr];
+      var labelList=(lrow&&lrow.labels||[]).map(function(l){return (l.label||'').toLowerCase();});
+      var eName=(lrow&&lrow.entity_name)||c.label;
+      var eType=(lrow&&lrow.entity_type||'').toLowerCase();
+      var isToken=labelList.some(function(l){return l.includes('bep20')||l.includes('erc20')||l.includes('token')||l.includes('nft');});
+      if(isToken||(eType&&eType!=='exchange'&&eType!=='cex')){skipped++;return;}
+      if(/:\s*.+\([A-Z]{2,10}\)/.test(eName)){skipped++;return;}
+      var finalLabel=(eName&&eName!=='Unknown')?eName:c.label;
+      gHWDB[c.addr]={label:finalLabel, chain:chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
+      added++;
+    });
+    if(added>0){saveHWDB(); addLog('[자동수집] '+alias+' offset='+offset+' → '+added+'개 신규','ok');}
+  }
+  return {added:added, skipped:skipped, total:items.length};
 }
 
 // ══ 섹션 6: 스윕 계산 ═══════════════════════════════════════════════
@@ -3026,6 +3156,57 @@ function saveLog(){
   addLog('로그 저장 완료 ('+lines.length+'줄)','ok');
 }
 
+
+
+// 주소 직접 추가 (라벨 직접 입력)
+function addManualHwAddr(){
+  var addr=(gel('manual-addr')&&gel('manual-addr').value.trim().toLowerCase())||'';
+  var label=(gel('manual-label')&&gel('manual-label').value.trim())||'';
+  var chain=(gel('manual-chain')&&gel('manual-chain').value.trim())||'ethereum';
+  if(!addr||!addr.startsWith('0x')||addr.length!==42){addLog('⚠ 유효한 주소를 입력하세요','warn');return;}
+  if(!label){addLog('⚠ 라벨을 입력하세요','warn');return;}
+  if(gHWDB[addr]){addLog('이미 DB에 있는 주소: '+short(addr),'warn');return;}
+  gHWDB[addr]={label:label, chain:chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
+  saveHWDB(); renderHwDb();
+  addLog('DB 추가: '+short(addr)+' → '+label,'ok');
+  gel('manual-addr').value='';
+}
+
+// 주소 Surf 라벨 조회 후 추가
+async function lookupAndAddAddr(){
+  var addr=(gel('manual-addr')&&gel('manual-addr').value.trim().toLowerCase())||'';
+  var chain=(gel('manual-chain')&&gel('manual-chain').value.trim())||'ethereum';
+  if(!addr||!addr.startsWith('0x')||addr.length!==42){addLog('⚠ 유효한 주소를 입력하세요','warn');return;}
+  if(gHWDB[addr]){addLog('이미 DB에 있는 주소: '+short(addr),'warn');return;}
+  addLog('◈ 라벨 조회: '+short(addr)+'…','info');
+  try{
+    var labelMap=await fetchWalletLabels([addr]);
+    var lrow=labelMap[addr];
+    if(!lrow){
+      addLog('⚠ Surf 라벨 없음 — 직접 라벨 입력 후 [+ DB 추가] 사용','warn');
+      return;
+    }
+    var eName=lrow.entity_name||'';
+    var eType=(lrow.entity_type||'').toLowerCase();
+    addLog('조회 결과: '+eName+' ('+eType+')','info');
+    if(eType&&eType!=='exchange'&&eType!=='cex'){
+      addLog('⚠ exchange 타입이 아님 ('+eType+') — 직접 추가하려면 [+ DB 추가] 사용','warn');
+    }
+    var label=(gel('manual-label')&&gel('manual-label').value.trim())||eName||'Unknown';
+    gHWDB[addr]={label:label, chain:chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
+    saveHWDB(); renderHwDb();
+    addLog('DB 추가: '+short(addr)+' → '+label,'ok');
+    gel('manual-addr').value='';
+  }catch(e){addLog('오류: '+e.message,'err');}
+}
+function startAutoCollect(){
+  var checkboxes=document.querySelectorAll('#cex-selector input[type=checkbox]:checked');
+  var selected=Array.from(checkboxes).map(function(c){return c.value;});
+  if(!selected.length){addLog('수집할 거래소를 하나 이상 선택하세요','warn');return;}
+  var budget=parseInt((gel('collect-credit-budget')&&gel('collect-credit-budget').value)||'0')||0;
+  gAborted=false;
+  autoCollectExchangeWallets(selected, budget);
+}
 async function surfApiExplore(){
   var method=(gel('api-method')&&gel('api-method').value)||'GET';
   var path=(gel('api-path')&&gel('api-path').value.trim())||'';
