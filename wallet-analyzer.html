@@ -395,8 +395,27 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     <!-- Surf 탐색기 — Surf 모드일 때 표시 -->
     <div id="hwdb-explorer" style="margin-bottom:8px;padding:10px 12px;background:#060e18;border:1px solid rgba(130,71,229,.2);border-radius:3px;display:none">
       <div style="font-size:11px;font-weight:700;color:#8247e5;margin-bottom:8px">◈ Surf 거래소 핫월렛 자동 수집 <span style="color:#2a4a6a;font-weight:normal;font-size:10px">· API Key + 프록시 설정 필요</span></div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:10px;color:#4a6a8a;margin-bottom:4px">개별 빠른 수집 (클릭 즉시 결과 확인):</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">
+          <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Binance')">Binance</button>
+          <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('OKX')">OKX</button>
+          <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Bybit')">Bybit</button>
+          <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Coinbase')">Coinbase</button>
+          <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Kraken')">Kraken</button>
+          <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Upbit')">Upbit</button>
+          <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Bithumb')">Bithumb</button>
+          <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('Bitget')">Bitget</button>
+          <button class="btn dim" style="border-color:#8247e5;color:#8247e5;font-size:10px;padding:3px 10px" onclick="collectExchangeWallets('KuCoin')">KuCoin</button>
+        </div>
+        <hr style="border:none;border-top:1px solid #0a1520;margin:6px 0">
+      </div>
       <div style="margin-bottom:6px">
-        <div style="font-size:10px;color:#4a6a8a;margin-bottom:4px">수집할 거래소 선택:</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:10px;color:#4a6a8a">자동 수집 (크레딧 한도까지 연속 실행):</span>
+          <button onclick="document.querySelectorAll('#cex-selector input').forEach(function(c){c.checked=true})" style="background:none;border:none;font-size:10px;color:#8247e5;cursor:pointer;padding:0">전체선택</button>
+          <button onclick="document.querySelectorAll('#cex-selector input').forEach(function(c){c.checked=false})" style="background:none;border:none;font-size:10px;color:#4a6a8a;cursor:pointer;padding:0">전체해제</button>
+        </div>
         <div style="display:flex;gap:5px;flex-wrap:wrap" id="cex-selector">
           <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="Binance" checked style="accent-color:#8247e5">Binance</label>
           <label style="font-size:10px;color:#7a9ab8;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" value="OKX" checked style="accent-color:#8247e5">OKX</label>
@@ -416,7 +435,7 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
       </div>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:5px">
         <span style="font-size:10px;color:#4a6a8a;flex-shrink:0">크레딧 예산</span>
-        <input type="number" id="collect-credit-budget" value="500" min="10" style="width:70px;font-size:10px;padding:3px 6px" placeholder="0=무제한">
+        <input type="number" id="collect-credit-budget" value="" min="0" style="width:70px;font-size:10px;padding:3px 6px" placeholder="0=무제한">
         <span style="font-size:10px;color:#2a4a6a">크레딧 소모 후 자동 중단 · 현재 잔액 기준 입력</span>
       </div>
       <div style="display:flex;gap:6px">
@@ -1343,7 +1362,16 @@ async function collectExchangeWallets(query){
   addLog('[탐색] "'+query+'" 거래소 주소 수집…','info');
   var d=await surfSearchExchange(query, 5);
   var items=d.data||[];
-  var cexItems=items.filter(function(x){return x.entity_type==='cex'&&x.addresses&&x.addresses.length;});
+  // entity_type이 cex, exchange, 또는 주소가 있는 항목 모두 수집
+  // (Upbit/Bithumb 등 한국 거래소는 "exchange" 또는 다른 타입으로 분류될 수 있음)
+  var cexItems=items.filter(function(x){
+    return x.addresses&&x.addresses.length&&
+      (x.entity_type==='cex'||x.entity_type==='exchange'||x.entity_type==='cefi');
+  });
+  // 위 필터로 결과 없으면 주소가 있는 모든 항목 시도
+  if(!cexItems.length){
+    cexItems=items.filter(function(x){return x.addresses&&x.addresses.length;});
+  }
   if(!cexItems.length){addLog('[탐색] "'+query+'" — cex 엔티티 없음','warn');return 0;}
 
   // EVM 주소 수집
@@ -1385,8 +1413,8 @@ async function collectExchangeWallets(query){
       // 제외 2: entity_name이 "Exchange: Something (TICKER)" 패턴 → 토큰/컨트랙트
       if(/:\s*.+\([A-Z]{2,10}\)/.test(eName)){skipped++;return;}
 
-      // 제외 3: exchange 아닌 entity_type (bridge, bot, protocol, individual 등)
-      if(eType&&eType!=='exchange'&&eType!=='cex'){skipped++;return;}
+      // 제외 3: exchange 아닌 entity_type (individual, bridge, bot, protocol 등)
+      if(eType&&(eType==='individual'||eType==='bridge'||eType==='bot'||eType==='protocol'||eType==='mev')){skipped++;return;}
 
       var finalLabel=(eName&&eName!=='Unknown')?eName:c.label;
       gHWDB[c.addr]={label:finalLabel, chain:c.chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
@@ -1492,7 +1520,11 @@ async function autoCollectExchangeWallets(exchanges, creditBudget){
 async function collectExchangeWalletsPaged(name, alias, offset){
   var d=await surfSearchExchange(alias, 20, offset);
   var items=(d.data||[]);
-  var cexItems=items.filter(function(x){return x.entity_type==='cex'&&x.addresses&&x.addresses.length;});
+  var cexItems=items.filter(function(x){
+    return x.addresses&&x.addresses.length&&
+      (x.entity_type==='cex'||x.entity_type==='exchange'||x.entity_type==='cefi');
+  });
+  if(!cexItems.length)cexItems=items.filter(function(x){return x.addresses&&x.addresses.length;});
 
   var candidates=[];
   cexItems.forEach(function(item){
@@ -1520,10 +1552,10 @@ async function collectExchangeWalletsPaged(name, alias, offset){
       if(isToken||(eType&&eType!=='exchange'&&eType!=='cex')){skipped++;return;}
       if(/:\s*.+\([A-Z]{2,10}\)/.test(eName)){skipped++;return;}
       var finalLabel=(eName&&eName!=='Unknown')?eName:c.label;
-      gHWDB[c.addr]={label:finalLabel, chain:chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
+      gHWDB[c.addr]={label:finalLabel, chain:c.chain||chain, nonce:0, sources:[], depositLabels:[], fromExplorer:true};
       added++;
     });
-    if(added>0){saveHWDB(); addLog('[자동수집] '+alias+' offset='+offset+' → '+added+'개 신규','ok');}
+    if(added>0){saveHWDB(); renderHwDb(); addLog('[자동수집] '+alias+' offset='+offset+' → '+added+'개 신규 (DB 총 '+Object.keys(gHWDB).length+'개)','ok');}
   }
   return {added:added, skipped:skipped, total:items.length};
 }
