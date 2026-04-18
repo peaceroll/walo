@@ -914,7 +914,7 @@ var CHAINS = [
    surfTable:'bsc'},
   {key:'polygon', name:'POL', color:'#8247e5',
    blockTime:2,    provider:'polygon',  placeholder:'https://polygon-mainnet.g.alchemy.com/v2/...',
-   surfTable:'polygon'},
+   surfTable:null},  // Surf 미지원
 ];
 
 // 현재 모드에서 사용 가능한 체인만 반환
@@ -1310,13 +1310,15 @@ function surfTable(chainKey){
 // ── STEP 1: 시드 아웃바운드 TX 목적지 수집 ──────────────────────
 async function fetchOutbound(chainKey, seedAddr, days){
   var tbl='agent.'+surfTable(chainKey)+'_transfers';
-  var d=surfDays(days);
+  // ETH/BSC 타임아웃 방지 — 기간 제한 + LIMIT 축소
+  var limits={'eth':{days:30,limit:300},'bsc':{days:30,limit:500}};
+  var cfg=limits[chainKey]||{days:Math.min(surfDays(days),90),limit:2000};
   var sql='SELECT DISTINCT lower(`to`) AS dest'
     +' FROM '+tbl
     +' WHERE lower(tx_from) = \''+seedAddr.toLowerCase()+'\''
     +' AND `to` != \'\' AND `to` != \'0x0000000000000000000000000000000000000000\''
-    +' '+dateSql(d)
-    +' LIMIT 2000';
+    +' AND block_date >= today() - '+cfg.days
+    +' LIMIT '+cfg.limit;
   var r=await surfSql(sql);
   return (r.data||[]).map(function(row){return row.dest;}).filter(Boolean);
 }
