@@ -1103,9 +1103,9 @@ async function fetchWalletLabels(addresses){
   // 캐시에 없는 것만 API 조회
   var toFetch=addresses.filter(function(a){return _labelCache[a]===undefined;});
   if(toFetch.length){
-    // 100개씩 배치 분할
-    for(var i=0;i<toFetch.length;i+=100){
-      var batch=toFetch.slice(i,i+100);
+    // 20개씩 배치 분할 (100개는 400 오류 발생)
+    for(var i=0;i<toFetch.length;i+=20){
+      var batch=toFetch.slice(i,i+20);
       try{
         // 크레딧 사전 체크
         if(gCreditsLimit>0&&gCreditsUsed>=gCreditsLimit)break;
@@ -1369,32 +1369,35 @@ async function runParallel(items,asyncFn,concurrency){
 // /search/wallet?q={name} → entity_type=cex 필터 → addresses 수집
 var SURF_SEARCH = 'https://api.asksurf.ai/gateway/v1/search/wallet';
 
-// 공통 핫월렛 주소 필터 — 토큰/DEX/Router/Proxy/Internal 등 제외
-// lrow: Surf 라벨 배치 결과, fallbackLabel: 검색결과 entity_name (둘 다 체크)
+// 공통 핫월렛 주소 필터 — 화이트리스트 방식
+// Surf 라벨에 "Hot Wallet" 또는 "Cold Wallet"이 있어야 저장
+// 구체적인 타입이 명시된 주소 (": Something")는 Hot/Cold 아니면 전부 제외
 function isValidHwAddress(lrow, fallbackLabel){
   var labelList=(lrow&&lrow.labels||[]).map(function(l){return (l.label||'').toLowerCase();});
   var apiName=(lrow&&lrow.entity_name)||'';
-  var searchName=fallbackLabel||'';
   var eType=(lrow&&lrow.entity_type||'').toLowerCase();
 
-  // 토큰 컨트랙트 라벨 (bep20/erc20/nft/token)
-  if(labelList.some(function(l){return l.includes('bep20')||l.includes('erc20')||l.includes('token')||l.includes('nft');}))return false;
+  // entity_type 제외 (DEX, individual 등)
+  if(eType==='dex'||eType==='defi'||eType==='bridge'
+    ||eType==='individual'||eType==='bot'||eType==='protocol'||eType==='mev')return false;
 
-  // entity_name 패턴 체크 — API 이름과 검색 이름 둘 다 확인
-  var namesToCheck=[apiName, searchName];
-  for(var i=0;i<namesToCheck.length;i++){
-    var n=namesToCheck[i];
-    if(!n)continue;
-    var nL=n.toLowerCase();
-    // "Exchange: Something (TICKER)" 패턴
-    if(/:\s*.+\([A-Z]{2,10}\)/.test(n))return false;
-    // Router/Proxy/DEX/Internal
-    if(nL.includes('router')||nL.includes('proxy')||nL.includes(' dex')||nL.startsWith('dex ')||nL.includes('internal'))return false;
-  }
+  // Surf labels 배열에 "hot wallet" 또는 "cold wallet" 있으면 무조건 허용
+  var hasHotCold=labelList.some(function(l){
+    return l.includes('hot wallet')||l.includes('cold wallet');
+  });
+  if(hasHotCold)return true;
 
-  // entity_type 제외 목록
-  if(eType==='dex'||eType==='defi'||eType==='bridge'||eType==='individual'||eType==='bot'||eType==='protocol'||eType==='mev')return false;
+  // entity_name에 "hot" 또는 "cold" 포함하면 허용
+  // 예: "Binance: Hot Wallet 1", "OKX: Cold Wallet"
+  var apiL=apiName.toLowerCase();
+  if(apiL.includes('hot wallet')||apiL.includes('cold wallet'))return true;
 
+  // entity_name에 ": " 구분자가 있으면 구체적 타입이 명시된 것
+  // Hot/Cold가 아닌 이상 제외 (Deposit, Factory, Internal, Hacker 등)
+  if(apiName.includes(': '))return false;
+
+  // entity_name이 단순 거래소명이면 (": " 없음) → 허용
+  // 예: entity_name = "Binance", "OKX", "Upbit"
   return true;
 }
 
@@ -1592,7 +1595,7 @@ async function removeInactiveAddresses(days){
 // ── 거래소별 검색 aliases + 키워드 ───────────────────────────────
 var CEX_ALIASES = {
   'Binance':   {aliases:['Binance','Binance Hot Wallet'],  keywords:['binance']},
-  'OKX':       {aliases:['OKX','OKEx'],                    keywords:[]},
+  'OKX':       {aliases:['OKX'],                           keywords:['okx']},
   'Bybit':     {aliases:['Bybit'],                         keywords:['bybit']},
   'Coinbase':  {aliases:['Coinbase','Coinbase Prime'],      keywords:['coinbase']},
   'Kraken':    {aliases:['Kraken'],                        keywords:['kraken']},
@@ -2674,24 +2677,19 @@ function cleanHwDb(){
   if(!addrs.length){addLog('DB가 비어 있습니다','warn');return;}
   var removed=[];
   addrs.forEach(function(addr){
-    var d=gHWDB[addr];
-    var label=(d.label||'');
-    // 제거 기준:
-    // 1. label이 "Exchange: Something (TICKER)" 패턴
-    // 2. label에 "Token", "BEP20", "ERC20" 포함
-    // 3. label에 "Proxy", "Contract" 포함
-    var isJunk=/:\s*.+\([A-Z]{2,10}\)/.test(label)
-      ||/\b(token|bep20|erc20|proxy|contract|nft)\b/i.test(label);
-    if(isJunk){removed.push(addr);delete gHWDB[addr];}
+    var label=(gHWDB[addr].label||'');
+    // 오염 패턴: 토큰/입금주소/컨트랙트/해커/라우터 등
+    var bad=/deposit|factory|deployer|hacker|drainer|internal|-peg|bep-20|router|\bproxy\b|\bdex\b|\btoken\b|bep20|erc20|\bnft\b|contract/i.test(label)
+          ||/:\s*.+\([A-Z]{2,10}\)/.test(label);
+    if(bad){removed.push(addr);delete gHWDB[addr];}
   });
   if(removed.length){
     saveHWDB(); renderHwDb();
-    addLog('🧹 오염 제거: '+removed.length+'개 삭제 (토큰 컨트랙트/프록시) — DB 남은 주소: '+Object.keys(gHWDB).length+'개','ok');
+    addLog('🧹 오염 제거: '+removed.length+'개 삭제 · DB 남은 주소: '+Object.keys(gHWDB).length+'개','ok');
   }else{
     addLog('오염된 항목 없음','ok');
   }
 }
-
 // ══ 통합 UI — Alchemy + Surf 모드 전환 ══════════════════════════
 
 // ── 렌더링 단일 진입점 ─────────────────────────────────────────
