@@ -949,7 +949,7 @@ var STEPS_DEF = [
 var gSeeds        = SEEDS_RAW.map(function(a){return a.toLowerCase();});
 var gSelected     = {};
 var gEdges        = [];
-var gSS           = {w:{}, d:{}};
+var gSS           = {w:{}, d:{}, open:{newW:false, dep:false}};
 var gApiCalls=0, gAborted=false, gMode='auto';
 var gDirectDeps=[], gDepFilters=[], gTokenFilters=[], gSenderBl={};
 var gHotTargets={}, gSnapshot=null;
@@ -2400,9 +2400,6 @@ function stopAnalysis(){
 // renderSummary, saveSummary 모두 buildSummary() + depLabel() 사용
 function renderSummary(){
   var panel=gel('summary-panel'); if(!panel||!gEdges.length)return;
-  // 현재 열림 상태 기억
-  var newOpen=gel('summary-new-body')&&gel('summary-new-body').style.display!=='none';
-  var depOpen=gel('summary-dep-body')&&gel('summary-dep-body').style.display!=='none';
   var S=buildSummary();
   function wDel(w){return !!(gSS.w[w]&&gSS.w[w].del);}
   function dDel(dep){return !!(gSS.d[dep]&&gSS.d[dep].del);}
@@ -2425,11 +2422,11 @@ function renderSummary(){
   var newOpen=gel('summary-new-open');
   var newCollapsed=newOpen?newOpen.dataset.open!=='1':true;
   html+='<div style="margin-bottom:14px">';
-  html+='<div style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px" onclick="var b=gel(\'summary-new-body\'),a=gel(\'summary-new-arrow\');b.style.display=b.style.display===\'none\'?\'\':\'none\';a.textContent=b.style.display===\'none\'?\'▼\':\'▲\'">';
+  html+='<div style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px" onclick="gSS.open.newW=!gSS.open.newW;renderSummary()">';
   html+='<span style="font-size:12px;font-weight:700;color:var(--g)">발견된 새 지갑 — '+S.newW.length+'개</span>';
-  html+='<span id="summary-new-arrow" style="font-size:10px;color:#4a6a8a">▼</span>';
+  html+='<span id="summary-new-arrow" style="font-size:10px;color:#4a6a8a">'+(gSS.open.newW?'▲':'▼')+'</span>';
   html+='</div>';
-  html+='<div id="summary-new-body" style="display:none">';
+  html+='<div id="summary-new-body" style="display:'+(gSS.open.newW?'':'none')+'">';
   S.newW.forEach(function(w){
     var deps=Object.keys(S.wInfo[w].deps);
     var lbl=(gSS.w[w]&&gSS.w[w].label)||'';
@@ -2463,11 +2460,11 @@ function renderSummary(){
   // ── 거래소 추정 입금주소
   html+='</div></div>'; // 새 지갑 body/section 닫기
   html+='<div>';
-  html+='<div style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px" onclick="var b=gel(\'summary-dep-body\'),a=gel(\'summary-dep-arrow\');b.style.display=b.style.display===\'none\'?\'\':\'none\';a.textContent=b.style.display===\'none\'?\'▼\':\'▲\'">';
+  html+='<div style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px" onclick="gSS.open.dep=!gSS.open.dep;renderSummary()">';
   html+='<span style="font-size:12px;font-weight:700;color:var(--b)">거래소 추정 입금주소 — '+activeExch.length+'개</span>';
-  html+='<span id="summary-dep-arrow" style="font-size:10px;color:#4a6a8a">▼</span>';
+  html+='<span id="summary-dep-arrow" style="font-size:10px;color:#4a6a8a">'+(gSS.open.dep?'▲':'▼')+'</span>';
   html+='</div>';
-  html+='<div id="summary-dep-body" style="display:none">';
+  html+='<div id="summary-dep-body" style="display:'+(gSS.open.dep?'':'none')+'">';
   S.exchList.forEach(function(x,i){
     var del=dDel(x.dep);
     var lbl=depLabel(x.dep,'');
@@ -2492,11 +2489,6 @@ function renderSummary(){
   });
   html+='</div></div>'; // 입금주소 body/section 닫기
   panel.innerHTML=html;
-  // 열림 상태 복원
-  var nb=gel('summary-new-body'), na=gel('summary-new-arrow');
-  var db=gel('summary-dep-body'), da=gel('summary-dep-arrow');
-  if(nb&&newOpen){nb.style.display='';if(na)na.textContent='▲';}
-  if(db&&depOpen){db.style.display='';if(da)da.textContent='▲';}
 }
 
 // 거래소 추정 입금주소로 필터링:
