@@ -93,6 +93,16 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
 
 <div id="settings-alchemy">
 <div class="panel">
+  <!-- 분석 모드 선택 -->
+  <div style="background:#060e18;border:1px solid rgba(79,163,255,.2);border-radius:4px;padding:10px 14px;margin-bottom:10px">
+    <div style="font-size:11px;font-weight:700;color:var(--b);margin-bottom:8px">⬡ 분석 모드</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="setAnalysisPreset('personal')" class="btn dim" id="preset-personal" style="border-color:var(--g);color:var(--g);font-size:11px">👤 개인 지갑</button>
+      <button onclick="setAnalysisPreset('mm')" class="btn dim" id="preset-mm" style="font-size:11px">🏦 MM / 트레이더</button>
+      <button onclick="setAnalysisPreset('whale')" class="btn dim" id="preset-whale" style="font-size:11px">🐳 고래 / 펀드</button>
+    </div>
+    <div id="preset-desc" style="margin-top:6px;font-size:10px;color:#2a4a6a">모드를 선택하면 아래 파라미터가 자동 설정됩니다</div>
+  </div>
   <div style="background:#060e18;border:1px solid rgba(255,179,71,.28);border-radius:4px;padding:12px 14px;margin-bottom:10px">
     <div style="font-size:11px;font-weight:700;color:var(--a);margin-bottom:10px">⬡ 체인 RPC 설정</div>
     <div id="chain-rpc-rows"></div>
@@ -146,6 +156,10 @@ a{color:var(--b);text-decoration:none;font-size:10px}a:hover{text-decoration:und
     </select>
     <input type="number" id="p-period-days" value="365" min="1" style="width:65px" oninput="document.getElementById('p-period-sel').value=''">
     <span class="hint">일 이내 TX만 조회</span>
+  </div>
+  <div class="row center"><span class="lbl">최대 목적지</span>
+    <input type="number" id="p-max-dest" value="500" min="10" max="10000" style="width:70px">
+    <span class="hint">STEP 2 분석할 목적지 수 제한 (개인:500 · MM:2000 · 0=무제한)</span>
   </div>
   <div class="row center"><span class="lbl">요청 속도</span>
     <select id="p-rps"><option value="1">1/초(안전)</option><option value="2" selected>2/초(기본)</option><option value="3">3/초(빠름)</option><option value="5">5/초(위험)</option></select>
@@ -993,6 +1007,7 @@ function getOpts(){
     spreadH:num('p-spread-h',0),   maxSenders:num('p-max-senders',50),
     txMin:num('p-tx-min',0),       txMax:num('p-tx-max',5),
     nonceMax:num('p-nonce-max',5000),
+    maxDest:num('p-max-dest',500),
     concurrency:num('p-concur',3),
     days:(gel('p-period-days')&&gel('p-period-days').value)||''
   };
@@ -1899,6 +1914,14 @@ async function runAutoMode_alchemy(chains,opts,isResume){
     setProgress(++done1,tasks.length,'STEP 1 · 시드 아웃바운드 수집');
   },opts.concurrency);
   addLog('[STEP 1] 목적지 '+Object.keys(destMap).length+'개','info');
+  // 목적지 수 제한
+  var maxDest=num('p-max-dest',500);
+  if(maxDest>0&&Object.keys(destMap).length>maxDest){
+    var keys=Object.keys(destMap);
+    var trimmed=keys.length-maxDest;
+    keys.slice(maxDest).forEach(function(k){delete destMap[k];});
+    addLog('[STEP 1] ⚠ 목적지 '+maxDest+'개로 제한 ('+trimmed+'개 제거) — 설정에서 최대 목적지 수 조정 가능','warn');
+  }
   gSnapshot={visitedSeeds:visitedSeeds,destMap:destMap};
   setStep(2);
   var depMap={},destKeys=Object.keys(destMap),done2=0;
@@ -3692,6 +3715,16 @@ async function testSurfProxy(){
   var hwArrow=gel('hwdb-arrow');
   if(hwBody)hwBody.style.display='';
   if(hwArrow)hwArrow.textContent='▲';
+  // 저장된 분석 모드 프리셋 복원
+  var savedPreset=localStorage.getItem('wca_analysis_preset');
+  if(savedPreset&&ANALYSIS_PRESETS[savedPreset]){
+    var btn=gel('preset-'+savedPreset);
+    if(btn){
+      btn.style.borderColor='var(--g)';btn.style.color='var(--g)';btn.style.background='rgba(0,255,157,.08)';
+      var descEl=gel('preset-desc');
+      if(descEl)descEl.textContent=ANALYSIS_PRESETS[savedPreset].desc;
+    }
+  }
   addLog('준비 완료 — 모드를 선택하고 분석을 시작하세요','ok');
   addLog('Alchemy 모드: RPC URL 입력 | Surf 모드: API Key 입력','info');
 })();
@@ -3829,6 +3862,61 @@ async function testAlchemyAddr(){
       addLog('→ 네트워크 오류 또는 RPC URL 확인 필요','warn');
   }
 }
+// ── 분석 모드 프리셋 ──────────────────────────────────────────────
+var ANALYSIS_PRESETS = {
+  personal: {
+    label: '👤 개인 지갑',
+    desc: '소액 개인 지갑 · 전용 입금주소 추적 · 클러스터 정밀',
+    exchMin: 1, exchMax: 10, spreadH: 0, maxSenders: 10,
+    txMin: 0, txMax: 0, nonceMax: 5000, days: 365, maxDest: 500,
+  },
+  mm: {
+    label: '🏦 MM / 트레이더',
+    desc: 'MM·전문 트레이더 · 전용 입금주소 반복 사용 · 중간 필터',
+    exchMin: 3, exchMax: 30, spreadH: 0, maxSenders: 30,
+    txMin: 5, txMax: 0, nonceMax: 50000, days: 180, maxDest: 2000,
+  },
+  whale: {
+    label: '🐳 고래 / 펀드',
+    desc: '대형 지갑·기관 · 넓은 범위 수집 후 수동 필터링 권장',
+    exchMin: 2, exchMax: 100, spreadH: 0, maxSenders: 100,
+    txMin: 0, txMax: 0, nonceMax: 100000, days: 90, maxDest: 5000,
+  }
+};
+
+function setAnalysisPreset(mode){
+  var p=ANALYSIS_PRESETS[mode]; if(!p)return;
+
+  // 파라미터 적용
+  var fields={
+    'p-exch-min': p.exchMin, 'p-exch-max': p.exchMax,
+    'p-spread-h': p.spreadH, 'p-max-senders': p.maxSenders,
+    'p-tx-min': p.txMin, 'p-tx-max': p.txMax,
+    'p-nonce-max': p.nonceMax, 'p-period-days': p.days,
+    'p-max-dest': p.maxDest,
+  };
+  Object.keys(fields).forEach(function(id){
+    var el=gel(id); if(!el)return;
+    el.value=fields[id];
+    localStorage.setItem('wca_'+id, fields[id]);
+  });
+
+  // 버튼 하이라이트
+  ['personal','mm','whale'].forEach(function(m){
+    var btn=gel('preset-'+m);
+    if(!btn)return;
+    btn.style.borderColor= m===mode?'var(--g)':'';
+    btn.style.color= m===mode?'var(--g)':'';
+    btn.style.background= m===mode?'rgba(0,255,157,.08)':'';
+  });
+
+  var descEl=gel('preset-desc');
+  if(descEl)descEl.textContent=p.desc;
+
+  addLog('분석 모드: '+p.label+' 파라미터 적용됨','ok');
+  localStorage.setItem('wca_analysis_preset', mode);
+}
+
 </script>
 </body>
 </html>
