@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Surf Deposit Source Tracer v1.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', system_ui, sans-serif; }
+        .font-display { font-family: 'Space Grotesk', 'Inter', sans-serif; font-weight: 600; }
+        .glass { background: rgba(255,255,255,0.95); backdrop-filter: blur(20px); }
+        .log-line { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.875rem; }
+        .result-row:hover { background-color: #f8fafc; }
+        .section-header { font-size: 0.875rem; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
+        .address { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.875rem; }
+    </style>
+</head>
+<body class="bg-zinc-950 text-zinc-200">
+    <!-- Header -->
+    <div class="border-b border-zinc-800 bg-zinc-900">
+        <div class="max-w-screen-xl mx-auto px-6 py-5 flex items-center justify-between">
+            <div class="flex items-center gap-x-4">
+                <div class="w-11 h-11 bg-indigo-600 rounded-2xl flex items-center justify-center">
+                    <i class="fa-solid fa-link text-white text-3xl"></i>
+                </div>
+                <div>
+                    <h1 class="font-display text-3xl font-semibold tracking-tighter">Surf Deposit Tracer</h1>
+                    <p class="text-zinc-400 text-sm -mt-1">거래소 경유 입금 지갑 역추적 v1.0</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-x-3">
+                <div class="px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded-2xl flex items-center gap-x-2 text-sm">
+                    <div class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                    <span class="text-emerald-400 font-medium">Surf API Connected</span>
+                </div>
+                <a href="https://peaceroll.github.io/walo/wallet-analyzer-surf.html" target="_blank" 
+                   class="px-4 py-2 text-sm bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-2xl flex items-center gap-x-2 transition-colors">
+                    <i class="fa-solid fa-arrow-left"></i>
+                    <span>기존 Analyzer로</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-screen-xl mx-auto px-6 py-8">
+        
+        <!-- API Key & Settings -->
+        <div class="glass border border-zinc-700 rounded-3xl p-6 mb-8 shadow-xl">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                <div class="lg:col-span-5">
+                    <label class="section-header text-zinc-400 block mb-2">Surf API Key</label>
+                    <div class="relative">
+                        <input id="apiKey" type="password" 
+                               class="w-full bg-zinc-900 border border-zinc-700 focus:border-indigo-500 rounded-2xl px-4 py-3 text-sm placeholder-zinc-500 focus:outline-none"
+                               placeholder="sk-... (asksurf.ai에서 발급)">
+                        <button onclick="saveApiKey()" 
+                                class="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-colors">
+                            저장
+                        </button>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-4">
+                    <label class="section-header text-zinc-400 block mb-2">시작 지갑 주소</label>
+                    <input id="walletAddress" type="text" 
+                           class="w-full bg-zinc-900 border border-zinc-700 focus:border-indigo-500 rounded-2xl px-4 py-3 text-sm font-mono placeholder-zinc-500 focus:outline-none"
+                           placeholder="0x... 또는 Solana 주소">
+                </div>
+
+                <div class="lg:col-span-3">
+                    <label class="section-header text-zinc-400 block mb-2">Chain</label>
+                    <select id="chain" class="w-full bg-zinc-900 border border-zinc-700 focus:border-indigo-500 rounded-2xl px-4 py-3 text-sm focus:outline-none">
+                        <option value="ethereum">Ethereum</option>
+                        <option value="base">Base</option>
+                        <option value="arbitrum">Arbitrum</option>
+                        <option value="optimism">Optimism</option>
+                        <option value="polygon">Polygon</option>
+                        <option value="bsc">BSC</option>
+                        <option value="solana">Solana</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Advanced Settings -->
+            <div class="mt-6 pt-6 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="text-xs text-zinc-400">최대 추적 깊이</label>
+                    <div class="flex items-center gap-x-3 mt-1.5">
+                        <input type="range" id="maxDepth" min="1" max="5" step="1" value="3" class="flex-1 accent-indigo-500" oninput="document.getElementById('depthValue').innerText = this.value">
+                        <span id="depthValue" class="font-mono text-sm w-6 text-center">3</span>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="text-xs text-zinc-400">거래소당 최대 입금자 수</label>
+                    <div class="flex items-center gap-x-3 mt-1.5">
+                        <input type="range" id="maxPerExchange" min="10" max="100" step="10" value="30" class="flex-1 accent-indigo-500" oninput="document.getElementById('perExchangeValue').innerText = this.value">
+                        <span id="perExchangeValue" class="font-mono text-sm w-8 text-center">30</span>
+                    </div>
+                </div>
+
+                <div class="flex items-end">
+                    <button onclick="startRecursiveTrace()" 
+                            class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 transition-all rounded-2xl font-semibold flex items-center justify-center gap-x-2 shadow-lg shadow-indigo-950">
+                        <i class="fa-solid fa-search"></i>
+                        <span>거래소 경유 입금 지갑 추적 시작</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status & Logs -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
+            <div class="lg:col-span-5 glass border border-zinc-700 rounded-3xl p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="section-header text-zinc-400">실시간 상태</div>
+                    <div id="statusBadge" class="px-3 py-1 text-xs rounded-2xl bg-zinc-800 text-zinc-400 flex items-center gap-x-1.5">
+                        <i class="fa-solid fa-circle text-xs"></i>
+                        <span>대기 중</span>
+                    </div>
+                </div>
+                
+                <div class="space-y-3 text-sm">
+                    <div class="flex justify-between items-center"><span class="text-zinc-400">방문한 주소</span><span id="visitedCount" class="font-mono font-semibold">0</span></div>
+                    <div class="flex justify-between items-center"><span class="text-zinc-400">발견된 거래소</span><span id="exchangeCount" class="font-mono font-semibold text-amber-400">0</span></div>
+                    <div class="flex justify-between items-center"><span class="text-zinc-400">발견된 입금 지갑</span><span id="personalCount" class="font-mono font-semibold text-emerald-400">0</span></div>
+                    <div class="flex justify-between items-center"><span class="text-zinc-400">사용된 크레딧</span><span id="creditsUsed" class="font-mono font-semibold">0</span></div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-7 glass border border-zinc-700 rounded-3xl p-5 flex flex-col">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="section-header text-zinc-400">실시간 로그</div>
+                    <button onclick="clearLogs()" class="text-xs px-3 py-1 hover:bg-zinc-800 rounded-xl transition-colors flex items-center gap-x-1">
+                        <i class="fa-solid fa-trash text-xs"></i><span>지우기</span>
+                    </button>
+                </div>
+                <div id="logContainer" class="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl p-3 text-xs font-mono overflow-auto max-h-[220px] space-y-1">
+                    <div class="text-zinc-500">로그가 여기에 표시됩니다...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results -->
+        <div id="resultsSection" class="hidden glass border border-zinc-700 rounded-3xl p-6">
+            <div class="flex items-center justify-between mb-5">
+                <div>
+                    <h3 class="font-semibold text-xl">추적 결과 — 개인 입금 지갑 목록</h3>
+                    <p class="text-sm text-zinc-400">최신 활동일자 기준 내림차순 정렬</p>
+                </div>
+                <div class="flex items-center gap-x-3">
+                    <button onclick="exportToCSV()" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm rounded-2xl flex items-center gap-x-2 transition-colors">
+                        <i class="fa-solid fa-download"></i><span>CSV 내보내기</span>
+                    </button>
+                    <button onclick="copyAddresses()" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm rounded-2xl flex items-center gap-x-2 transition-colors">
+                        <i class="fa-solid fa-copy"></i><span>주소 복사</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-zinc-800 text-left text-xs text-zinc-400">
+                            <th class="py-3 px-4 font-medium w-12">#</th>
+                            <th class="py-3 px-4 font-medium">지갑 주소</th>
+                            <th class="py-3 px-4 font-medium">최신 활동일자</th>
+                            <th class="py-3 px-4 font-medium">상호작용 거래소</th>
+                            <th class="py-3 px-4 font-medium text-right">추적 깊이</th>
+                            <th class="py-3 px-4 font-medium w-20"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsTableBody" class="divide-y divide-zinc-800">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let results = [];
+        let visitedAddresses = new Set();
+        let totalCredits = 0;
+
+        function addLog(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            let colorClass = 'text-zinc-400';
+            if (type === 'success') colorClass = 'text-emerald-400';
+            if (type === 'warning') colorClass = 'text-amber-400';
+            if (type === 'error') colorClass = 'text-red-400';
+            if (type === 'api') colorClass = 'text-sky-400';
+
+            logContainer.innerHTML += `<div class="log-line flex gap-x-3 ${colorClass}"><span class="text-zinc-500 w-[68px] flex-shrink-0">[${timestamp}]</span><span class="flex-1">${message}</span></div>`;
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logContainer').innerHTML = '<div class="text-zinc-500">로그가 여기에 표시됩니다...</div>';
+        }
+
+        function updateStats(visited, exchanges, personal, credits) {
+            document.getElementById('visitedCount').innerText = visited;
+            document.getElementById('exchangeCount').innerText = exchanges;
+            document.getElementById('personalCount').innerText = personal;
+            document.getElementById('creditsUsed').innerText = credits;
+        }
+
+        function updateStatus(text, color = 'emerald') {
+            const badge = document.getElementById('statusBadge');
+            badge.innerHTML = `<i class="fa-solid fa-circle text-xs"></i><span>${text}</span>`;
+            badge.className = `px-3 py-1 text-xs rounded-2xl flex items-center gap-x-1.5 bg-zinc-800 text-${color}-400`;
+        }
+
+        function saveApiKey() {
+            const key = document.getElementById('apiKey').value.trim();
+            if (key) localStorage.setItem('surf_api_key', key);
+        }
+
+        function loadApiKey() {
+            const saved = localStorage.getItem('surf_api_key');
+            if (saved) document.getElementById('apiKey').value = saved;
+        }
+
+        async function callSurfAPI(endpoint, params = {}) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) throw new Error('Surf API Key가 필요합니다.');
+
+            const query = new URLSearchParams(params).toString();
+            const url = `https://api.asksurf.ai/gateway/v1/${endpoint}?${query}`;
+
+            const res = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${apiKey}` }
+            });
+            if (!res.ok) throw new Error(`Surf API Error: ${res.status}`);
+            const data = await res.json();
+            if (data.meta?.credits_used) totalCredits += data.meta.credits_used;
+            return data;
+        }
+
+        async function findInteractedExchanges(address, chain) {
+            addLog(`[${address.slice(0,8)}...] 거래 내역 조회 중...`, 'api');
+            const history = await callSurfAPI('wallet/history', { address, chain, limit: 100 });
+
+            const counterparties = new Set();
+            history.data.forEach(tx => {
+                if (tx.from_address && tx.from_address !== address) counterparties.add(tx.from_address);
+                if (tx.to_address && tx.to_address !== address) counterparties.add(tx.to_address);
+            });
+
+            const addrList = Array.from(counterparties).slice(0, 80);
+            if (addrList.length === 0) return [];
+
+            const labels = await callSurfAPI('wallet/labels/batch', { addresses: addrList.join(',') });
+
+            const exchanges = [];
+            labels.data.forEach(item => {
+                const isExchange = item.entity_type === 'exchange' ||
+                    (item.entity_name && item.entity_name.toLowerCase().includes('exchange')) ||
+                    (item.labels && item.labels.some(l => l.label.toLowerCase().includes('hot') || l.label.toLowerCase().includes('binance')));
+                if (isExchange) exchanges.push({ address: item.address, entity_name: item.entity_name || 'Unknown Exchange' });
+            });
+            return exchanges;
+        }
+
+        async function findDepositorsToAddress(exchangeAddress, chain, maxCount = 30) {
+            const history = await callSurfAPI('wallet/history', { address: exchangeAddress, chain, limit: 200 });
+            const depositors = [];
+            let count = 0;
+            for (const tx of history.data) {
+                if (count >= maxCount) break;
+                if (tx.to_address === exchangeAddress && tx.from_address) {
+                    depositors.push({ address: tx.from_address });
+                    count++;
+                }
+            }
+            return depositors;
+        }
+
+        async function getLatestActivityDate(address, chain) {
+            try {
+                const h = await callSurfAPI('wallet/history', { address, chain, limit: 1, sort_by: 'timestamp', order: 'desc' });
+                return h.data?.[0] ? new Date(h.data[0].timestamp) : new Date(0);
+            } catch { return new Date(0); }
+        }
+
+        async function isPersonalWallet(address, chain) {
+            try {
+                const l = await callSurfAPI('wallet/labels/batch', { addresses: address });
+                if (l.data?.[0]) {
+                    const item = l.data[0];
+                    return !(item.entity_type === 'exchange' || item.entity_type === 'fund' || 
+                             ['binance','coinbase','okx','bybit'].some(e => item.entity_name?.toLowerCase().includes(e)));
+                }
+            } catch {}
+            return true;
+        }
+
+        async function startRecursiveTrace() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const startAddress = document.getElementById('walletAddress').value.trim();
+            const chain = document.getElementById('chain').value;
+            const maxDepth = parseInt(document.getElementById('maxDepth').value);
+            const maxPerExchange = parseInt(document.getElementById('maxPerExchange').value);
+
+            if (!apiKey || !startAddress) return alert('API Key와 주소를 입력하세요');
+
+            results = [];
+            visitedAddresses = new Set();
+            totalCredits = 0;
+            document.getElementById('resultsTableBody').innerHTML = '';
+            document.getElementById('resultsSection').classList.add('hidden');
+            clearLogs();
+
+            updateStatus('추적 중...', 'emerald');
+            addLog('=== Surf Deposit Source Tracer 시작 ===', 'success');
+
+            const personalWallets = new Map();
+            let currentLevel = [{ address: startAddress, depth: 0 }];
+            let level = 0;
+
+            try {
+                while (currentLevel.length > 0 && level < maxDepth) {
+                    level++;
+                    addLog(`\n=== 깊이 ${level} 단계 ===`, 'warning');
+                    const nextLevel = [];
+
+                    for (const current of currentLevel) {
+                        if (visitedAddresses.has(current.address)) continue;
+                        visitedAddresses.add(current.address);
+                        updateStats(visitedAddresses.size, document.getElementById('exchangeCount').innerText, personalWallets.size, totalCredits);
+
+                        const exchanges = await findInteractedExchanges(current.address, chain);
+                        document.getElementById('exchangeCount').innerText = parseInt(document.getElementById('exchangeCount').innerText) + exchanges.length;
+
+                        for (const ex of exchanges) {
+                            const depositors = await findDepositorsToAddress(ex.address, chain, maxPerExchange);
+                            for (const dep of depositors) {
+                                if (visitedAddresses.has(dep.address)) continue;
+                                const isPersonal = await isPersonalWallet(dep.address, chain);
+                                if (isPersonal && !personalWallets.has(dep.address)) {
+                                    const latestDate = await getLatestActivityDate(dep.address, chain);
+                                    personalWallets.set(dep.address, { latestDate, sources: ex.entity_name, depth: level });
+                                    results.push({ address: dep.address, latestDate, sources: ex.entity_name, depth: level });
+                                    updatePersonalWalletUI(dep.address, latestDate, ex.entity_name, level);
+                                }
+                                nextLevel.push({ address: dep.address, depth: level });
+                            }
+                        }
+                        await new Promise(r => setTimeout(r, 250));
+                    }
+                    currentLevel = nextLevel;
+                }
+
+                results.sort((a, b) => b.latestDate - a.latestDate);
+                document.getElementById('resultsSection').classList.remove('hidden');
+                updateStatus('완료', 'emerald');
+                addLog(`총 ${results.length}개 개인 입금 지갑 발견`, 'success');
+
+            } catch (e) {
+                addLog(`오류: ${e.message}`, 'error');
+                updateStatus('오류', 'red');
+            }
+        }
+
+        function updatePersonalWalletUI(address, latestDate, source, depth) {
+            const tbody = document.getElementById('resultsTableBody');
+            const dateStr = latestDate.toISOString().slice(0, 19).replace('T', ' ');
+            const row = document.createElement('tr');
+            row.className = 'result-row transition-colors';
+            row.innerHTML = `
+                <td class="py-3 px-4 text-zinc-400 font-mono text-xs">${tbody.children.length + 1}</td>
+                <td class="py-3 px-4"><div class="flex items-center gap-x-2"><span class="address font-medium">${address}</span><button onclick="navigator.clipboard.writeText('${address}')" class="text-zinc-500 hover:text-white"><i class="fa-solid fa-copy text-xs"></i></button></div></td>
+                <td class="py-3 px-4 font-mono text-xs text-emerald-400">${dateStr}</td>
+                <td class="py-3 px-4"><span class="inline-block px-3 py-1 bg-amber-950 text-amber-400 text-xs rounded-2xl">${source}</span></td>
+                <td class="py-3 px-4 text-right font-mono text-xs text-zinc-400">${depth}</td>
+                <td class="py-3 px-4 text-right"><a href="https://etherscan.io/address/${address}" target="_blank" class="text-indigo-400 hover:text-indigo-300"><i class="fa-solid fa-external-link-alt"></i></a></td>
+            `;
+            tbody.appendChild(row);
+            document.getElementById('personalCount').innerText = tbody.children.length;
+        }
+
+        function exportToCSV() {
+            if (!results.length) return;
+            let csv = '순위,지갑주소,최신활동일자,상호작용거래소,추적깊이\n';
+            results.forEach((r, i) => {
+                csv += `${i+1},${r.address},${r.latestDate.toISOString().slice(0,19).replace('T',' ')},${r.sources},${r.depth}\n`;
+            });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+            link.download = `deposit_tracer_${new Date().toISOString().slice(0,10)}.csv`;
+            link.click();
+        }
+
+        function copyAddresses() {
+            if (!results.length) return;
+            navigator.clipboard.writeText(results.map(r => r.address).join('\n'));
+        }
+
+        function initialize() {
+            loadApiKey();
+            addLog('Surf Deposit Source Tracer 준비 완료', 'info');
+            addLog('API Key 입력 후 시작 지갑 주소를 넣고 추적 버튼을 누르세요.', 'info');
+            
+            // 예시 주소 버튼 (개발용)
+            const example = document.createElement('button');
+            example.className = 'ml-2 text-xs px-2 py-0.5 bg-zinc-800 rounded';
+            example.textContent = '예시 (Vitalik)';
+            example.onclick = () => {
+                document.getElementById('walletAddress').value = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
+                document.getElementById('chain').value = 'ethereum';
+            };
+            document.querySelector('#walletAddress').parentElement.appendChild(example);
+        }
+
+        window.onload = initialize;
+    </script>
+</body>
+</html>
