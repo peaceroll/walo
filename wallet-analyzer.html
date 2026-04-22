@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wallet Analyzer v18 • Clean Architecture</title>
+    <title>Wallet Analyzer v18 • Clean + Proxy</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
@@ -27,7 +27,7 @@
                 </div>
                 <div>
                     <h1 class="font-display text-3xl font-semibold tracking-tighter">Wallet Analyzer</h1>
-                    <p class="text-[10px] text-zinc-500 -mt-1">v18 • Clean Architecture</p>
+                    <p class="text-[10px] text-zinc-500 -mt-1">v18 • Clean + Proxy</p>
                 </div>
             </div>
             
@@ -51,7 +51,7 @@
                 <i class="fa-solid fa-chart-line text-4xl text-indigo-400"></i>
             </div>
             <h2 class="text-4xl font-bold tracking-tighter mb-4">Wallet Cluster Analyzer</h2>
-            <p class="max-w-md mx-auto text-zinc-400 mb-8">기존의 강력한 클러스터링 및 거래소 추정 기능을 사용하세요.</p>
+            <p class="max-w-md mx-auto text-zinc-400 mb-8">기존 클러스터링 기능을 사용하세요.</p>
             <a href="https://peaceroll.github.io/walo/wallet-analyzer-surf.html" target="_blank"
                class="px-8 py-4 bg-white text-zinc-950 rounded-3xl font-semibold inline-flex items-center gap-x-3 hover:bg-zinc-100 transition-all">
                 <span>기존 Analyzer 바로가기</span>
@@ -60,18 +60,17 @@
         </div>
     </div>
 
-    <!-- TAB 1: Deposit Tracer v18 Clean -->
+    <!-- TAB 1: Deposit Tracer (Proxy 적용) -->
     <div id="tab-1" class="tab-content hidden max-w-screen-2xl mx-auto px-8 py-8">
-        
         <div class="flex items-end justify-between mb-8">
             <div>
                 <div class="flex items-center gap-x-3">
                     <div class="px-4 py-1 bg-emerald-600 text-white text-xs font-bold rounded-2xl flex items-center gap-x-1.5">
-                        <i class="fa-solid fa-rocket"></i><span>CLEAN v18</span>
+                        <i class="fa-solid fa-rocket"></i><span>PROXY ENABLED v18</span>
                     </div>
                     <h2 class="text-4xl font-bold tracking-tighter">Deposit Source Tracer</h2>
                 </div>
-                <p class="text-zinc-400 mt-2">Surf API 기반 재귀적 입금 지갑 추적 • 클래스 기반 아키텍처</p>
+                <p class="text-zinc-400 mt-2">프록시 사용 중 (CORS 우회)</p>
             </div>
         </div>
 
@@ -128,6 +127,11 @@
                     </button>
                 </div>
             </div>
+            
+            <div class="mt-3 text-xs text-emerald-400 flex items-center gap-x-2">
+                <i class="fa-solid fa-check-circle"></i>
+                <span>프록시 사용 중 (localhost:8080/surf)</span>
+            </div>
         </div>
 
         <!-- Live Stats -->
@@ -173,7 +177,7 @@
             <div class="flex justify-between items-center mb-5">
                 <div>
                     <h3 class="font-bold text-2xl">추적 결과</h3>
-                    <p class="text-sm text-zinc-400">최신 활동일자 순 • Clean Architecture 적용</p>
+                    <p class="text-sm text-zinc-400">최신 활동일자 순</p>
                 </div>
                 <div class="flex gap-x-3">
                     <button onclick="window.tracerUI.exportCSV()" class="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-2xl text-sm flex items-center gap-x-2">
@@ -204,11 +208,12 @@
 
     <script>
         // ============================================
-        // SurfAPIClient
+        // SurfAPIClient (프록시 적용)
         // ============================================
         class SurfAPIClient {
             constructor() {
-                this.baseURL = 'https://api.asksurf.ai/gateway/v1';
+                // ★ 프록시 사용 (proxy.py 실행 후)
+                this.baseURL = 'http://localhost:8080/surf';
                 this.labelCache = new Map();
                 this.totalCredits = 0;
             }
@@ -224,21 +229,21 @@
                     headers: { 'Authorization': `Bearer ${apiKey}` }
                 });
 
-                if (!res.ok) throw new Error(`Surf API Error: ${res.status}`);
+                if (!res.ok) throw new Error(`API Error: ${res.status}`);
                 const data = await res.json();
                 if (data.meta?.credits_used) this.totalCredits += data.meta.credits_used;
                 return data;
             }
 
             async getWalletHistory(address, chain, limit = 100) {
-                return this.call('wallet/history', { address, chain, limit });
+                return this.call('gateway/v1/wallet/history', { address, chain, limit });
             }
 
             async getLabelsBatch(addresses) {
                 if (addresses.length === 0) return { data: [] };
                 const key = addresses.join(',');
                 if (this.labelCache.has(key)) return this.labelCache.get(key);
-                const data = await this.call('wallet/labels/batch', { addresses: key });
+                const data = await this.call('gateway/v1/wallet/labels/batch', { addresses: key });
                 this.labelCache.set(key, data);
                 return data;
             }
@@ -247,7 +252,7 @@
         }
 
         // ============================================
-        // DepositTracer
+        // DepositTracer (이전과 동일)
         // ============================================
         class DepositTracer {
             constructor(apiClient) {
@@ -370,7 +375,8 @@
             init() {
                 this.loadApiKey();
                 this.addExampleButton();
-                this.log('Clean Architecture v18 준비 완료', 'success');
+                this.log('프록시 적용 Clean Architecture v18 준비 완료', 'success');
+                this.log('proxy.py를 먼저 실행해주세요 (python3 proxy.py)', 'info');
             }
 
             log(msg, type = 'info') {
@@ -434,7 +440,7 @@
 
                 this.updateStatus('추적 중...', 'emerald');
                 this.updateStats(0, 0, 0, 0);
-                this.log('=== v18 Clean Tracer 시작 ===', 'success');
+                this.log('=== v18 Clean Tracer 시작 (프록시 사용) ===', 'success');
 
                 try {
                     const results = await this.tracer.trace(address, chain, maxDepth, maxPer, (msg, type) => this.log(msg, type));
