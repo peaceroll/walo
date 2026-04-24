@@ -410,8 +410,10 @@ class SurfClient{
     }catch(e){
       if(e.message?.includes('Credit 한도'))throw e;
       if(e.name==='TypeError'){
+        // Render 콜드스타트 등 일시적 연결 실패: 1회 재시도
+        if(retry<1){await new Promise(r=>setTimeout(r,2000));return this._req(method,path,opts,retry+1);}
         document.getElementById('proxy-error').style.display='block';
-        document.getElementById('proxy-error-msg').textContent=this.base.includes('api.asksurf.ai')?'CORS/네트워크 오류. Proxy URL을 입력해보세요.':`proxy.py가 ${this.base.split('/gateway')[0]} 에서 실행 중인지 확인하세요.`;
+        document.getElementById('proxy-error-msg').textContent=this.base.includes('api.asksurf.ai')?'CORS/네트워크 오류. Proxy URL을 입력해보세요.':`프록시 연결 실패 (${this.base.split('/gateway')[0]}). 서버가 실행 중인지 확인하세요.`;
         throw new Error(e.message);
       }
       throw e;
@@ -484,6 +486,33 @@ async function startAnalysis(){
   log(`지갑 ${valid.length}개  |  Depth: ${maxDepth}  |  Credit 한도: ${maxCredit}`,'header');
   log(`Surf 역추적 체인: ${chains.join(', ')}`,'header');
   log('');
+  // ── 프록시 연결 확인 ──
+  if(proxyUrl){
+    log('🔌 프록시 연결 확인 중…','header');setPhase('프록시 연결 확인');
+    const pingBase=proxyUrl.replace(/\/+$/,'')+'/gateway/v1';
+    const pingUrl=pingBase+'/wallet/transfers?address=0x0000000000000000000000000000000000000001&chain=base&flow=in&limit=1';
+    let pingOk=false;
+    for(let attempt=0;attempt<7;attempt++){
+      try{
+        const r=await fetch(pingUrl,{headers:{'x-api-key':apiKey,'Content-Type':'application/json'},mode:'cors',signal:AbortSignal.timeout(6000)});
+        if(r.ok||r.status===400||r.status===401||r.status===422){pingOk=true;break;}
+      }catch(e){}
+      if(attempt===0)log('  ⏳ Render 서버 웜업 중… (최대 35초)','warn');
+      setPhase('프록시 웜업',`재시도 ${attempt+1}/7…`);
+      await new Promise(r=>setTimeout(r,5000));
+    }
+    if(!pingOk){
+      log('  ❌ 프록시 연결 실패. Proxy URL을 확인하거나 local proxy.py를 실행하세요.','error');
+      document.getElementById('proxy-error').style.display='block';
+      document.getElementById('proxy-error-msg').textContent=`프록시(${proxyUrl})에 연결할 수 없습니다. 서버가 실행 중인지 확인하세요.`;
+      _running=false;
+      document.getElementById('startBtn').disabled=false;
+      document.getElementById('stopBtn').style.display='none';
+      setPhase('연결 실패','');
+      return;
+    }
+    log('  ✅ 프록시 연결 확인','done');
+  }
   try{
     // ── Phase 1: Arkham CSV ──
     log('─'.repeat(44),'header');
