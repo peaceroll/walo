@@ -1105,7 +1105,7 @@ function classify(items) {
 // ════════════════════════════════════════════════════════
 const CHAIN_SQL = {
   'base':      { table: 'base',      days: 90,  limit: 2000 },
-  'bsc':       { table: 'bsc',       days: 30,  limit: 500  },
+  'bsc':       { table: 'bsc',       days: 90,  limit: 1000 },
   'arbitrum':  { table: 'arbitrum',  days: 90,  limit: 2000 },
   'ethereum':  { table: 'ethereum',  days: 30,  limit: 300  },
 };
@@ -1185,8 +1185,9 @@ class SurfClient {
     const unique = [...new Set(addresses.filter(a => a?.startsWith("0x")))];
     if (!unique.length) return [];
     const out = [];
-    for (let i = 0; i < unique.length; i += 100) {
-      const batch = unique.slice(i, i + 100).sort();
+    // 원본 앱 코드 확인: "20개씩 배치 분할 (100개는 400 오류 발생)"
+    for (let i = 0; i < unique.length; i += 20) {
+      const batch = unique.slice(i, i + 20).sort();
       const key = `lb:${chain}:${batch.join(",")}`;
       if (this._cache[key]) { out.push(...this._cache[key]); continue; }
       this._checkCredit(0); // 사전 예상 없이 실제 사용 후 체크
@@ -1271,7 +1272,19 @@ async function* bfsTrace(startAddr, chains, maxDepth, yearFilter, client) {
           // ② 목적지 라벨링 → 거래소 입금 주소 추출
           const labeled = await client.labelsBatch(toAddrs, chain);
           const cats = classify(labeled);
-          yield { log: `  → 거래소 입금: ${cats.deposits.length}개 / 라벨 응답: ${labeled.length}개` };
+
+          // 디버그: 라벨 결과 상세 출력
+          const exchTypes = labeled.filter(l => l.entity_type === 'exchange');
+          const depLabels = labeled.filter(l => (l.labels||[]).some(x => /deposit/i.test(x.label||'')));
+          yield { log: `  → 라벨 응답: ${labeled.length}개 | entity_type=exchange: ${exchTypes.length}개 | deposit 키워드: ${depLabels.length}개 | 거래소 입금: ${cats.deposits.length}개` };
+
+          if (exchTypes.length > 0 && cats.deposits.length === 0) {
+            // exchange 타입이 있는데 deposit으로 안 잡힌 경우 — 원인 출력
+            for (const e of exchTypes.slice(0, 3)) {
+              const ltext = (e.labels||[]).map(l=>l.label).join(', ');
+              yield { log: `    ⚠ exchange 미분류: name="${e.entity_name}" labels="${ltext.slice(0,60)}"`, cls: "warn" };
+            }
+          }
 
           for (const dep of cats.deposits) {
             if (!deposits[dep.address]) {
