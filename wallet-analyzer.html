@@ -1048,14 +1048,13 @@ tr:hover td { background: var(--surface2); }
 
 <script>
 // ════════════════════════════════════════════════════════
-// 필터 로직 (개선 완료 - hot/cold wallet 문제 해결)
+// 필터 로직 (DEBUG + 개선 버전)
 // ════════════════════════════════════════════════════════
 const CEX = new Set([
   "Binance","Coinbase","Kraken","OKX","Bybit","Gate.io",
   "KuCoin","Bitget","HTX","MEXC","Crypto.com","Upbit","Bithumb"
 ]);
 
-// hot/cold wallet 제외 → Bybit Deposit 등 실제 입금 주소는 살아남음
 const RE_EXCLUDE = /\b(proxy|router|aggregator|1inch|uniswap|pancakeswap|sushiswap|quickswap|paraswap|smart.?contract|dex|liquidity.?pool|swap.?contract|amm|factory|pair.?contract|bridge|wormhole|layerzero|stargate|axelar|withdrawal)\b/i;
 
 const NOT_PERSONAL = new Set(["exchange","contract","proxy","fund","dex","bridge","router"]);
@@ -1067,12 +1066,9 @@ function labelText(item) {
 function isExchangeDeposit(item) {
   if (item.entity_type !== "exchange") return false;
   if (!CEX.has(item.entity_name)) return false;
-  
   const txt = labelText(item);
   if (RE_EXCLUDE.test(txt)) return false;
-  
-  // CEX로 라벨링된 주소는 모두 입금 주소로 인정 (deposit 키워드 요구 완전 제거)
-  return true;
+  return true;                    // ← CEX면 무조건 입금 주소로 인정
 }
 
 function isPersonalWallet(item) {
@@ -1090,7 +1086,6 @@ function classify(items) {
   }
   return { deposits, personal, rejected };
 }
-
 // ════════════════════════════════════════════════════════
 // 나머지 코드는 그대로 두세요 (아래부터 SurfClient 클래스까지)
 // ════════════════════════════════════════════════════════// ────────────────────────────────────────────────────────
@@ -1233,18 +1228,19 @@ async function* bfsTrace(startAddr, chains, maxDepth, yearFilter, client) {
           const toAddrs = [...new Set(outTxs.map(t => t.to_address).filter(Boolean))];
           if (!toAddrs.length) continue;
 
-          // ② to_address 라벨링 → 거래소 입금 주소
+                    // ② to_address 라벨링 → 거래소 입금 주소
           const labeled = await client.labelsBatch(toAddrs, chain);
-          const cats = classify(labeled);
-
-          for (const dep of cats.deposits) {
-            if (!deposits[dep.address]) {
-              deposits[dep.address] = { ...dep, chain, depth: depth + 1 };
-              yield { log: `✅ [${chain}] ${dep.entity_name}  ${dep.address?.slice(0,16)}…`, cls: "deposit", item: { type: "deposit", ...deposits[dep.address] } };
-              updateTable("deposits", deposits);
-            }
+          
+          // 🔥 디버그 로그 추가
+          yield { log: `[DEBUG ${chain}] ${toAddrs.length}개 주소 → ${labeled.length}개 라벨 수신`, cls: "header" };
+          if (labeled.length > 0) {
+            labeled.forEach(item => {
+              const txt = labelText(item);
+              yield { log: `   → ${item.entity_type || '?'} | ${item.entity_name || '?'} | ${txt} | ${item.address?.slice(0,12)}...`, cls: "" };
+            });
           }
-
+          
+          const cats = classify(labeled);
           // ③ 각 거래소 입금 주소 → 인커밍 → 개인 지갑
           for (const dep of cats.deposits) {
             if (!_running) break;
