@@ -150,6 +150,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
     </div>
   </div>
   <button class="btn-start" id="startBtn" onclick="startAnalysis()">▶ 분석 시작</button>
+  <button class="btn-start" id="phase1Btn" onclick="startAnalysis(true)" style="background:var(--surface3);color:var(--accent);border:1px solid var(--accent-dim);margin-top:0">📂 Phase 1만 실행</button>
   <button class="btn-stop" id="stopBtn" onclick="stopAnalysis()">⏹ 중단</button>
   <!-- 진행 상태 -->
   <div class="progress-box" id="progressBox" style="display:none">
@@ -336,6 +337,8 @@ async function handleDepositFileChange(event,id){
     statusEl.textContent=`❌ ${e.message}`;
   }
 }
+
+async function parseZipOrCSV(file){
   if(file.name.toLowerCase().endsWith('.zip')){
     const zip=await JSZip.loadAsync(file);
     let allRows=[];
@@ -523,7 +526,7 @@ function filterDate(txs,cutoff){
 let _running=false,_client=null,_deposits={},_personal={};
 
 // ── 분석 시작 ──
-async function startAnalysis(){
+async function startAnalysis(phase1Only=false){
   const apiKey=document.getElementById('apiKey').value.trim();
   if(!apiKey){alert('Surf API Key를 입력하세요.');return;}
   const valid=walletEntries.filter(e=>e.address.trim()&&e.csvRows.length>0);
@@ -537,6 +540,7 @@ async function startAnalysis(){
   _client=new SurfClient(apiKey,proxyUrl,maxCredit);
   document.getElementById('proxy-error').style.display='none';
   document.getElementById('startBtn').disabled=true;
+  document.getElementById('phase1Btn').disabled=true;
   document.getElementById('stopBtn').style.display='block';
   document.getElementById('progressBox').style.display='block';
   setPhase('준비 중…','');
@@ -602,6 +606,12 @@ async function startAnalysis(){
       seedSet.add(seed);
     }
     log(`\n📊 Phase 1 완료: 거래소 입금 주소 ${Object.keys(_deposits).length}개`,'done');
+
+    if(phase1Only){
+      log('\n📂 Phase 1 전용 모드 — Surf API 역추적 생략','header');
+      log(`분석 완료  |  Credit: ${_client.creditUsed.toLocaleString()}`,'done');
+      return;
+    }
 
     // ── Phase 2: 인바운드 역추적 (CSV 우선 → Surf 폴백) ──
     log('');
@@ -811,6 +821,7 @@ async function startAnalysis(){
   }finally{
     _running=false;
     document.getElementById('startBtn').disabled=false;
+    document.getElementById('phase1Btn').disabled=false;
     document.getElementById('stopBtn').style.display='none';
     document.getElementById('spinner').style.animation='none';
     document.getElementById('spinner').style.borderTopColor='var(--accent-dim)';
