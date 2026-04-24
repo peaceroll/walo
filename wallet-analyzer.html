@@ -1148,9 +1148,15 @@ class SurfClient {
           total: this.creditUsed,
         });
         updateCredit(this.creditUsed, this.maxCredit);
+        // 실제 사용 후 한도 초과 확인 → 다음 호출에서 차단
+        if (this.creditUsed >= this.maxCredit) {
+          throw new Error(`Credit 한도 도달: ${this.creditUsed} / ${this.maxCredit}`);
+        }
       }
       return body?.data ?? [];
     } catch (e) {
+      // Credit 한도 에러는 그대로 전파
+      if (e.message?.includes("Credit 한도")) throw e;
       // TypeError = 네트워크 실패 (연결 거부 또는 CORS)
       if (e.name === "TypeError") {
         const errEl = document.getElementById("proxy-error");
@@ -1168,7 +1174,9 @@ class SurfClient {
   }
 
   _checkCredit(cost) {
-    if (this.creditUsed + cost > this.maxCredit) {
+    // 실제 사용량이 한도를 이미 초과한 경우만 차단
+    // (사전 예상치로 차단하면 labelsBatch 등이 과다 추정으로 막힘)
+    if (this.creditUsed >= this.maxCredit) {
       throw new Error(`Credit 한도 도달: ${this.creditUsed} / ${this.maxCredit}`);
     }
   }
@@ -1181,8 +1189,9 @@ class SurfClient {
       const batch = unique.slice(i, i + 100).sort();
       const key = `lb:${chain}:${batch.join(",")}`;
       if (this._cache[key]) { out.push(...this._cache[key]); continue; }
-      this._checkCredit(Math.max(batch.length * 2, 10));
-      const params = new URLSearchParams({ addresses: batch.join(","), chain });
+      this._checkCredit(0); // 사전 예상 없이 실제 사용 후 체크
+      const params = new URLSearchParams({ addresses: batch.join(",") });
+      // chain 파라미터: 원본 앱 분석 결과 생략해도 동작함
       const data = await this._request("GET", `/wallet/labels/batch?${params}`);
       this._cache[key] = data;
       out.push(...data);
@@ -1192,10 +1201,9 @@ class SurfClient {
 
   async sql(query) {
     // Onchain SQL — agent.{chain}_transfers 테이블 직접 조회
-    // REST /wallet/transfers 대신 사용 (필드명 호환, 더 빠름)
     const key = `sql:${query.replace(/\s+/g,' ')}`;
     if (this._cache[key]) return this._cache[key];
-    this._checkCredit(30);
+    this._checkCredit(0); // 실제 비용은 응답에서 추적
     const data = await this._request("POST", "/onchain/sql", {
       body: JSON.stringify({ sql: query })
     });
