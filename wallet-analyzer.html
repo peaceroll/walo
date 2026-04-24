@@ -435,8 +435,8 @@ class SurfClient{
       const key=`lb:${chain}:${batch.join(',')}`;
       if(this._cache[key]){out.push(...this._cache[key]);continue;}
       this._check();
-      const p=new URLSearchParams({addresses:batch.join(',')});
-      const data=await this._req('GET',`/wallet/labels/batch?${p}`);
+      const qs=`addresses=${batch.join(',')}`;
+      const data=await this._req('GET',`/wallet/labels/batch?${qs}`);
       this._cache[key]=data;out.push(...data);
     }
     return out;
