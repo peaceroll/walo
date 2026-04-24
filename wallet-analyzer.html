@@ -78,6 +78,17 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .empty-state .icon{font-size:32px;margin-bottom:10px}
 .dl-wrap{padding:20px;display:flex;flex-direction:column;gap:10px}
 .dl-section-label{font-size:10px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;font-family:var(--mono);margin-top:8px}
+.progress-box{padding:10px 14px 6px;border-top:1px solid var(--border)}
+.progress-phase{font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:5px;display:flex;align-items:center;gap:6px}
+.spinner{width:8px;height:8px;border:1.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.progress-task{font-size:10px;color:var(--text-muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px;min-height:14px}
+.progress-counts{display:flex;gap:10px;margin-bottom:8px}
+.pcount{display:flex;flex-direction:column;align-items:center;flex:1}
+.pcount-val{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--text);line-height:1}
+.pcount-label{font-size:8px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-top:2px}
+.pcount-val.deposit-color{color:var(--accent)}
+.pcount-val.personal-color{color:var(--blue)}
 #proxy-error{display:none;background:rgba(255,92,92,.08);border:1px solid rgba(255,92,92,.3);border-radius:var(--radius);padding:10px 12px;margin:10px 14px 0}
 #proxy-error p{font-size:11px;color:var(--red)}
 </style>
@@ -140,8 +151,33 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   </div>
   <button class="btn-start" id="startBtn" onclick="startAnalysis()">▶ 분석 시작</button>
   <button class="btn-stop" id="stopBtn" onclick="stopAnalysis()">⏹ 중단</button>
+  <!-- 진행 상태 -->
+  <div class="progress-box" id="progressBox" style="display:none">
+    <div class="progress-phase">
+      <div class="spinner" id="spinner"></div>
+      <span id="phaseText">준비 중…</span>
+    </div>
+    <div class="progress-task" id="taskText"></div>
+    <div class="progress-counts">
+      <div class="pcount">
+        <span class="pcount-val deposit-color" id="pDeposit">0</span>
+        <span class="pcount-label">거래소</span>
+      </div>
+      <div class="pcount" style="border-left:1px solid var(--border);border-right:1px solid var(--border)">
+        <span class="pcount-val personal-color" id="pPersonal">0</span>
+        <span class="pcount-label">개인지갑</span>
+      </div>
+      <div class="pcount">
+        <span class="pcount-val" id="pCredit">0</span>
+        <span class="pcount-label">Credit</span>
+      </div>
+    </div>
+  </div>
   <div class="credit-bar-wrap">
-    <div class="credit-label"><span>CREDIT</span><span id="creditText">0 / 100</span></div>
+    <div class="credit-label">
+      <span>CREDIT</span>
+      <span id="creditText">0 / 100</span>
+    </div>
     <div class="credit-bar"><div class="credit-bar-inner" id="creditBar" style="width:0%"></div></div>
   </div>
 </aside>
@@ -441,6 +477,8 @@ async function startAnalysis(){
   document.getElementById('proxy-error').style.display='none';
   document.getElementById('startBtn').disabled=true;
   document.getElementById('stopBtn').style.display='block';
+  document.getElementById('progressBox').style.display='block';
+  setPhase('준비 중…','');
   clearTerm();clearTables();
   log(`SurfTracer v3.0  |  ${new Date().toLocaleString('ko-KR')}`,'header');
   log(`지갑 ${valid.length}개  |  Depth: ${maxDepth}  |  Credit 한도: ${maxCredit}`,'header');
@@ -449,14 +487,14 @@ async function startAnalysis(){
   try{
     // ── Phase 1: Arkham CSV ──
     log('─'.repeat(44),'header');
-    log('Phase 1: Arkham CSV → 거래소 입금 주소 추출','header');
+    log('Phase 1: Arkham CSV → 거래소 입금 주소 추출','header');setPhase('Phase 1: CSV 파싱');
     log('─'.repeat(44),'header');
     const cutoff=getCutoff(yearFilter);
     const seedSet=new Set();
     for(const entry of valid){
       if(!_running)break;
       const seed=entry.address.trim().toLowerCase();
-      log(`\n📂 [${entry.address.slice(0,16)}…] CSV ${entry.csvRows.length}행 분석 중…`);
+      log(`\n📂 [${entry.address.slice(0,16)}…] CSV ${entry.csvRows.length}행 분석 중…`);setPhase('Phase 1: CSV 파싱',`📂 ${entry.address.slice(0,14)}… (${entry.csvRows.length}행)`);
       const depMap=extractDepositsFromCSV(entry.csvRows,seed);
       log(`  → 거래소 입금 주소 ${depMap.size}개 발견 (Arkham 기준)`,'deposit');
       for(const[addr,info]of depMap){
@@ -469,7 +507,7 @@ async function startAnalysis(){
         }
         log(`  ✅ ${info.entity_name}  ${addr.slice(0,16)}… [[...info.chains].join(',')]  (${info.tx_cnt}건)`,'deposit');
       }
-      updateTable('deposits');
+      updateTable('deposits');updateProgress();
       seedSet.add(seed);
     }
     log(`\n📊 Phase 1 완료: 거래소 입금 주소 ${Object.keys(_deposits).length}개`,'done');
@@ -477,7 +515,7 @@ async function startAnalysis(){
     // ── Phase 2: Surf API 역추적 ──
     log('');
     log('─'.repeat(44),'header');
-    log('Phase 2: Surf API → 개인지갑 역추적','header');
+    log('Phase 2: Surf API → 개인지갑 역추적','header');setPhase('Phase 2: Surf 역추적');
     log('─'.repeat(44),'header');
     const visited=new Set([...Object.keys(_deposits),...seedSet]);
     let currentPersonal=[];
@@ -489,7 +527,7 @@ async function startAnalysis(){
       const depInfo=_deposits[depAddr];
       const surfChains=(depInfo.chains||[]).filter(c=>chains.includes(c));
       if(!surfChains.length)continue;
-      log(`\n  [${depInfo.entity_name}] ${depAddr.slice(0,16)}… 인바운드 조회`);
+      log(`\n  [${depInfo.entity_name}] ${depAddr.slice(0,16)}… 인바운드 조회`);setPhase('Phase 2: Surf 역추적',`🔍 ${depInfo.entity_name} 인바운드 [${surfChains.join(',')}]`);
       for(const chain of surfChains){
         if(!_running)break;
         try{
@@ -512,8 +550,8 @@ async function startAnalysis(){
             const lbl=tx.from_label||tx.fromLabel||{};
             if(fr&&lbl&&!flMap[fr])flMap[fr]={entity_type:lbl.entity_type||'',entity_name:lbl.entity_name||''};
           }
-          // labels/batch 보완
-          const needB=cands.filter(a=>!flMap[a]);
+          // labels/batch 보완 (entity_type 미확인 주소도 재조회)
+          const needB=cands.filter(a=>!flMap[a]||!flMap[a].entity_type);
           if(needB.length){try{const lb=await _client.labelsBatch(needB,chain);for(const l of lb){const la=l.address?.toLowerCase();if(la)flMap[la]=l;}}catch(e){if(e.message?.includes('Credit 한도'))throw e;}}
           // 포이즈닝
           const ck=a=>a.slice(2,6)+'|'+a.slice(-6);
@@ -530,7 +568,7 @@ async function startAnalysis(){
             _personal[fr]={address:fr,entity_name:item.entity_name||'',entity_type:item.entity_type||'',chain,depth:1,tx_cnt:sc[fr],via_deposit:depAddr,via_exchange:depInfo.entity_name};
             visited.add(fr);currentPersonal.push(fr);added++;
             log(`    👤 [${chain}] ${fr.slice(0,16)}… (TX ${sc[fr]}건)`,'personal');
-            updateTable('personal');
+            updateTable('personal');updateProgress();
           }
           log(`    [${chain}] 발신자 ${cands.length}명 → 개인지갑 ${added}명`);
         }catch(e){
@@ -548,6 +586,7 @@ async function startAnalysis(){
       log('');
       log(`${'─'.repeat(44)}`,'header');
       log(`Depth ${d+1}/${maxDepth}  —  ${currentPersonal.length}개 개인지갑 아웃고잉 탐색`,'header');
+      setPhase(`Depth ${d+1}/${maxDepth} — 아웃고잉 탐색`);
       log('─'.repeat(44),'header');
       const nextPersonal=[];
       const newDepAddrs=[];
@@ -574,6 +613,29 @@ async function startAnalysis(){
           }catch(e){if(e.message?.includes('Credit 한도'))throw e;}
         }
       }
+      // '알 수 없는 거래소' 재조회: entity_name 미확인 입금 주소 labelsBatch로 보완
+      const unknownDeps=newDepAddrs.filter(x=>!x.entity_name||x.entity_name==='알 수 없는 거래소');
+      if(unknownDeps.length){
+        const byChain={};
+        for(const{addr,chain}of unknownDeps)(byChain[chain]=byChain[chain]||[]).push(addr);
+        for(const[ch,addrs]of Object.entries(byChain)){
+          try{
+            const lb=await _client.labelsBatch(addrs,ch);
+            for(const l of lb){
+              const la=l.address?.toLowerCase();
+              if(!la)continue;
+              const resolved=l.entity_name||'';
+              if(resolved){
+                if(_deposits[la])_deposits[la].entity_name=resolved;
+                const nd=newDepAddrs.find(x=>x.addr===la);
+                if(nd)nd.entity_name=resolved;
+              }
+            }
+          }catch(e){if(e.message?.includes('Credit 한도'))throw e;}
+        }
+        updateTable('deposits');
+      }
+
       // 새 입금 주소 인바운드 조회
       for(const{addr,chain,entity_name}of newDepAddrs){
         if(!_running)break;
@@ -600,7 +662,7 @@ async function startAnalysis(){
             _personal[fr]={address:fr,entity_name:item.entity_name||'',entity_type:item.entity_type||'',chain,depth:d+1,tx_cnt:sc[fr],via_deposit:addr,via_exchange:entity_name};
             visited.add(fr);nextPersonal.push(fr);
             log(`    👤 [${chain}] ${fr.slice(0,16)}… (TX ${sc[fr]}건)`,'personal');
-            updateTable('personal');
+            updateTable('personal');updateProgress();
           }
         }catch(e){if(e.message?.includes('Credit 한도'))throw e;_client.errorLog.push({time:new Date().toISOString(),addr,chain,error:e.message});log(`    ❌ [${chain}] ${e.message}`,'error');}
       }
@@ -614,6 +676,10 @@ async function startAnalysis(){
     _running=false;
     document.getElementById('startBtn').disabled=false;
     document.getElementById('stopBtn').style.display='none';
+    document.getElementById('spinner').style.animation='none';
+    document.getElementById('spinner').style.borderTopColor='var(--accent-dim)';
+    setPhase('완료','');
+    updateProgress();
   }
 }
 
@@ -643,6 +709,18 @@ function updateCredit(used,max){
   const bar=document.getElementById('creditBar');
   bar.style.width=pct+'%';
   bar.style.background=pct>=80?'var(--red)':pct>=60?'var(--yellow)':'var(--accent)';
+  document.getElementById('pCredit').textContent=used;
+}
+
+function setPhase(phase, task){
+  document.getElementById('phaseText').textContent=phase||'';
+  if(task!==undefined)document.getElementById('taskText').textContent=task||'';
+}
+
+function updateProgress(){
+  document.getElementById('pDeposit').textContent=Object.keys(_deposits).length;
+  document.getElementById('pPersonal').textContent=Object.keys(_personal).length;
+  document.getElementById('pCredit').textContent=_client?.creditUsed||0;
 }
 function updateTable(type){
   if(type==='deposits'){
@@ -719,7 +797,7 @@ function downloadDiagLog(){
 function downloadFullDiag(){
   const t=document.getElementById('terminal');
   const lines=t?[...t.querySelectorAll('.log-line')].map(el=>el.textContent):[];
-  dlFile(JSON.stringify({meta:{timestamp:new Date().toISOString(),credit_used:_client?.creditUsed||0,deposits:Object.keys(_deposits).length,personal:Object.keys(_personal).length},exchange_deposits:Object.values(_deposits),personal_wallets:Object.values(_personal),credit_log:_client?.creditLog||[],error_log:_client?.errorLog||[],terminal_log:lines},null,2),`full_diag_${ts()}.json`,'application/json');
+  dlFile(JSON.stringify({meta:{timestamp:new Date().toISOString(),credit_used:_client?.creditUsed||0,deposits:Object.keys(_deposits).length,personal:Object.keys(_personal).length},wallet_entries:walletEntries.map(e=>({address:e.address,file:e.file?.name||null,csv_rows:e.csvRows.length})),exchange_deposits:Object.values(_deposits),personal_wallets:Object.values(_personal),credit_log:_client?.creditLog||[],error_log:_client?.errorLog||[],terminal_log:lines},null,2),`full_diag_${ts()}.json`,'application/json');
 }
 
 // ── 초기화 ──
