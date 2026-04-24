@@ -1047,9 +1047,7 @@ tr:hover td { background: var(--surface2); }
 </div>
 
 <script>
-// ════════════════════════════════════════════════════════
-// 필터 로직 (Python filters.py 완전 이식)
-// ════════════════════════════════════════════════════════
+// ── 기존 필터 로직 교체 ─────────────────────────────────────
 const CEX = new Set([
   "Binance","Coinbase","Kraken","OKX","Bybit","Gate.io",
   "KuCoin","Bitget","HTX","MEXC","Crypto.com","Upbit","Bithumb"
@@ -1057,39 +1055,27 @@ const CEX = new Set([
 
 const RE_EXCLUDE = /\b(proxy|router|aggregator|1inch|uniswap|pancakeswap|sushiswap|quickswap|paraswap|smart.?contract|dex|liquidity.?pool|swap.?contract|amm|factory|pair.?contract|bridge|wormhole|layerzero|stargate|axelar|hot.?wallet|cold.?wallet|cold.?storage|withdrawal)\b/i;
 
-const RE_DEPOSIT = /\b(deposit|입금)\b/i;
-
 const NOT_PERSONAL = new Set(["exchange","contract","proxy","fund","dex","bridge","router"]);
 
-function labelText(item) {
-  return (item.labels || []).map(l => l.label || "").join(" ");
-}
-
+// ←←← 여기서부터 수정
 function isExchangeDeposit(item) {
   if (item.entity_type !== "exchange") return false;
-  if (!CEX.has(item.entity_name))      return false;
+  if (!CEX.has(item.entity_name)) return false;
+  
   const txt = labelText(item);
-  if (RE_EXCLUDE.test(txt))           return false;
-  return RE_DEPOSIT.test(txt);
+  if (RE_EXCLUDE.test(txt)) return false;
+  
+  // 🔥 핵심 수정: "deposit" 키워드 요구 완전 완화
+  // Bybit, Bithumb 등 CEX로 라벨링된 주소는 무조건 입금 주소로 인정
+  return true;
 }
 
 function isPersonalWallet(item) {
   if (NOT_PERSONAL.has(item.entity_type)) return false;
-  if (RE_EXCLUDE.test(labelText(item)))    return false;
+  if (RE_EXCLUDE.test(labelText(item))) return false;
   return true;
 }
-
-function classify(items) {
-  const deposits = [], personal = [], rejected = [];
-  for (const item of items) {
-    if (isExchangeDeposit(item))     deposits.push(item);
-    else if (isPersonalWallet(item)) personal.push(item);
-    else                             rejected.push(item);
-  }
-  return { deposits, personal, rejected };
-}
-
-// ════════════════════════════════════════════════════════
+// ────────────────────────────────────────────────────────
 // Surf API 클라이언트
 // ════════════════════════════════════════════════════════
 const TIME_RANGE = { "전체": null, "최근 1년": "365d", "최근 2년": "max", "최근 3년": "max" };
