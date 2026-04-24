@@ -3,1927 +3,733 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Surf Wallet Tracer</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<title>SurfTracer v3</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
-/* ── 리셋 & CSS 변수 ─────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-:root {
-  --bg:        #07090d;
-  --surface:   #0d1117;
-  --surface2:  #131920;
-  --surface3:  #1a2230;
-  --border:    #1e2a3a;
-  --border2:   #243040;
-  --accent:    #00e5a0;
-  --accent-dim:#00a872;
-  --accent-glow: 0 0 20px rgba(0,229,160,0.25);
-  --blue:      #4d9fff;
-  --red:       #ff5252;
-  --yellow:    #ffc947;
-  --text:      #d4dde8;
-  --text-muted:#5a7080;
-  --text-dim:  #3a5060;
-  --mono:      'JetBrains Mono', monospace;
-  --sans:      'DM Sans', sans-serif;
-  --display:   'Syne', sans-serif;
-  --sidebar:   300px;
-  --radius:    6px;
-  --radius-lg: 10px;
-}
-
-html, body {
-  height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
-  font-size: 14px;
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* ── 레이아웃 ─────────────────────────────────────────── */
-.app {
-  display: flex;
-  height: 100vh;
-  overflow: hidden;
-}
-
-/* ── 사이드바 ─────────────────────────────────────────── */
-.sidebar {
-  width: var(--sidebar);
-  flex-shrink: 0;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.sidebar::-webkit-scrollbar { width: 4px; }
-.sidebar::-webkit-scrollbar-track { background: transparent; }
-.sidebar::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-
-.logo {
-  padding: 20px 20px 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.logo-title {
-  font-family: var(--display);
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  color: #fff;
-}
-
-.logo-title span {
-  color: var(--accent);
-}
-
-.logo-sub {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-top: 3px;
-  letter-spacing: 0.5px;
-}
-
-.sidebar-section {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-}
-
-.section-label {
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 1.5px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  margin-bottom: 12px;
-}
-
-/* ── 폼 컨트롤 ────────────────────────────────────────── */
-.field { margin-bottom: 12px; }
-
-.field-label {
-  display: block;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-muted);
-  margin-bottom: 5px;
-  letter-spacing: 0.3px;
-}
-
-input[type="text"],
-input[type="password"],
-input[type="number"],
-select {
-  width: 100%;
-  background: var(--surface2);
-  border: 1px solid var(--border2);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 12px;
-  padding: 7px 10px;
-  outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
-  -webkit-appearance: none;
-}
-
-input[type="text"]:focus,
-input[type="password"]:focus,
-input[type="number"]:focus,
-select:focus {
-  border-color: var(--accent-dim);
-  box-shadow: 0 0 0 2px rgba(0,229,160,0.1);
-}
-
-select option { background: var(--surface2); color: var(--text); }
-
-.range-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-input[type="range"] {
-  flex: 1;
-  -webkit-appearance: none;
-  height: 3px;
-  background: var(--border2);
-  border-radius: 2px;
-  outline: none;
-  cursor: pointer;
-  padding: 0;
-}
-
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
-  background: var(--accent);
-  border-radius: 50%;
-  cursor: pointer;
-  box-shadow: var(--accent-glow);
-  transition: transform 0.1s;
-}
-
-input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
-
-.range-val {
-  font-family: var(--mono);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
-  min-width: 16px;
-  text-align: center;
-}
-
-/* 체인 체크박스 그리드 */
-.chain-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.chain-check {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  padding: 6px 8px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--surface2);
-  transition: border-color 0.15s, background 0.15s;
-  user-select: none;
-}
-
-.chain-check:hover { border-color: var(--border2); }
-.chain-check.active {
-  border-color: var(--accent-dim);
-  background: rgba(0,229,160,0.06);
-}
-
-.chain-check input { display: none; }
-
-.chain-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--border2);
-  transition: background 0.15s;
-  flex-shrink: 0;
-}
-
-.chain-check.active .chain-dot { background: var(--accent); }
-
-.chain-name {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  transition: color 0.15s;
-}
-
-.chain-check.active .chain-name { color: var(--text); }
-
-/* ── 버튼 ─────────────────────────────────────────────── */
-.btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  width: 100%;
-  padding: 10px 16px;
-  border: none;
-  border-radius: var(--radius);
-  font-family: var(--display);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  cursor: pointer;
-  transition: all 0.15s;
-  outline: none;
-}
-
-.btn-primary {
-  background: var(--accent);
-  color: #000;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: #00f5b0;
-  box-shadow: var(--accent-glow);
-  transform: translateY(-1px);
-}
-
-.btn-primary:active:not(:disabled) { transform: translateY(0); }
-
-.btn-primary:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.btn-ghost {
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--border2);
-  font-size: 11px;
-  padding: 6px 12px;
-}
-
-.btn-ghost:hover { border-color: var(--border2); color: var(--text); background: var(--surface2); }
-
-.btn-sm {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 11px;
-  border: 1px solid var(--border2);
-  border-radius: var(--radius);
-  background: var(--surface2);
-  color: var(--text-muted);
-  font-family: var(--mono);
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.12s;
-  white-space: nowrap;
-}
-.btn-sm:hover { border-color: var(--accent-dim); color: var(--text); }
-
-.sidebar-actions {
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* credit meter */
-.credit-meter {
-  padding: 0 20px 16px;
-}
-
-.credit-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 6px;
-}
-
-.credit-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-
-.credit-val {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.credit-track {
-  height: 3px;
-  background: var(--border2);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.credit-fill {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
-  width: 0%;
-  transition: width 0.3s ease, background 0.3s;
-}
-
-.credit-fill.warn { background: var(--yellow); }
-.credit-fill.danger { background: var(--red); }
-
-/* ── 메인 영역 ────────────────────────────────────────── */
-.main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* 탑바 */
-.topbar {
-  padding: 14px 24px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--surface);
-  flex-shrink: 0;
-}
-
-.status-badge {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.status-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--text-dim);
-  transition: background 0.3s;
-}
-
-.status-dot.active {
-  background: var(--accent);
-  box-shadow: 0 0 6px var(--accent);
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.status-dot.done { background: var(--accent); }
-.status-dot.error { background: var(--red); }
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-
-.stat-pills {
-  display: flex;
-  gap: 8px;
-}
-
-.stat-pill {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.stat-pill strong {
-  color: var(--text);
-  font-weight: 600;
-}
-
-/* ── 탭 시스템 ────────────────────────────────────────── */
-.tabs {
-  display: flex;
-  gap: 0;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  flex-shrink: 0;
-}
-
-.tab {
-  padding: 12px 18px;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: color 0.15s, border-color 0.15s;
-  user-select: none;
-  letter-spacing: 0.3px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.tab:hover { color: var(--text); }
-
-.tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.tab-badge {
-  background: var(--surface3);
-  padding: 1px 6px;
-  border-radius: 10px;
-  font-size: 10px;
-  color: var(--text-muted);
-  transition: background 0.15s, color 0.15s;
-}
-
-.tab.active .tab-badge {
-  background: rgba(0,229,160,0.15);
-  color: var(--accent);
-}
-
-/* ── 탭 콘텐츠 ───────────────────────────────────────── */
-.tab-content { display: none; flex: 1; overflow: hidden; flex-direction: column; }
-.tab-content.active { display: flex; }
-
-/* 로그 터미널 */
-.terminal {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px 24px;
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.7;
-  color: #4a7090;
-}
-
-.terminal::-webkit-scrollbar { width: 4px; }
-.terminal::-webkit-scrollbar-track { background: transparent; }
-.terminal::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-
-.log-line { display: block; animation: fadeIn 0.1s ease; }
-
-@keyframes fadeIn { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; } }
-
-.log-line.deposit  { color: var(--accent); }
-.log-line.personal { color: var(--blue); }
-.log-line.error    { color: var(--red); }
-.log-line.warn     { color: var(--yellow); }
-.log-line.header   { color: var(--text-dim); }
-.log-line.done     { color: var(--accent); font-weight: 600; }
-
-.terminal-prompt {
-  color: var(--text-dim);
-  margin-right: 6px;
-}
-
-.cursor {
-  display: inline-block;
-  width: 7px;
-  height: 13px;
-  background: var(--accent);
-  vertical-align: middle;
-  animation: blink 1s step-end infinite;
-  margin-left: 2px;
-}
-
-@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-
-/* 빈 상태 */
-.empty-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  color: var(--text-dim);
-  padding: 40px;
-}
-
-.empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-  opacity: 0.5;
-}
-
-.empty-title {
-  font-family: var(--display);
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.empty-desc {
-  font-size: 13px;
-  max-width: 360px;
-  line-height: 1.7;
-}
-
-/* 결과 테이블 */
-.results-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.results-toolbar {
-  padding: 12px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  gap: 12px;
-}
-
-.results-count {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.results-count strong {
-  color: var(--accent);
-  font-size: 14px;
-}
-
-.dl-buttons { display: flex; gap: 6px; }
-
-.table-wrap {
-  flex: 1;
-  overflow: auto;
-  padding: 0 24px 24px;
-}
-
-.table-wrap::-webkit-scrollbar { width: 4px; height: 4px; }
-.table-wrap::-webkit-scrollbar-track { background: transparent; }
-.table-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-  margin-top: 12px;
-}
-
-th {
-  text-align: left;
-  padding: 8px 12px;
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-  position: sticky;
-  top: 0;
-  background: var(--bg);
-}
-
-td {
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-muted);
-  transition: background 0.1s;
-}
-
-tr:hover td { background: var(--surface2); }
-
-.addr {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.addr:hover { color: var(--accent); }
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.badge-exchange { background: rgba(255,201,71,0.12); color: var(--yellow); }
-.badge-personal { background: rgba(77,159,255,0.12); color: var(--blue); }
-.badge-chain {
-  background: rgba(0,229,160,0.08);
-  color: var(--accent-dim);
-  border: 1px solid rgba(0,229,160,0.2);
-  font-size: 9px;
-  padding: 1px 6px;
-}
-
-.depth-num {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-/* 로그 탭 */
-.log-panel {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  flex: 1;
-}
-
-.log-tabs {
-  display: flex;
-  gap: 0;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  flex-shrink: 0;
-}
-
-.log-tab {
-  padding: 9px 14px;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: all 0.12s;
-}
-
-.log-tab:hover { color: var(--text); }
-.log-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-
-.log-sub-content { display: none; flex: 1; overflow: hidden; }
-.log-sub-content.active { display: flex; flex-direction: column; }
-
-.log-toolbar {
-  padding: 10px 24px;
-  display: flex;
-  justify-content: flex-end;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.log-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 24px;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.8;
-}
-
-.log-scroll::-webkit-scrollbar { width: 4px; }
-.log-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-
-.credit-table, .err-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 11px;
-}
-
-.credit-table th, .err-table th {
-  background: var(--surface);
-  font-size: 9px;
-  padding: 7px 10px;
-}
-
-.credit-table td, .err-table td {
-  padding: 7px 10px;
-  font-family: var(--mono);
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border);
-}
-
-.credit-table td:last-child { color: var(--accent); }
-.err-table td:nth-child(4) { color: var(--red); }
-
-/* ── 알림 배너 ────────────────────────────────────────── */
-#proxy-error {
-  display: none;
-  margin: 0 24px 16px;
-  padding: 12px 16px;
-  background: rgba(255,82,82,0.08);
-  border: 1px solid rgba(255,82,82,0.3);
-  border-radius: var(--radius);
-  font-size: 12px;
-  color: var(--red);
-  line-height: 1.6;
-}
-
-/* ── 유틸 ─────────────────────────────────────────────── */
-.hidden { display: none !important; }
-
-.mono { font-family: var(--mono); }
-
-/* 스크롤바 전역 */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border2) transparent;
-}
+:root{--bg:#0a0b0d;--surface:#111318;--surface2:#171b22;--surface3:#1e2330;--border:#23293a;--border2:#2e3650;--text:#e8eaf0;--text-muted:#8b92a8;--text-dim:#4a5068;--accent:#00e5a0;--accent-dim:#00b87a;--blue:#4d9fff;--yellow:#f5c842;--red:#ff5c5c;--mono:'JetBrains Mono','Fira Code',monospace;--radius:6px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,'Segoe UI',sans-serif;font-size:13px;display:flex;height:100vh;overflow:hidden}
+#sidebar{width:260px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column}
+.sidebar-header{padding:18px 16px 12px;border-bottom:1px solid var(--border)}
+.sidebar-header h1{font-size:15px;font-weight:700;letter-spacing:1px;color:var(--accent);font-family:var(--mono)}
+.sidebar-header p{font-size:10px;color:var(--text-dim);margin-top:3px}
+.section{padding:14px 14px 0}
+.section-label{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);font-family:var(--mono);margin-bottom:8px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:10px;color:var(--text-muted);margin-bottom:4px}
+input[type=text],input[type=password],input[type=number],select,textarea{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:11px;padding:6px 8px;outline:none;font-family:inherit;transition:border-color .15s}
+input:focus,select:focus,textarea:focus{border-color:var(--border2)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.wallet-entry{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:8px}
+.wallet-entry-top{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.wallet-idx{font-family:var(--mono);font-size:9px;color:var(--accent-dim);font-weight:700;min-width:16px}
+.btn-remove{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;line-height:1;padding:0 2px;transition:color .15s}
+.btn-remove:hover{color:var(--red)}
+.file-drop{border:1px dashed var(--border2);border-radius:var(--radius);padding:8px;text-align:center;cursor:pointer;transition:all .15s;position:relative}
+.file-drop:hover{border-color:var(--accent-dim);background:rgba(0,229,160,.04)}
+.file-drop-inner{pointer-events:none}
+.file-status{font-size:10px;font-family:var(--mono);color:var(--accent-dim);margin-top:3px;min-height:14px}
+.btn-add{width:100%;background:none;border:1px dashed var(--border2);border-radius:var(--radius);color:var(--text-dim);padding:7px;cursor:pointer;font-size:11px;transition:all .15s}
+.btn-add:hover{border-color:var(--accent-dim);color:var(--accent)}
+.slider-row{display:flex;align-items:center;gap:8px}
+.slider-row input{flex:1}
+.slider-val{font-family:var(--mono);font-size:12px;color:var(--accent);min-width:20px}
+.btn-start{margin:14px;background:var(--accent);color:#000;font-weight:700;font-size:13px;padding:11px;border:none;border-radius:var(--radius);cursor:pointer;letter-spacing:.5px;transition:opacity .15s}
+.btn-start:hover{opacity:.85}
+.btn-start:disabled{opacity:.4;cursor:not-allowed}
+.btn-stop{margin:0 14px 14px;background:none;border:1px solid var(--red);color:var(--red);font-size:12px;padding:8px;border-radius:var(--radius);cursor:pointer;display:none}
+.credit-bar-wrap{padding:0 14px 14px}
+.credit-label{display:flex;justify-content:space-between;font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:4px}
+.credit-bar{height:4px;background:var(--surface3);border-radius:2px;overflow:hidden}
+.credit-bar-inner{height:100%;background:var(--accent);border-radius:2px;transition:width .3s,background .3s}
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border)}
+.tab{padding:12px 18px;font-size:12px;color:var(--text-dim);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
+.tab:hover{color:var(--text-muted)}
+.tab.active{color:var(--text);border-bottom-color:var(--accent)}
+.tab-badge{display:inline-block;background:var(--surface3);border-radius:10px;font-size:9px;font-family:var(--mono);padding:1px 6px;margin-left:5px;color:var(--accent-dim)}
+.tab-content{display:none;flex:1;overflow:auto}
+.tab-content.active{display:flex;flex-direction:column}
+#terminal{flex:1;padding:14px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.7;overflow-y:auto}
+.log-line{display:block}
+.log-line.header{color:var(--text-dim)}
+.log-line.deposit{color:var(--accent)}
+.log-line.personal{color:var(--blue)}
+.log-line.warn{color:var(--yellow)}
+.log-line.error{color:var(--red)}
+.log-line.done{color:var(--accent);font-weight:600}
+.log-empty{padding:40px;text-align:center;color:var(--text-dim);font-size:12px}
+.result-wrap{padding:12px 16px;flex:1;overflow:auto}
+.result-toolbar{display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap}
+.btn-sm{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text-muted);font-size:10px;padding:5px 10px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn-sm:hover{border-color:var(--accent-dim);color:var(--text)}
+.result-table{width:100%;border-collapse:collapse;font-size:11px}
+.result-table th{background:var(--surface2);padding:7px 10px;text-align:left;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);border-bottom:1px solid var(--border);position:sticky;top:0}
+.result-table td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.result-table tr:hover td{background:var(--surface2)}
+.addr{font-family:var(--mono);font-size:10px;color:var(--text-muted);cursor:pointer}
+.addr:hover{color:var(--accent)}
+.badge{display:inline-block;border-radius:3px;font-size:9px;font-family:var(--mono);padding:1px 5px}
+.badge-deposit{background:rgba(0,229,160,.12);color:var(--accent)}
+.badge-personal{background:rgba(77,159,255,.12);color:var(--blue)}
+.badge-chain{background:var(--surface3);color:var(--text-muted)}
+.depth-num{font-family:var(--mono);font-size:11px;color:var(--text-dim);text-align:center}
+.empty-state{padding:50px;text-align:center;color:var(--text-dim)}
+.empty-state .icon{font-size:32px;margin-bottom:10px}
+.dl-wrap{padding:20px;display:flex;flex-direction:column;gap:10px}
+.dl-section-label{font-size:10px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;font-family:var(--mono);margin-top:8px}
+#proxy-error{display:none;background:rgba(255,92,92,.08);border:1px solid rgba(255,92,92,.3);border-radius:var(--radius);padding:10px 12px;margin:10px 14px 0}
+#proxy-error p{font-size:11px;color:var(--red)}
 </style>
 </head>
 <body>
-<div class="app">
 
-  <!-- ── 사이드바 ─────────────────────────────────────── -->
-  <aside class="sidebar">
-    <div class="logo">
-      <div class="logo-title">Surf<span>Tracer</span></div>
-      <div class="logo-sub">WALLET TRACING · v2.1</div>
+<aside id="sidebar">
+  <div class="sidebar-header">
+    <h1>SurfTracer</h1>
+    <p>v3.0 · Arkham CSV + Surf API</p>
+  </div>
+  <div class="section" style="margin-top:10px">
+    <div class="section-label">연결 설정</div>
+    <div class="field">
+      <label>Surf API Key</label>
+      <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off" oninput="localStorage.setItem('sft_key',this.value)">
     </div>
-
-    <!-- 연결 설정 -->
-    <div class="sidebar-section">
-      <div class="section-label">연결 설정</div>
-      <div class="field">
-        <label class="field-label">Surf API Key</label>
-        <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off"
-          oninput="localStorage.setItem('sft_key',this.value)">
-      </div>
-      <div class="field">
-        <label class="field-label" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Proxy URL</span>
-          <span style="color:var(--text-dim);font-size:9px;font-weight:400;letter-spacing:0">비워두면 직접 연결</span>
-        </label>
-        <input type="text" id="proxyUrl" placeholder="http://localhost:8080/surf"
-          oninput="localStorage.setItem('sft_proxy',this.value)"
-          style="font-family:var(--mono);font-size:10px">
-        <div style="margin-top:5px;font-size:10px;color:var(--text-dim);line-height:1.6">
-          Render 배포 시:
-          <code style="font-family:var(--mono);font-size:9px;color:var(--accent-dim)">https://앱명.onrender.com/surf</code>
-        </div>
-      </div>
+    <div class="field">
+      <label style="display:flex;justify-content:space-between"><span>Proxy URL</span><span style="color:var(--text-dim);font-size:9px">비워두면 직접 연결</span></label>
+      <input type="text" id="proxyUrl" placeholder="http://localhost:8080/surf" oninput="localStorage.setItem('sft_proxy',this.value)" style="font-family:var(--mono);font-size:10px">
     </div>
-
-    <!-- 대상 설정 -->
-    <div class="sidebar-section">
-      <div class="section-label">추적 대상</div>
-      <div class="field">
-        <label class="field-label">시작 지갑 주소</label>
-        <input type="text" id="startAddr" placeholder="0x…" autocomplete="off">
-      </div>
-      <div class="field">
-        <label class="field-label">분석 체인</label>
-        <div class="chain-grid" id="chainGrid">
-          <label class="chain-check active" data-chain="base">
-            <input type="checkbox" value="base" checked>
-            <span class="chain-dot"></span>
-            <span class="chain-name">base</span>
-          </label>
-          <label class="chain-check active" data-chain="bsc">
-            <input type="checkbox" value="bsc" checked>
-            <span class="chain-dot"></span>
-            <span class="chain-name">bsc</span>
-          </label>
-          <label class="chain-check active" data-chain="arbitrum">
-            <input type="checkbox" value="arbitrum" checked>
-            <span class="chain-dot"></span>
-            <span class="chain-name">arbitrum</span>
-          </label>
-          <label class="chain-check" data-chain="ethereum">
-            <input type="checkbox" value="ethereum">
-            <span class="chain-dot"></span>
-            <span class="chain-name">ethereum⚠</span>
-          </label>
-        </div>
-        <div style="margin-top:5px;font-size:9px;color:var(--text-dim);font-family:var(--mono);line-height:1.5">
-          base/bsc/arbitrum: 90일 기준<br>
-          ethereum⚠: 30일 제한 (타임아웃 방지)
-        </div>
+  </div>
+  <div id="proxy-error"><p id="proxy-error-msg"></p></div>
+  <div class="section" style="margin-top:4px">
+    <div class="section-label">분석 대상 지갑</div>
+    <div id="walletList"></div>
+    <button class="btn-add" onclick="addWalletEntry()">+ 지갑 추가</button>
+  </div>
+  <div class="section" style="margin-top:12px">
+    <div class="section-label">분석 파라미터</div>
+    <div class="field">
+      <label>Depth (개인지갑 역추적 깊이)</label>
+      <div class="slider-row">
+        <input type="range" id="depth" min="1" max="5" value="2" oninput="document.getElementById('depthVal').textContent=this.value">
+        <span class="slider-val" id="depthVal">2</span>
       </div>
     </div>
-
-    <!-- 분석 파라미터 -->
-    <div class="sidebar-section">
-      <div class="section-label">분석 파라미터</div>
-      <div class="field">
-        <label class="field-label">Depth (반복 횟수)</label>
-        <div class="range-wrapper">
-          <input type="range" id="depth" min="1" max="5" value="2">
-          <span class="range-val" id="depthVal">2</span>
-        </div>
-      </div>
-      <div class="field">
-        <label class="field-label">최대 Credit 사용량</label>
-        <input type="number" id="maxCredit" value="3000" min="100" step="100">
-      </div>
-      <div class="field">
-        <label class="field-label">연도 필터</label>
-        <select id="yearFilter">
-          <option value="전체">전체 기간</option>
-          <option value="최근 1년">최근 1년</option>
-          <option value="최근 2년">최근 2년</option>
-          <option value="최근 3년">최근 3년</option>
-        </select>
+    <div class="field">
+      <label>최대 Credit 사용량</label>
+      <input type="number" id="maxCredit" value="100" min="10" max="9999">
+    </div>
+    <div class="field">
+      <label>연도 필터</label>
+      <select id="yearFilter">
+        <option value="all">전체 기간</option>
+        <option value="365">최근 1년</option>
+        <option value="730">최근 2년</option>
+        <option value="1095">최근 3년</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Surf 조회 체인 (역추적용)</label>
+      <div id="chainGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px"><input type="checkbox" value="base" checked> base</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px"><input type="checkbox" value="bsc" checked> bsc</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px"><input type="checkbox" value="arbitrum" checked> arbitrum</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px"><input type="checkbox" value="ethereum" checked> ethereum</label>
       </div>
     </div>
-
-    <!-- 수동 오버라이드 -->
-    <div class="sidebar-section">
-      <div class="section-label">수동 거래소 주소 오버라이드</div>
-      <div class="field">
-        <label class="field-label" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Surf 미탐지 주소 직접 입력</span>
-          <span style="color:var(--text-dim);font-size:9px">한 줄에 하나</span>
-        </label>
-        <textarea id="overrideList"
-          placeholder="0x주소 거래소이름&#10;예: 0x13cfb7... Binance&#10;예: 0x96dd5e... Upbit"
-          oninput="localStorage.setItem('sft_override',this.value)"
-          style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:10px;padding:7px 9px;outline:none;resize:vertical;min-height:72px;line-height:1.6"></textarea>
-        <div style="font-size:9px;color:var(--text-dim);margin-top:4px;line-height:1.5;font-family:var(--mono)">
-          Surf API가 탐지 못한 주소를 직접 지정<br>
-          분석 시작 시 자동으로 거래소 목록에 추가됨
-        </div>
+  </div>
+  <button class="btn-start" id="startBtn" onclick="startAnalysis()">▶ 분석 시작</button>
+  <button class="btn-stop" id="stopBtn" onclick="stopAnalysis()">⏹ 중단</button>
+  <div class="credit-bar-wrap">
+    <div class="credit-label"><span>CREDIT</span><span id="creditText">0 / 100</span></div>
+    <div class="credit-bar"><div class="credit-bar-inner" id="creditBar" style="width:0%"></div></div>
+  </div>
+</aside>
+<main id="main">
+  <div class="tabs">
+    <div class="tab active" data-tab="terminal">터미널</div>
+    <div class="tab" data-tab="deposits">거래소 입금 주소 <span class="tab-badge" id="depCount">0</span></div>
+    <div class="tab" data-tab="personal">개인 지갑 <span class="tab-badge" id="perCount">0</span></div>
+    <div class="tab" data-tab="download">다운로드</div>
+  </div>
+  <div class="tab-content active" id="tab-terminal">
+    <div id="terminal"><div class="log-empty">분석 시작 전입니다.<br>지갑 주소와 Arkham CSV ZIP 파일을 등록하세요.</div></div>
+  </div>
+  <div class="tab-content" id="tab-deposits">
+    <div class="result-wrap">
+      <div class="result-toolbar">
+        <button class="btn-sm" onclick="downloadCSV('deposits')">CSV 저장</button>
+        <button class="btn-sm" onclick="downloadJSON('deposits')">JSON 저장</button>
+        <span style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-left:4px">📂 Arkham CSV 기반 · 🌐 Surf 보완</span>
       </div>
+      <table class="result-table">
+        <thead><tr><th>#</th><th>주소</th><th>거래소</th><th>체인</th><th>TX건수</th><th>출처</th><th>Arkham</th></tr></thead>
+        <tbody id="depositsBody"><tr><td colspan="7" class="empty-state"><div class="icon">🏦</div>거래소 입금 주소가 없습니다</td></tr></tbody>
+      </table>
     </div>
-
-    <!-- 액션 -->
-    <div class="sidebar-actions">
-      <button class="btn btn-primary" id="startBtn">
-        <span>▶</span> 분석 시작
-      </button>
-      <button class="btn btn-ghost hidden" id="stopBtn">
-        ◼ 중단
-      </button>
+  </div>
+  <div class="tab-content" id="tab-personal">
+    <div class="result-wrap">
+      <div class="result-toolbar">
+        <button class="btn-sm" onclick="downloadCSV('personal')">CSV 저장</button>
+        <button class="btn-sm" onclick="downloadJSON('personal')">JSON 저장</button>
+      </div>
+      <table class="result-table">
+        <thead><tr><th>#</th><th>주소</th><th>라벨</th><th>체인</th><th>Depth</th><th>TX건수</th><th>Arkham</th></tr></thead>
+        <tbody id="personalBody"><tr><td colspan="7" class="empty-state"><div class="icon">👤</div>개인 지갑이 없습니다</td></tr></tbody>
+      </table>
     </div>
-
-    <!-- Credit 미터 -->
-    <div class="credit-meter">
-      <div class="credit-header">
-        <span class="credit-label">Credit</span>
-        <span class="credit-val" id="creditVal">0 / 3000</span>
-      </div>
-      <div class="credit-track">
-        <div class="credit-fill" id="creditFill"></div>
-      </div>
+  </div>
+  <div class="tab-content" id="tab-download">
+    <div class="dl-wrap">
+      <div class="dl-section-label">결과 저장</div>
+      <button class="btn-sm" style="width:260px" onclick="downloadAll()">📦 전체 결과 JSON</button>
+      <button class="btn-sm" style="width:260px" onclick="downloadCSV('all')">📋 전체 CSV (통합)</button>
+      <div class="dl-section-label">진단 로그</div>
+      <button class="btn-sm" style="width:260px" onclick="downloadDiagLog()">📄 터미널 로그 TXT</button>
+      <button class="btn-sm" style="width:260px" onclick="downloadFullDiag()">🗂️ 전체 진단 JSON</button>
     </div>
-  </aside>
-
-  <!-- ── 메인 영역 ──────────────────────────────────────── -->
-  <main class="main">
-    <!-- 탑바 -->
-    <div class="topbar">
-      <div class="status-badge">
-        <div class="status-dot" id="statusDot"></div>
-        <span id="statusText">대기 중</span>
-      </div>
-      <div class="stat-pills">
-        <div class="stat-pill">👤 <strong id="statPersonal">0</strong> 개인 지갑</div>
-        <div class="stat-pill">🏦 <strong id="statDeposits">0</strong> 거래소 주소</div>
-        <div class="stat-pill">⚡ <strong id="statCredit">0</strong> Credit</div>
-      </div>
-    </div>
-
-    <!-- 탭 -->
-    <div class="tabs">
-      <div class="tab active" data-tab="log">
-        <span>터미널</span>
-      </div>
-      <div class="tab" data-tab="personal">
-        <span>개인 지갑</span>
-        <span class="tab-badge" id="personalBadge">0</span>
-      </div>
-      <div class="tab" data-tab="deposits">
-        <span>거래소 입금 주소</span>
-        <span class="tab-badge" id="depositsBadge">0</span>
-      </div>
-      <div class="tab" data-tab="logs">
-        <span>로그 & 다운로드</span>
-      </div>
-    </div>
-
-    <!-- 탭 콘텐츠: 터미널 -->
-    <div class="tab-content active" id="tab-log">
-      <div id="proxy-error" style="display:none;margin:0 24px 12px;padding:12px 16px;background:rgba(255,82,82,0.08);border:1px solid rgba(255,82,82,0.3);border-radius:6px;font-size:12px;color:var(--red);line-height:1.7;">
-        <strong>연결 실패</strong><br>
-        <span id="proxy-error-msg">API 호출에 실패했습니다.</span><br>
-        <span style="color:var(--text-muted);font-size:11px;margin-top:4px;display:block">
-          CORS 오류라면 → 연결 방식을 <strong>Proxy</strong>로 바꾸고 <code style="font-family:var(--mono);background:rgba(255,255,255,0.05);padding:1px 5px;border-radius:3px;">python proxy.py 8080</code> 실행
-        </span>
-      </div>
-      <div class="terminal" id="terminal">
-        <div class="empty-state" id="terminalEmpty">
-          <div class="empty-icon">⬡</div>
-          <div class="empty-title">Surf Wallet Tracer</div>
-          <div class="empty-desc">
-            API Key와 지갑 주소를 입력하고<br>
-            <strong style="color:var(--text)">분석 시작</strong>을 클릭하세요.<br><br>
-            <span style="color:var(--text-dim);font-size:11px;font-family:var(--mono)">
-              Direct 모드: proxy.py 없이 바로 실행<br>
-              Proxy 모드: CORS 오류 시 proxy.py 사용
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 탭 콘텐츠: 개인 지갑 -->
-    <div class="tab-content" id="tab-personal">
-      <div class="results-area">
-        <div class="results-toolbar">
-          <div class="results-count">개인 지갑 <strong id="personalCount">0</strong>건</div>
-          <div class="dl-buttons">
-            <button class="btn-sm" onclick="downloadCSV('personal')">↓ CSV</button>
-            <button class="btn-sm" onclick="downloadJSON('personal')">↓ JSON</button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <div id="personalEmpty" class="empty-state">
-            <div class="empty-icon">👤</div>
-            <div class="empty-title">개인 지갑 없음</div>
-            <div class="empty-desc">분석을 실행하면 결과가 여기 표시됩니다.</div>
-          </div>
-          <table id="personalTable" class="hidden">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>주소</th>
-                <th>라벨</th>
-                <th>체인</th>
-                <th>Depth</th>
-                <th>TX건수</th>
-                <th>Arkham</th>
-              </tr>
-            </thead>
-            <tbody id="personalBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- 탭 콘텐츠: 거래소 입금 주소 -->
-    <div class="tab-content" id="tab-deposits">
-      <div class="results-area">
-        <div class="results-toolbar">
-          <div class="results-count">거래소 입금 주소 <strong id="depositsCount">0</strong>건</div>
-          <div class="dl-buttons">
-            <button class="btn-sm" onclick="downloadCSV('deposits')">↓ CSV</button>
-            <button class="btn-sm" onclick="downloadJSON('deposits')">↓ JSON</button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <div id="depositsEmpty" class="empty-state">
-            <div class="empty-icon">🏦</div>
-            <div class="empty-title">거래소 입금 주소 없음</div>
-            <div class="empty-desc">분석을 실행하면 결과가 여기 표시됩니다.</div>
-          </div>
-          <table id="depositsTable" class="hidden">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>주소</th>
-                <th>거래소</th>
-                <th>체인</th>
-                <th>Depth</th>
-                <th>Arkham</th>
-              </tr>
-            </thead>
-            <tbody id="depositsBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- 탭 콘텐츠: 로그 & 다운로드 -->
-    <div class="tab-content" id="tab-logs">
-      <div class="log-panel">
-        <div class="log-tabs">
-          <div class="log-tab active" data-ltab="credit">Credit 로그</div>
-          <div class="log-tab" data-ltab="errors">오류 로그</div>
-          <div class="log-tab" data-ltab="full">전체 저장</div>
-        </div>
-
-        <!-- Credit 로그 -->
-        <div class="log-sub-content active" id="ltab-credit">
-          <div class="log-toolbar">
-            <button class="btn-sm" onclick="downloadLog('credit')">↓ Credit 로그 CSV</button>
-          </div>
-          <div class="log-scroll">
-            <table class="credit-table" id="creditTable">
-              <thead><tr><th>시간</th><th>엔드포인트</th><th>Credits</th><th>누적</th></tr></thead>
-              <tbody id="creditBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- 오류 로그 -->
-        <div class="log-sub-content" id="ltab-errors">
-          <div class="log-toolbar">
-            <button class="btn-sm" onclick="downloadLog('errors')">↓ 오류 로그 JSON</button>
-          </div>
-          <div class="log-scroll">
-            <table class="err-table" id="errTable">
-              <thead><tr><th>시간</th><th>주소</th><th>체인</th><th>오류</th></tr></thead>
-              <tbody id="errBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- 전체 저장 -->
-        <div class="log-sub-content" id="ltab-full">
-          <div style="padding: 24px; display:flex; flex-direction:column; gap:9px;">
-            <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">결과 저장</div>
-            <button class="btn-sm" style="width:260px" onclick="downloadFull()">📦 전체 결과 JSON</button>
-            <button class="btn-sm" style="width:260px" onclick="downloadAllCSV()">📋 전체 결과 CSV (통합)</button>
-            <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-top:10px;margin-bottom:2px">🔍 진단 로그 저장</div>
-            <button class="btn-sm" style="width:260px" onclick="downloadDiagLog()">📄 터미널 로그 TXT</button>
-            <button class="btn-sm" style="width:260px" onclick="downloadFullDiag()">🗂️ 전체 진단 JSON (결과+로그+오류)</button>
-            <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:4px;line-height:1.7">
-              전체 진단 = 결과 + Credit 로그 + 오류 로그 + 터미널 로그<br>
-              문제 발생 시 이 파일을 첨부해 제보하세요.
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </main>
-</div>
+  </div>
+</main>
 
 <script>
-// ════════════════════════════════════════════════════════
-// ════════════════════════════════════════════════════════
-// 필터 로직 — 대화록 검증 결과 반영 v3
-// ════════════════════════════════════════════════════════
+// ── 상수 ──
+const CHAIN_MAP={'base':'base','bsc':'bsc','ethereum':'ethereum','arbitrum_one':'arbitrum','arbitrum':'arbitrum','optimism':null,'polygon':null,'avalanche':null,'avalanche_c':null};
+const EXCLUDE_RE=/rhinofi|relay\.link|megaeth|paxos|yeet\.com|depositor|pre.?deposit|dvf|disperse|peg|concrete|wormhole|stargate|layerzero|axelar|router|aggregator|uniswap|pancake|sushi|1inch|paraswap|dex router|amm|proxy/i;
+const NOT_PERSONAL=new Set(['exchange','cex','cex_deposit','contract','proxy','fund','dex','bridge','router','misc','stablecoin']);
+const CEX_RE=/\b(binance|coinbase|kraken|okx|bybit|gate\.io|gate |kucoin|bitget|htx|mexc|upbit|bithumb|huobi|gemini|bitfinex|bitstamp|korbit|gopax|reku|cryptomus|btc markets|coins\.ph|phemex|wazirx)\b/i;
 
-// CEX 화이트리스트 (baseEntityName 정규화 후 매칭)
-const CEX = new Set([
-  "Binance","Coinbase","Kraken","OKX","Bybit","Gate.io",
-  "KuCoin","Bitget","HTX","MEXC","Crypto.com","Upbit","Bithumb",
-  "Huobi","Gemini","Bitfinex","Bitstamp","Korbit","Gopax",
-  "ChangeNOW","Shuffle","Phemex","WazirX","CoinDCX",
-  "Coinbase","MEXC","Binance.US","Kraken","Bittrex","Poloniex",
-  "Bithumb","Upbit","Korbit","Gopax","Huobi","OKX","Bybit",
-  "Gate","Gate.io",   // Gate Deposit → baseEntityName → "Gate"
-]);
-
-// entity_name 정규화: "Bybit Deposit" → "Bybit"
-function baseEntityName(name) {
-  if (!name) return '';
-  return name.replace(/\s+(Deposit|Hot Wallet|Cold Wallet|Withdrawal|Treasury|Wallet).*$/i, '').trim();
-}
-
-// 제외 패턴 (Hot/Cold/DEX/Bridge 등)
-const RE_EXCLUDE = /\b(proxy|router|aggregator|1inch|uniswap|pancakeswap|sushiswap|quickswap|paraswap|smart.?contract|dex|liquidity.?pool|swap.?contract|amm|factory|pair.?contract|bridge|wormhole|layerzero|stargate|axelar|hot.?wallet|cold.?wallet|cold.?storage|withdrawal|relay\.link|megaeth|rhinofi|paxos|yeet|concrete|depositor|pre.?deposit|dvf|disperse|peg)\b/i;
-
-const RE_DEPOSIT = /\b(deposit|입금)\b/i;
-
-// token ticker 패턴: "TokenName (TICKER)" = 토큰 컨트랙트 (대화록에서 확인됨)
-// 예: "Binance-Peg BSC-USD (BSC-USD)", "MultichainZ (CHAINZ)"
-const RE_TOKEN_TICKER = /\([A-Z0-9][A-Z0-9\-]{1,9}\)$/;
-
-// 개인지갑 불가 entity_type — cex_deposit 추가 (대화록: 입금주소가 개인지갑으로 오분류 방지)
-const NOT_PERSONAL = new Set([
-  "exchange","cex_deposit","contract","proxy","fund",
-  "dex","bridge","router","misc",
-]);
-
-function labelText(item) {
-  return (item.labels || []).map(l => l.label || "").join(" ");
-}
-
-function isExchangeDeposit(item) {
-  const et = item.entity_type;
-  const name = item.entity_name || '';
-  const lbl  = labelText(item);
-
-  // token ticker 패턴 = 토큰 컨트랙트, 절대 거래소 아님
-  if (RE_TOKEN_TICKER.test(name)) return false;
-  // 제외 키워드 (Hot/Cold Wallet 등)
-  if (RE_EXCLUDE.test(lbl)) return false;
-
-  // ① entity_type === "cex_deposit" → Surf가 개인 입금 주소로 명시 (최우선 승인)
-  if (et === "cex_deposit") return true;
-
-  // ② entity_type === "exchange" → hot/cold/treasury는 이미 RE_EXCLUDE에서 걸림
-  //    CEX 화이트리스트 + deposit 키워드 확인
-  if (et === "exchange") {
-    const base = baseEntityName(name);
-    // 완전 매칭 우선, 없으면 부분 포함 매칭 (예: "Gate.io" ⊃ "Gate")
-    const cexMatch = CEX.has(base) || CEX.has(name) ||
-      [...CEX].some(c => base.toLowerCase().includes(c.toLowerCase()) ||
-                         c.toLowerCase().includes(base.toLowerCase()));
-    if (!cexMatch) return false;
-    return RE_DEPOSIT.test(name) || RE_DEPOSIT.test(lbl);
-  }
-
-  // ③ entity_type 없어도 labels 텍스트에 "Deposit" + CEX 이름 있으면 승인
-  //    (대화록: Surf가 entity_type은 비우고 labels만 채우는 케이스 존재)
-  if (!et || et === '') {
-    const allText = name + ' ' + lbl;
-    const hasDeposit = RE_DEPOSIT.test(allText);
-    const hasCex = [...CEX].some(c => allText.toLowerCase().includes(c.toLowerCase()));
-    if (hasDeposit && hasCex && !RE_TOKEN_TICKER.test(name)) return true;
-  }
-
-  return false;
-}
-
-function isPersonalWallet(item) {
-  if (NOT_PERSONAL.has(item.entity_type)) return false;
-  const name = item.entity_name || '';
-  // token ticker = 토큰 컨트랙트
-  if (RE_TOKEN_TICKER.test(name)) return false;
-  // "misc" entity_type
-  if (item.entity_type === 'misc') return false;
-  if (RE_EXCLUDE.test(labelText(item))) return false;
+function isDepositLabel(label){
+  if(!label)return false;
+  if(!/ Deposit/i.test(label))return false;
+  if(EXCLUDE_RE.test(label))return false;
   return true;
 }
 
-function classify(items) {
-  const deposits = [], personal = [], rejected = [];
-  for (const item of items) {
-    if (isExchangeDeposit(item))     deposits.push(item);
-    else if (isPersonalWallet(item)) personal.push(item);
-    else                             rejected.push(item);
-  }
-  return { deposits, personal, rejected };
+function isPersonalWallet(item){
+  if(!item)return true;
+  const et=item.entity_type||'';
+  const en=item.entity_name||'';
+  if(NOT_PERSONAL.has(et))return false;
+  if(et==='cex'||CEX_RE.test(en))return false;
+  return true;
 }
 
-// ════════════════════════════════════════════════════════
-// Surf API 클라이언트
-// ════════════════════════════════════════════════════════
-// Surf 실제 지원 체인 (대화록 확인: polygon/optimism 미지원)
-const SUPPORTED_CHAINS_SET = new Set(['base','bsc','arbitrum','ethereum']);
+// ── 지갑 엔트리 ──
+let walletEntries=[];
 
-// 연도 필터 → cutoff date
-function getCutoffDate(yearFilter) {
-  const days = { "전체": null, "최근 1년": 365, "최근 2년": 730, "최근 3년": 1095 }[yearFilter];
-  if (!days) return null;
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d;
+function addWalletEntry(){
+  const id=Date.now();
+  walletEntries.push({id,address:'',file:null,csvRows:[]});
+  renderWalletList();
 }
 
-function filterByDate(txs, cutoff) {
-  if (!cutoff) return txs;
-  return txs.filter(t => {
-    const raw = t.timestamp || t.block_timestamp || t.block_date;
-    if (!raw) return true;
-    try { return new Date(String(raw).slice(0,10)) >= cutoff; } catch { return true; }
+function removeWallet(id){
+  walletEntries=walletEntries.filter(e=>e.id!==id);
+  renderWalletList();
+}
+
+function renderWalletList(){
+  const list=document.getElementById('walletList');
+  list.innerHTML='';
+  walletEntries.forEach((entry,i)=>{
+    const idx=walletEntries.indexOf(entry);
+    const div=document.createElement('div');
+    div.className='wallet-entry';
+    div.innerHTML=`
+      <div class="wallet-entry-top">
+        <span class="wallet-idx">#${i+1}</span>
+        <input type="text" placeholder="0x…" value="${entry.address}"
+          oninput="walletEntries[${idx}].address=this.value"
+          style="flex:1;font-family:var(--mono);font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);padding:5px 7px;outline:none">
+        <button class="btn-remove" onclick="removeWallet(${entry.id})">✕</button>
+      </div>
+      <div class="file-drop" id="drop-${entry.id}">
+        <input type="file" accept=".zip,.csv" style="position:absolute;inset:0;opacity:0;cursor:pointer;z-index:1"
+          onchange="handleFileChange(event,${entry.id})">
+        <div class="file-drop-inner">
+          <div style="font-size:10px;color:var(--text-dim)">📂 Arkham CSV ZIP 업로드</div>
+          <div class="file-status" id="status-${entry.id}">${entry.file?'✅ '+entry.file.name:''}</div>
+        </div>
+      </div>
+    `;
+    list.appendChild(div);
   });
 }
 
-class SurfClient {
-  constructor(apiKey, proxyUrl, maxCredit) {
-    // proxyUrl이 없으면 Surf API 직접 호출 (CORS 허용)
-    // proxyUrl 예시: "http://localhost:8080/surf" 또는 "https://앱명.onrender.com/surf"
-    this.base = proxyUrl
-      ? proxyUrl.replace(/\/+$/, '') + '/gateway/v1'
-      : 'https://api.asksurf.ai/gateway/v1';
-    this.headers = { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" };
-    this.maxCredit = maxCredit;
-    this.creditUsed = 0;
-    this.creditLog  = [];
-    this.errorLog   = [];
-    this._cache     = {};
+async function handleFileChange(event,id){
+  const file=event.target.files[0];
+  if(!file)return;
+  const entry=walletEntries.find(e=>e.id===id);
+  if(!entry)return;
+  entry.file=file;
+  const statusEl=document.getElementById('status-'+id);
+  statusEl.textContent='⏳ 파싱 중…';
+  try{
+    entry.csvRows=await parseZipOrCSV(file);
+    statusEl.textContent=`✅ ${file.name} (${entry.csvRows.length}행)`;
+  }catch(e){
+    statusEl.textContent=`❌ ${e.message}`;
   }
+}
 
-  async _request(method, path, opts = {}, _retry = 0) {
-    const url = this.base + path;
-    try {
-      const resp = await fetch(url, { method, headers: this.headers, mode: "cors", ...opts });
-      const body = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        // 502/503/429: 최대 2회 재시도 (지수 백오프)
-        if ([502, 503, 429].includes(resp.status) && _retry < 2) {
-          const wait = (1 + _retry) * 1500;
-          await new Promise(r => setTimeout(r, wait));
-          return this._request(method, path, opts, _retry + 1);
-        }
-        const msg = body?.error?.message || `HTTP ${resp.status}`;
-        throw new Error(msg);
+async function parseZipOrCSV(file){
+  if(file.name.toLowerCase().endsWith('.zip')){
+    const zip=await JSZip.loadAsync(file);
+    let allRows=[];
+    let hasHeader=false;
+    const files=Object.values(zip.files).filter(f=>!f.dir&&f.name.toLowerCase().endsWith('.csv'));
+    files.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+    for(const zf of files){
+      const text=await zf.async('text');
+      const rows=parseCSVText(text);
+      if(!rows.length)continue;
+      if(!hasHeader){allRows=rows;hasHeader=true;}
+      else allRows.push(...rows.slice(1));
+    }
+    return allRows.slice(1); // 헤더 제거
+  }else{
+    const text=await file.text();
+    return parseCSVText(text).slice(1);
+  }
+}
+
+function parseCSVText(text){
+  const lines=text.replace(/\r\n/g,'\n').split('\n');
+  const result=[];
+  let header=null;
+  for(const raw of lines){
+    const line=raw.trim();
+    if(!line)continue;
+    const cols=parseCSVLine(line);
+    if(!header){header=cols;result.push(header);continue;}
+    const obj={};
+    header.forEach((h,i)=>obj[h]=cols[i]||'');
+    result.push(obj);
+  }
+  return result;
+}
+
+function parseCSVLine(line){
+  const result=[];
+  let cur='',inQ=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='"')inQ=!inQ;
+    else if(c===','&&!inQ){result.push(cur.trim());cur='';}
+    else cur+=c;
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+// ── Arkham CSV → 거래소 입금 주소 ──
+function extractDepositsFromCSV(rows,seedAddr){
+  const seed=seedAddr.toLowerCase();
+  const depMap=new Map();
+  for(const r of rows){
+    const from=(r.fromAddress||'').toLowerCase();
+    const to=(r.toAddress||'').toLowerCase();
+    if(from!==seed)continue;
+    const lbl=r.toLabel||'';
+    const chain=r.chain||'';
+    if(!isDepositLabel(lbl))continue;
+    if(!to||to==='0x0000000000000000000000000000000000000000')continue;
+    const entityName=lbl.replace(/\s*\([^)]+\)\s*$/,'').trim();
+    if(!depMap.has(to))depMap.set(to,{address:to,entity_name:entityName,chains:new Set(),tx_cnt:0,source:'arkham_csv'});
+    const d=depMap.get(to);
+    d.tx_cnt++;
+    const sc=CHAIN_MAP[chain];
+    if(sc)d.chains.add(sc);
+    else d.chains.add(chain); // 미지원 체인 표시용
+  }
+  return depMap;
+}
+
+// ── Surf 클라이언트 ──
+class SurfClient{
+  constructor(apiKey,proxyUrl,maxCredit){
+    this.base=proxyUrl?proxyUrl.replace(/\/+$/,'')+'/gateway/v1':'https://api.asksurf.ai/gateway/v1';
+    this.headers={'Content-Type':'application/json','x-api-key':apiKey};
+    this.maxCredit=maxCredit;this.creditUsed=0;this.creditLog=[];this.errorLog=[];this._cache={};
+  }
+  _check(){if(this.creditUsed>=this.maxCredit)throw new Error(`Credit 한도 도달: ${this.creditUsed} / ${this.maxCredit}`);}
+  async _req(method,path,opts={},retry=0){
+    const url=this.base+path;
+    try{
+      const resp=await fetch(url,{method,headers:this.headers,mode:'cors',...opts});
+      const body=await resp.json().catch(()=>({}));
+      if(!resp.ok){
+        if([502,503,429].includes(resp.status)&&retry<2){await new Promise(r=>setTimeout(r,(1+retry)*1500));return this._req(method,path,opts,retry+1);}
+        throw new Error(`HTTP ${resp.status}`);
       }
-      const used = body?.meta?.credits_used || 0;
-      if (used) {
-        this.creditUsed += used;
-        this.creditLog.push({
-          time: new Date().toLocaleTimeString("ko-KR"),
-          endpoint: path.split("?")[0],
-          credits: used,
-          total: this.creditUsed,
-        });
-        updateCredit(this.creditUsed, this.maxCredit);
-        // 실제 사용 후 한도 초과 확인 → 다음 호출에서 차단
-        if (this.creditUsed >= this.maxCredit) {
-          throw new Error(`Credit 한도 도달: ${this.creditUsed} / ${this.maxCredit}`);
-        }
+      const used=body?.meta?.credits_used||0;
+      if(used){
+        this.creditUsed+=used;
+        this.creditLog.push({time:new Date().toLocaleTimeString('ko-KR'),endpoint:path.split('?')[0],credits:used,total:this.creditUsed});
+        updateCredit(this.creditUsed,this.maxCredit);
+        if(this.creditUsed>=this.maxCredit)throw new Error(`Credit 한도 도달: ${this.creditUsed} / ${this.maxCredit}`);
       }
-      return body?.data ?? [];
-    } catch (e) {
-      // Credit 한도 에러는 그대로 전파
-      if (e.message?.includes("Credit 한도")) throw e;
-      // TypeError = 네트워크 실패 (연결 거부 또는 CORS)
-      if (e.name === "TypeError") {
-        const errEl = document.getElementById("proxy-error");
-        const msgEl = document.getElementById("proxy-error-msg");
-        errEl.style.display = "block";
-        if (this.base.includes("api.asksurf.ai")) {
-          msgEl.textContent = "CORS 오류 또는 네트워크 오류입니다. Proxy URL에 proxy.py 주소를 입력해보세요.";
-        } else {
-          msgEl.textContent = `proxy.py가 ${this.base.split('/gateway')[0]} 에서 실행 중인지 확인하세요.`;
-        }
+      return body?.data??body??[];
+    }catch(e){
+      if(e.message?.includes('Credit 한도'))throw e;
+      if(e.name==='TypeError'){
+        document.getElementById('proxy-error').style.display='block';
+        document.getElementById('proxy-error-msg').textContent=this.base.includes('api.asksurf.ai')?'CORS/네트워크 오류. Proxy URL을 입력해보세요.':`proxy.py가 ${this.base.split('/gateway')[0]} 에서 실행 중인지 확인하세요.`;
         throw new Error(e.message);
       }
       throw e;
     }
   }
-
-  _checkCredit(cost) {
-    // 실제 사용량이 한도를 이미 초과한 경우만 차단
-    // (사전 예상치로 차단하면 labelsBatch 등이 과다 추정으로 막힘)
-    if (this.creditUsed >= this.maxCredit) {
-      throw new Error(`Credit 한도 도달: ${this.creditUsed} / ${this.maxCredit}`);
-    }
+  async getTransfers(address,chain,flow,limit=100){
+    const key=`tf:${chain}:${address}:${flow}`;
+    if(this._cache[key])return this._cache[key];
+    this._check();
+    const p=new URLSearchParams({address,chain,flow,limit,include:'labels'});
+    const data=await this._req('GET',`/wallet/transfers?${p}`);
+    const txs=Array.isArray(data)?data:(data?.transfers||data?.data||[]);
+    this._cache[key]=txs;return txs;
   }
-
-  async labelsBatch(addresses, chain) {
-    const unique = [...new Set(addresses.filter(a => a?.startsWith("0x")))];
-    if (!unique.length) return [];
-    const out = [];
-    // 원본 앱 코드 확인: "20개씩 배치 분할 (100개는 400 오류 발생)"
-    for (let i = 0; i < unique.length; i += 20) {
-      const batch = unique.slice(i, i + 20).sort();
-      const key = `lb:${chain}:${batch.join(",")}`;
-      if (this._cache[key]) { out.push(...this._cache[key]); continue; }
-      this._checkCredit(0); // 사전 예상 없이 실제 사용 후 체크
-      const params = new URLSearchParams({ addresses: batch.join(",") });
-      // chain 파라미터: 원본 앱 분석 결과 생략해도 동작함
-      const data = await this._request("GET", `/wallet/labels/batch?${params}`);
-      this._cache[key] = data;
-      out.push(...data);
+  async labelsBatch(addresses,chain){
+    const unique=[...new Set(addresses.filter(a=>a?.startsWith('0x')))];
+    if(!unique.length)return[];
+    const out=[];
+    for(let i=0;i<unique.length;i+=20){
+      const batch=unique.slice(i,i+20).sort();
+      const key=`lb:${chain}:${batch.join(',')}`;
+      if(this._cache[key]){out.push(...this._cache[key]);continue;}
+      this._check();
+      const p=new URLSearchParams({addresses:batch.join(',')});
+      const data=await this._req('GET',`/wallet/labels/batch?${p}`);
+      this._cache[key]=data;out.push(...data);
     }
     return out;
   }
+}
 
-  // REST /wallet/transfers?include=labels
-  // 대화록 확인: include=labels 사용 시 from_label/to_label 인라인 포함 → 별도 labels/batch 불필요
-  async getTransfers(address, chain, flow, limit = 100) {
-    const key = `tf:${chain}:${address}:${flow}`;
-    if (this._cache[key]) return this._cache[key];
-    this._checkCredit(0);
-    const params = new URLSearchParams({ address, chain, flow, limit, include: 'labels' });
-    const data = await this._request("GET", `/wallet/transfers?${params}`);
-    const transfers = Array.isArray(data) ? data : (data?.transfers || data?.data || []);
-    this._cache[key] = transfers;
-    return transfers;
+// ── 날짜 필터 ──
+function getCutoff(yearFilter){
+  if(yearFilter==='all'||!yearFilter)return null;
+  const days=parseInt(yearFilter);if(!days)return null;
+  const d=new Date();d.setDate(d.getDate()-days);return d;
+}
+function filterDate(txs,cutoff){
+  if(!cutoff)return txs;
+  return txs.filter(t=>{
+    const raw=t.timestamp||t.block_timestamp||t.blockTimestamp;
+    if(!raw)return true;
+    try{return new Date(String(raw).slice(0,10))>=cutoff;}catch{return true;}
+  });
+}
+
+// ── 상태 ──
+let _running=false,_client=null,_deposits={},_personal={};
+
+// ── 분석 시작 ──
+async function startAnalysis(){
+  const apiKey=document.getElementById('apiKey').value.trim();
+  if(!apiKey){alert('Surf API Key를 입력하세요.');return;}
+  const valid=walletEntries.filter(e=>e.address.trim()&&e.csvRows.length>0);
+  if(!valid.length){alert('지갑 주소와 Arkham CSV ZIP 파일을 하나 이상 등록하세요.');return;}
+  const maxCredit=parseInt(document.getElementById('maxCredit').value)||100;
+  const maxDepth=parseInt(document.getElementById('depth').value)||2;
+  const yearFilter=document.getElementById('yearFilter').value;
+  const proxyUrl=document.getElementById('proxyUrl').value.trim();
+  const chains=[...document.querySelectorAll('#chainGrid input:checked')].map(c=>c.value);
+  _running=true;_deposits={};_personal={};
+  _client=new SurfClient(apiKey,proxyUrl,maxCredit);
+  document.getElementById('proxy-error').style.display='none';
+  document.getElementById('startBtn').disabled=true;
+  document.getElementById('stopBtn').style.display='block';
+  clearTerm();clearTables();
+  log(`SurfTracer v3.0  |  ${new Date().toLocaleString('ko-KR')}`,'header');
+  log(`지갑 ${valid.length}개  |  Depth: ${maxDepth}  |  Credit 한도: ${maxCredit}`,'header');
+  log(`Surf 역추적 체인: ${chains.join(', ')}`,'header');
+  log('');
+  try{
+    // ── Phase 1: Arkham CSV ──
+    log('─'.repeat(44),'header');
+    log('Phase 1: Arkham CSV → 거래소 입금 주소 추출','header');
+    log('─'.repeat(44),'header');
+    const cutoff=getCutoff(yearFilter);
+    const seedSet=new Set();
+    for(const entry of valid){
+      if(!_running)break;
+      const seed=entry.address.trim().toLowerCase();
+      log(`\n📂 [${entry.address.slice(0,16)}…] CSV ${entry.csvRows.length}행 분석 중…`);
+      const depMap=extractDepositsFromCSV(entry.csvRows,seed);
+      log(`  → 거래소 입금 주소 ${depMap.size}개 발견 (Arkham 기준)`,'deposit');
+      for(const[addr,info]of depMap){
+        if(!_deposits[addr]){
+          _deposits[addr]={...info,chains:[...info.chains],seed:entry.address,depth:0};
+        }else{
+          const merged=new Set([..._deposits[addr].chains,...info.chains]);
+          _deposits[addr].chains=[...merged];
+          _deposits[addr].tx_cnt+=info.tx_cnt;
+        }
+        log(`  ✅ ${info.entity_name}  ${addr.slice(0,16)}… [[...info.chains].join(',')]  (${info.tx_cnt}건)`,'deposit');
+      }
+      updateTable('deposits');
+      seedSet.add(seed);
+    }
+    log(`\n📊 Phase 1 완료: 거래소 입금 주소 ${Object.keys(_deposits).length}개`,'done');
+
+    // ── Phase 2: Surf API 역추적 ──
+    log('');
+    log('─'.repeat(44),'header');
+    log('Phase 2: Surf API → 개인지갑 역추적','header');
+    log('─'.repeat(44),'header');
+    const visited=new Set([...Object.keys(_deposits),...seedSet]);
+    let currentPersonal=[];
+
+    // Depth 1: Phase 1에서 찾은 모든 입금 주소의 인바운드
+    const allDepAddrs=Object.keys(_deposits);
+    for(const depAddr of allDepAddrs){
+      if(!_running)break;
+      const depInfo=_deposits[depAddr];
+      const surfChains=(depInfo.chains||[]).filter(c=>chains.includes(c));
+      if(!surfChains.length)continue;
+      log(`\n  [${depInfo.entity_name}] ${depAddr.slice(0,16)}… 인바운드 조회`);
+      for(const chain of surfChains){
+        if(!_running)break;
+        try{
+          const inTxs=await _client.getTransfers(depAddr,chain,'in');
+          const filtered=filterDate(inTxs,cutoff);
+          const sc={};
+          for(const tx of filtered){
+            const fr=(tx.from_address||tx.from||tx.fromAddress||'').toLowerCase();
+            if(!fr||fr==='0x0000000000000000000000000000000000000000'||visited.has(fr))continue;
+            sc[fr]=(sc[fr]||0)+1;
+          }
+          const total=Object.keys(sc).length;
+          const minTx=total>5?2:1;
+          const cands=Object.entries(sc).filter(([,c])=>c>=minTx).map(([a])=>a);
+          if(!cands.length){log(`    [${chain}] 발신자 없음`);continue;}
+          // from_label 수집
+          const flMap={};
+          for(const tx of filtered){
+            const fr=(tx.from_address||tx.from||tx.fromAddress||'').toLowerCase();
+            const lbl=tx.from_label||tx.fromLabel||{};
+            if(fr&&lbl&&!flMap[fr])flMap[fr]={entity_type:lbl.entity_type||'',entity_name:lbl.entity_name||''};
+          }
+          // labels/batch 보완
+          const needB=cands.filter(a=>!flMap[a]);
+          if(needB.length){try{const lb=await _client.labelsBatch(needB,chain);for(const l of lb){const la=l.address?.toLowerCase();if(la)flMap[la]=l;}}catch(e){if(e.message?.includes('Credit 한도'))throw e;}}
+          // 포이즈닝
+          const ck=a=>a.slice(2,6)+'|'+a.slice(-6);
+          const cm={};
+          for(const a of cands)(cm[ck(a)]=cm[ck(a)]||[]).push(a);
+          const poisoned=new Set();
+          for(const cl of Object.values(cm))if(cl.length>=2)cl.forEach(a=>poisoned.add(a));
+          if(poisoned.size)log(`    ⚠ 포이즈닝 ${poisoned.size}개 제거`,'warn');
+          let added=0;
+          for(const fr of cands){
+            if(poisoned.has(fr)||visited.has(fr))continue;
+            const item=flMap[fr]||{};
+            if(!isPersonalWallet(item))continue;
+            _personal[fr]={address:fr,entity_name:item.entity_name||'',entity_type:item.entity_type||'',chain,depth:1,tx_cnt:sc[fr],via_deposit:depAddr,via_exchange:depInfo.entity_name};
+            visited.add(fr);currentPersonal.push(fr);added++;
+            log(`    👤 [${chain}] ${fr.slice(0,16)}… (TX ${sc[fr]}건)`,'personal');
+            updateTable('personal');
+          }
+          log(`    [${chain}] 발신자 ${cands.length}명 → 개인지갑 ${added}명`);
+        }catch(e){
+          if(e.message?.includes('Credit 한도'))throw e;
+          _client.errorLog.push({time:new Date().toISOString(),addr:depAddr,chain,error:e.message});
+          log(`    ❌ [${chain}] ${e.message}`,'error');
+        }
+      }
+    }
+    log(`\n✅ Depth 1 완료  |  개인: ${Object.keys(_personal).length}  |  Credit: ${_client.creditUsed}`,'done');
+
+    // Depth 2+: 개인지갑의 아웃고잉에서 추가 입금 주소 탐색 → 인바운드
+    for(let d=1;d<maxDepth;d++){
+      if(!_running||!currentPersonal.length)break;
+      log('');
+      log(`${'─'.repeat(44)}`,'header');
+      log(`Depth ${d+1}/${maxDepth}  —  ${currentPersonal.length}개 개인지갑 아웃고잉 탐색`,'header');
+      log('─'.repeat(44),'header');
+      const nextPersonal=[];
+      const newDepAddrs=[];
+      for(const wallet of currentPersonal){
+        if(!_running)break;
+        for(const chain of chains){
+          if(!_running)break;
+          try{
+            const outTxs=await _client.getTransfers(wallet,chain,'out');
+            const filtered=filterDate(outTxs,cutoff);
+            for(const tx of filtered){
+              const toAddr=(tx.to_address||tx.to||tx.toAddress||'').toLowerCase();
+              if(!toAddr||_deposits[toAddr]||visited.has(toAddr))continue;
+              const lbl=tx.to_label||tx.toLabel||{};
+              const et=lbl.entity_type||'';const en=lbl.entity_name||'';
+              if(et==='cex_deposit'||(et==='exchange'&&/deposit/i.test(en))){
+                const ename=en||'알 수 없는 거래소';
+                _deposits[toAddr]={address:toAddr,entity_name:ename,chains:[chain],tx_cnt:1,depth:d,source:'surf',seed:wallet};
+                visited.add(toAddr);newDepAddrs.push({addr:toAddr,chain,entity_name:ename});
+                log(`  ✅ [${chain}] ${ename} (Surf)  ${toAddr.slice(0,16)}…`,'deposit');
+                updateTable('deposits');
+              }
+            }
+          }catch(e){if(e.message?.includes('Credit 한도'))throw e;}
+        }
+      }
+      // 새 입금 주소 인바운드 조회
+      for(const{addr,chain,entity_name}of newDepAddrs){
+        if(!_running)break;
+        log(`\n  [${entity_name}] ${addr.slice(0,16)}… 인바운드 조회`);
+        try{
+          const inTxs=await _client.getTransfers(addr,chain,'in');
+          const filtered=filterDate(inTxs,cutoff);
+          const sc={};
+          for(const tx of filtered){
+            const fr=(tx.from_address||tx.from||tx.fromAddress||'').toLowerCase();
+            if(!fr||fr==='0x0000000000000000000000000000000000000000'||visited.has(fr))continue;
+            sc[fr]=(sc[fr]||0)+1;
+          }
+          const minTx=Object.keys(sc).length>5?2:1;
+          const cands=Object.entries(sc).filter(([,c])=>c>=minTx).map(([a])=>a);
+          if(!cands.length)continue;
+          const needB=cands.filter(a=>true);
+          const flMap={};
+          if(needB.length){try{const lb=await _client.labelsBatch(needB,chain);for(const l of lb){const la=l.address?.toLowerCase();if(la)flMap[la]=l;}}catch(e){if(e.message?.includes('Credit 한도'))throw e;}}
+          for(const fr of cands){
+            if(visited.has(fr))continue;
+            const item=flMap[fr]||{};
+            if(!isPersonalWallet(item))continue;
+            _personal[fr]={address:fr,entity_name:item.entity_name||'',entity_type:item.entity_type||'',chain,depth:d+1,tx_cnt:sc[fr],via_deposit:addr,via_exchange:entity_name};
+            visited.add(fr);nextPersonal.push(fr);
+            log(`    👤 [${chain}] ${fr.slice(0,16)}… (TX ${sc[fr]}건)`,'personal');
+            updateTable('personal');
+          }
+        }catch(e){if(e.message?.includes('Credit 한도'))throw e;_client.errorLog.push({time:new Date().toISOString(),addr,chain,error:e.message});log(`    ❌ [${chain}] ${e.message}`,'error');}
+      }
+      log(`\n✅ Depth ${d+1} 완료  |  개인: ${Object.keys(_personal).length}  |  거래소: ${Object.keys(_deposits).length}  |  Credit: ${_client.creditUsed}`,'done');
+      currentPersonal=nextPersonal;
+    }
+    log(`\n분석 완료  |  Credit: ${_client.creditUsed.toLocaleString()}`,'done');
+  }catch(e){
+    if(!e.message?.includes('Credit 한도'))log(`\n❌ 오류: ${e.message}`,'error');
+  }finally{
+    _running=false;
+    document.getElementById('startBtn').disabled=false;
+    document.getElementById('stopBtn').style.display='none';
   }
 }
 
-// ════════════════════════════════════════════════════════
-// BFS 추적 (async generator)
-// ════════════════════════════════════════════════════════
+function stopAnalysis(){_running=false;log('\n⏹ 분석이 중단되었습니다.','warn');}
 
-
-async function* bfsTrace(startAddr, chains, maxDepth, yearFilter, client) {
-  // ── 대화록 v3 기반 완전 재작성 ──────────────────────────
-  // 핵심 변경:
-  // 1. REST /wallet/transfers?include=labels 사용 (Onchain SQL 제거)
-  // 2. entity_type=cex_deposit 우선 처리
-  // 3. token ticker 필터 / label text fallback
-  // 4. 발견된 개인지갑은 모든 선택 체인에서 재추적 (교차체인)
-  // 5. address poisoning 클러스터 감지
-
-  const visited  = new Set([startAddr.toLowerCase()]);
-  const deposits = {};
-  const personal = {};
-  let current    = [startAddr];
-  const cutoff   = getCutoffDate(yearFilter);
-
-  // 지원 체인만 필터
-  const validChains = chains.filter(c => SUPPORTED_CHAINS_SET.has(c));
-  if (!validChains.length) {
-    yield { log: '❌ 선택된 체인 중 Surf 지원 체인이 없습니다 (base/bsc/arbitrum/ethereum만 지원)', cls: 'error' };
-    yield { done: true, personal, deposits };
-    return;
+// ── UI ──
+function log(text,cls=''){
+  const t=document.getElementById('terminal');
+  const em=t.querySelector('.log-empty');if(em)em.remove();
+  text.split('\n').forEach(line=>{
+    const s=document.createElement('span');
+    s.className='log-line'+(cls?' '+cls:'');s.textContent=line;
+    t.appendChild(s);t.appendChild(document.createElement('br'));
+  });
+  t.scrollTop=t.scrollHeight;
+}
+function clearTerm(){document.getElementById('terminal').innerHTML='';}
+function clearTables(){
+  document.getElementById('depositsBody').innerHTML='<tr><td colspan="7" class="empty-state"><div class="icon">🏦</div>거래소 입금 주소가 없습니다</td></tr>';
+  document.getElementById('personalBody').innerHTML='<tr><td colspan="7" class="empty-state"><div class="icon">👤</div>개인 지갑이 없습니다</td></tr>';
+  document.getElementById('depCount').textContent='0';
+  document.getElementById('perCount').textContent='0';
+}
+function updateCredit(used,max){
+  document.getElementById('creditText').textContent=`${used} / ${max}`;
+  const pct=Math.min(used/max*100,100);
+  const bar=document.getElementById('creditBar');
+  bar.style.width=pct+'%';
+  bar.style.background=pct>=80?'var(--red)':pct>=60?'var(--yellow)':'var(--accent)';
+}
+function updateTable(type){
+  if(type==='deposits'){
+    const items=Object.values(_deposits);
+    document.getElementById('depCount').textContent=items.length;
+    if(!items.length)return;
+    document.getElementById('depositsBody').innerHTML=items.map((item,i)=>`
+      <tr>
+        <td class="depth-num">${i+1}</td>
+        <td><span class="addr" title="${item.address}" onclick="copyAddr('${item.address}')">${item.address.slice(0,12)}…${item.address.slice(-6)}</span></td>
+        <td><span class="badge badge-deposit">${item.entity_name||'?'}</span></td>
+        <td>${(item.chains||[]).map(c=>`<span class="badge badge-chain">${c}</span>`).join(' ')}</td>
+        <td class="depth-num">${item.tx_cnt||'—'}</td>
+        <td style="font-size:9px;color:var(--text-dim);font-family:var(--mono)">${item.source==='arkham_csv'?'📂 Arkham':'🌐 Surf'}</td>
+        <td><a href="https://intel.arkm.com/explorer/address/${item.address}" target="_blank" rel="noopener" style="color:var(--blue);font-size:10px;text-decoration:none">↗</a></td>
+      </tr>
+    `).join('');
+  }else{
+    const items=Object.values(_personal);
+    document.getElementById('perCount').textContent=items.length;
+    if(!items.length)return;
+    document.getElementById('personalBody').innerHTML=items.map((item,i)=>`
+      <tr>
+        <td class="depth-num">${i+1}</td>
+        <td><span class="addr" title="${item.address}" onclick="copyAddr('${item.address}')">${item.address.slice(0,12)}…${item.address.slice(-6)}</span></td>
+        <td>${item.entity_name?`<span class="badge badge-personal">${item.entity_name}</span>`:'<span style="color:var(--text-dim)">—</span>'}</td>
+        <td><span class="badge badge-chain">${item.chain}</span></td>
+        <td class="depth-num">${item.depth}</td>
+        <td class="depth-num" style="color:var(--accent)">${item.tx_cnt||'—'}</td>
+        <td><a href="https://intel.arkm.com/explorer/address/${item.address}" target="_blank" rel="noopener" style="color:var(--blue);font-size:10px;text-decoration:none">↗</a></td>
+      </tr>
+    `).join('');
   }
+}
+function copyAddr(addr){navigator.clipboard.writeText(addr).catch(()=>{});}
 
-  // 수동 오버라이드 적용
-  const overrides = parseOverrides();
-  if (overrides.size > 0) {
-    yield { log: `📌 수동 오버라이드 ${overrides.size}개 거래소 주소 적용됨`, cls: 'deposit' };
-    for (const [addr, name] of overrides) {
-      deposits[addr] = { address: addr, entity_name: name, entity_type: 'cex_deposit', chain: 'override', depth: 0 };
-      // Depth 0 오버라이드 주소는 모든 체인에서 인바운드 조회
-      for (const chain of validChains) {
-        // newDeposits에 추가해서 Depth 1 인바운드 조회 포함시킴
-      }
-      updateTable('deposits', deposits);
-      yield { log: `  ✅ [수동] ${name}  ${addr.slice(0,16)}…` };
-    }
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-'+tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ── 다운로드 ──
+function ts(){return new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);}
+function dlFile(content,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();}
+function downloadCSV(type){
+  if(type==='deposits'){
+    const rows=Object.values(_deposits).map(d=>`${d.address},${d.entity_name},"${(d.chains||[]).join('|')}",${d.tx_cnt||''},${d.source||''}`);
+    dlFile(['address,entity_name,chains,tx_cnt,source',...rows].join('\n'),`deposits_${ts()}.csv`,'text/csv');
+  }else if(type==='personal'){
+    const rows=Object.values(_personal).map(p=>`${p.address},${p.entity_name||''},${p.entity_type||''},${p.chain},${p.depth},${p.tx_cnt||''},${p.via_exchange||''}`);
+    dlFile(['address,entity_name,entity_type,chain,depth,tx_cnt,via_exchange',...rows].join('\n'),`personal_${ts()}.csv`,'text/csv');
+  }else{
+    const dRows=Object.values(_deposits).map(d=>`${d.address},${d.entity_name},"${(d.chains||[]).join('|')}",${d.tx_cnt||''},${d.source||''}`);
+    const pRows=Object.values(_personal).map(p=>`${p.address},${p.entity_name||''},${p.entity_type||''},${p.chain},${p.depth},${p.tx_cnt||''},${p.via_exchange||''}`);
+    dlFile(['# 거래소 입금 주소','address,entity_name,chains,tx_cnt,source',...dRows,'','# 개인 지갑','address,entity_name,entity_type,chain,depth,tx_cnt,via_exchange',...pRows].join('\n'),`all_${ts()}.csv`,'text/csv');
   }
-
-  for (let depth = 0; depth < maxDepth; depth++) {
-    if (!current.length) break;
-    const next = [];
-    yield { log: `\n${'─'.repeat(44)}\nDepth ${depth+1}/${maxDepth}  —  ${current.length}개 지갑 처리\n${'─'.repeat(44)}`, cls: 'header' };
-
-    for (const wallet of current) {
-      if (!_running) { yield { done: true, personal, deposits }; return; }
-      const wl = wallet.toLowerCase();
-
-      // ── Step A: 아웃고잉 → 거래소 입금 주소 탐지 ─────────
-      // 각 체인에서 transfers(flow=out, include=labels) 조회
-      const newDeposits = []; // 이번 루프에서 발견된 입금 주소
-
-      for (const chain of validChains) {
-        if (!_running) break;
-        yield { log: `🔍 [${chain}] ${wallet.slice(0,16)}… 아웃고잉 조회` };
-
-        try {
-          const txs = await client.getTransfers(wallet, chain, 'out');
-          const filtered = filterByDate(txs, cutoff);
-          if (!filtered.length) {
-            yield { log: `  → TX 없음`, cls: 'header' };
-            continue;
-          }
-
-          // to_label에서 거래소 입금 주소 직접 추출 (include=labels)
-          const depMap = new Map(); // addr → {entity_name}
-
-          for (const tx of filtered) {
-            const toAddr = (tx.to_address || tx.to || '').toLowerCase();
-            if (!toAddr || toAddr === '0x0000000000000000000000000000000000000000') continue;
-            if (depMap.has(toAddr)) continue;
-
-            // to_label 필드 (include=labels 응답)
-            const lbl = tx.to_label || tx.toLabel || {};
-            const item = {
-              address: toAddr,
-              entity_type: lbl.entity_type || '',
-              entity_name: lbl.entity_name || '',
-              labels: lbl.labels || [],
-            };
-
-            if (isExchangeDeposit(item)) {
-              depMap.set(toAddr, { address: toAddr, entity_name: item.entity_name || '?' });
-            }
-          }
-
-          // 라벨 없는 주소들 labels/batch로 보완
-          const unlabeled = filtered
-            .map(tx => (tx.to_address || tx.to || '').toLowerCase())
-            .filter(a => a && !depMap.has(a) && !visited.has(a));
-
-          if (unlabeled.length > 0) {
-            const labeled = await client.labelsBatch(unlabeled, chain);
-            for (const lb of labeled) {
-              const la = lb.address?.toLowerCase();
-              if (!la || depMap.has(la)) continue;
-              if (isExchangeDeposit(lb)) {
-                depMap.set(la, { address: la, entity_name: lb.entity_name || '?' });
-              }
-            }
-          }
-
-          yield { log: `  → 아웃고잉 ${filtered.length}건, 거래소 입금 주소 ${depMap.size}개 발견` };
-
-          // entity_name 없는 주소 labels/batch로 채우기 ('?' → 실제 이름)
-          const needName = [...depMap.entries()].filter(([,v]) => !v.entity_name || v.entity_name === '?').map(([k]) => k);
-          if (needName.length > 0) {
-            try {
-              const filled = await client.labelsBatch(needName, chain);
-              for (const lb of filled) {
-                const la = lb.address?.toLowerCase();
-                if (la && depMap.has(la) && lb.entity_name) {
-                  depMap.get(la).entity_name = lb.entity_name;
-                }
-              }
-            } catch(_) {}
-          }
-
-          for (const [addr, info] of depMap) {
-            if (!deposits[addr]) {
-              const ename = info.entity_name && info.entity_name !== '?' ? info.entity_name : '알 수 없는 거래소';
-              deposits[addr] = { address: addr, entity_name: ename, entity_type: 'cex_deposit', chain, depth: depth + 1 };
-              newDeposits.push({ addr, chain, entity_name: ename });
-              yield { log: `✅ [${chain}] ${ename}  ${addr.slice(0,16)}…`, cls: 'deposit' };
-              updateTable('deposits', deposits);
-            }
-          }
-
-        } catch (e) {
-          if (e.message?.includes('Credit 한도')) {
-            yield { log: `⚠️  ${e.message}`, cls: 'warn' };
-            yield { done: true, personal, deposits };
-            return;
-          }
-          client.errorLog.push({ time: new Date().toISOString(), addr: wallet, chain, error: e.message });
-          updateErrorTable(client.errorLog);
-          yield { log: `❌ [${chain}] ${e.message}`, cls: 'error' };
-        }
-      }
-
-      // ── Step B: 거래소 입금 주소 → 인바운드 발신자 탐지 ──
-      // 발견된 체인에서만 역추적 (교차체인 낭비 방지)
-      for (const { addr, chain, entity_name } of newDeposits) {
-        if (!_running) break;
-        yield { log: `  → [${entity_name}] 인바운드 조회 [${chain}]` };
-
-        try {
-          const inTxs = await client.getTransfers(addr, chain, 'in');
-          const filteredIn = filterByDate(inTxs, cutoff);
-
-          // 발신자별 tx 건수 집계
-          const senderCount = {};
-          for (const tx of filteredIn) {
-            const fr = (tx.from_address || tx.from || '').toLowerCase();
-            if (!fr || fr === '0x0000000000000000000000000000000000000000' || visited.has(fr)) continue;
-            senderCount[fr] = (senderCount[fr] || 0) + 1;
-          }
-
-          // TX 1건만인 발신자 제거 (단, 소규모 전용 deposit은 예외)
-          const totalSenders = Object.keys(senderCount).length;
-          const MIN_TX = totalSenders > 5 ? 2 : 1; // 발신자 5명 이상이면 2건 이상만
-          
-          const candidates = Object.entries(senderCount)
-            .filter(([, cnt]) => cnt >= MIN_TX)
-            .map(([addr]) => addr);
-
-          if (!candidates.length) continue;
-
-          // 라벨 조회 — from_label (include=labels) 또는 labels/batch
-          // from_label은 이미 inTxs에 있으므로 활용
-          const fromLabelMap = {};
-          for (const tx of filteredIn) {
-            const fr = (tx.from_address || tx.from || '').toLowerCase();
-            if (!fr) continue;
-            const lbl = tx.from_label || tx.fromLabel || {};
-            if (lbl && !fromLabelMap[fr]) {
-              fromLabelMap[fr] = {
-                address: fr,
-                entity_type: lbl.entity_type || '',
-                entity_name: lbl.entity_name || '',
-                labels: lbl.labels || [],
-              };
-            }
-          }
-
-          // labels/batch로 보완 (fromLabel 없는 주소들)
-          const needBatch = candidates.filter(a => !fromLabelMap[a]);
-          if (needBatch.length) {
-            const labeled = await client.labelsBatch(needBatch, chain);
-            for (const lb of labeled) {
-              const la = lb.address?.toLowerCase();
-              if (la) fromLabelMap[la] = lb;
-            }
-          }
-
-          // address poisoning 클러스터 감지
-          // 같은 [2:6] prefix + [-6:] suffix 공유 → 포이즈닝
-          const clusterKey = a => a.slice(2,6) + '|' + a.slice(-6);
-          const clusterMap = {};
-          for (const a of candidates) {
-            const k = clusterKey(a);
-            clusterMap[k] = (clusterMap[k] || []);
-            clusterMap[k].push(a);
-          }
-          const poisoned = new Set();
-          for (const [, cluster] of Object.entries(clusterMap)) {
-            if (cluster.length >= 2) cluster.forEach(a => poisoned.add(a));
-          }
-          if (poisoned.size) {
-            yield { log: `  ⚠ 주소 포이즈닝 ${poisoned.size}개 제거`, cls: 'warn' };
-          }
-
-          let newPersonal = 0;
-          for (const fr of candidates) {
-            if (poisoned.has(fr) || visited.has(fr)) continue;
-            const item = fromLabelMap[fr] || { address: fr, entity_type: '', entity_name: '', labels: [] };
-            if (!isPersonalWallet(item)) continue;
-
-            personal[fr] = {
-              address: fr,
-              entity_name: item.entity_name || '',
-              entity_type: item.entity_type || '',
-              chain,
-              depth: depth + 1,
-              tx_cnt: senderCount[fr] || 1,
-            };
-            visited.add(fr);
-            next.push(fr);
-            newPersonal++;
-            yield { log: `👤 [${chain}] ${fr.slice(0,16)}… (TX ${senderCount[fr]}건)`, cls: 'personal' };
-            updateTable('personal', personal);
-          }
-          yield { log: `  → 발신자 ${candidates.length}명 → 개인지갑 ${newPersonal}명 추가` };
-
-        } catch (e) {
-          if (e.message?.includes('Credit 한도')) {
-            yield { log: `⚠️  ${e.message}`, cls: 'warn' };
-            yield { done: true, personal, deposits };
-            return;
-          }
-          client.errorLog.push({ time: new Date().toISOString(), addr, chain, error: e.message });
-          updateErrorTable(client.errorLog);
-          yield { log: `❌ [${chain}] ${e.message}`, cls: 'error' };
-        }
-      }
-
-      yield { progress: { depth: depth+1, maxDepth, nPersonal: Object.keys(personal).length, nDeposits: Object.keys(deposits).length, credit: client.creditUsed } };
-    }
-
-    // Surf 커버리지 공백 안내
-    if (depth === maxDepth - 1 && Object.keys(deposits).length < 5) {
-      yield { log: `\n💡 거래소 입금 주소가 적게 발견된 경우:`, cls: 'warn' };
-      yield { log: `   Surf API가 일부 TX를 반환하지 않을 수 있습니다.`, cls: 'warn' };
-      yield { log: `   Arkham에서 확인 후 수동 오버라이드에 주소를 추가하세요.`, cls: 'warn' };
-    }
-    yield { log: `✅ Depth ${depth+1} 완료  |  개인: ${Object.keys(personal).length}  |  거래소: ${Object.keys(deposits).length}  |  Credit: ${client.creditUsed}`, cls: 'done' };
-    current = next;
-  }
-
-  yield { done: true, personal, deposits };
+}
+function downloadJSON(type){
+  const data=type==='deposits'?Object.values(_deposits):Object.values(_personal);
+  dlFile(JSON.stringify(data,null,2),`${type}_${ts()}.json`,'application/json');
+}
+function downloadAll(){
+  dlFile(JSON.stringify({meta:{timestamp:new Date().toISOString(),credit_used:_client?.creditUsed||0},exchange_deposits:Object.values(_deposits),personal_wallets:Object.values(_personal)},null,2),`full_result_${ts()}.json`,'application/json');
+}
+function downloadDiagLog(){
+  const t=document.getElementById('terminal');
+  const lines=t?[...t.querySelectorAll('.log-line')].map(el=>el.textContent):[];
+  dlFile(['SurfTracer v3.0 진단 로그',`생성: ${new Date().toLocaleString('ko-KR')}`,`Credit: ${_client?.creditUsed||0}`,`거래소: ${Object.keys(_deposits).length}  개인: ${Object.keys(_personal).length}`,'─'.repeat(60),...lines].join('\n'),`diag_log_${ts()}.txt`,'text/plain');
+}
+function downloadFullDiag(){
+  const t=document.getElementById('terminal');
+  const lines=t?[...t.querySelectorAll('.log-line')].map(el=>el.textContent):[];
+  dlFile(JSON.stringify({meta:{timestamp:new Date().toISOString(),credit_used:_client?.creditUsed||0,deposits:Object.keys(_deposits).length,personal:Object.keys(_personal).length},exchange_deposits:Object.values(_deposits),personal_wallets:Object.values(_personal),credit_log:_client?.creditLog||[],error_log:_client?.errorLog||[],terminal_log:lines},null,2),`full_diag_${ts()}.json`,'application/json');
 }
 
-// ════════════════════════════════════════════════════════
-// UI 컨트롤러
-// ════════════════════════════════════════════════════════
-let _running = false;
-let _client  = null;
-let _result  = { personal: {}, deposits: {} };
-
-// 탭 전환
-document.querySelectorAll(".tab").forEach(tab => {
-  tab.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-    document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
-    tab.classList.add("active");
-    document.getElementById("tab-" + tab.dataset.tab).classList.add("active");
-  });
-});
-
-// 로그 서브탭
-document.querySelectorAll(".log-tab").forEach(tab => {
-  tab.addEventListener("click", () => {
-    document.querySelectorAll(".log-tab").forEach(t => t.classList.remove("active"));
-    document.querySelectorAll(".log-sub-content").forEach(c => c.classList.remove("active"));
-    tab.classList.add("active");
-    document.getElementById("ltab-" + tab.dataset.ltab).classList.add("active");
-  });
-});
-
-// 저장된 설정 복원
-(function() {
-  const key = localStorage.getItem('sft_key');
-  const proxy = localStorage.getItem('sft_proxy');
-  const override = localStorage.getItem('sft_override');
-  if (key) document.getElementById('apiKey').value = key;
-  if (proxy) document.getElementById('proxyUrl').value = proxy;
-  if (override) document.getElementById('overrideList').value = override;
+// ── 초기화 ──
+(function(){
+  const key=localStorage.getItem('sft_key');
+  const proxy=localStorage.getItem('sft_proxy');
+  if(key)document.getElementById('apiKey').value=key;
+  if(proxy)document.getElementById('proxyUrl').value=proxy;
+  addWalletEntry();
 })();
-
-// 오버라이드 파싱 함수: "0x주소 거래소이름" → Map(addr → name)
-function parseOverrides() {
-  const raw = document.getElementById('overrideList')?.value || '';
-  const map = new Map();
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const parts = trimmed.split(/[\s,]+/);
-    const addr = parts[0]?.toLowerCase();
-    const name = parts.slice(1).join(' ') || '수동 지정';
-    if (addr?.startsWith('0x')) map.set(addr, name);
-  }
-  return map;
-}
-
-// 체인 체크박스
-document.querySelectorAll(".chain-check").forEach(label => {
-  label.addEventListener("click", () => {
-    const cb = label.querySelector("input");
-    cb.checked = !cb.checked;
-    label.classList.toggle("active", cb.checked);
-  });
-});
-
-// Depth 슬라이더
-document.getElementById("depth").addEventListener("input", function() {
-  document.getElementById("depthVal").textContent = this.value;
-});
-
-// Credit 입력 동기화
-document.getElementById("maxCredit").addEventListener("input", function() {
-  document.getElementById("creditVal").textContent = `${_client?.creditUsed || 0} / ${this.value}`;
-});
-
-// Credit 미터 업데이트
-function updateCredit(used, max) {
-  const pct = Math.min(used / max * 100, 100);
-  const fill = document.getElementById("creditFill");
-  fill.style.width = pct + "%";
-  fill.className = "credit-fill" + (pct > 80 ? " danger" : pct > 60 ? " warn" : "");
-  document.getElementById("creditVal").textContent = `${used.toLocaleString()} / ${max.toLocaleString()}`;
-  document.getElementById("statCredit").textContent = used.toLocaleString();
-}
-
-// 로그 추가
-function addLog(text, cls = "") {
-  const terminal = document.getElementById("terminal");
-  const empty = document.getElementById("terminalEmpty");
-  if (empty) empty.remove();
-
-  text.split("\n").forEach(line => {
-    const span = document.createElement("span");
-    span.className = "log-line" + (cls ? " " + cls : "");
-    span.textContent = line;
-    terminal.appendChild(span);
-    terminal.appendChild(document.createElement("br"));
-  });
-
-  terminal.scrollTop = terminal.scrollHeight;
-}
-
-// 상태 업데이트
-function setStatus(state, text) {
-  const dot = document.getElementById("statusDot");
-  const txt = document.getElementById("statusText");
-  dot.className = "status-dot " + state;
-  txt.textContent = text;
-}
-
-// 통계 업데이트
-function updateStats(nPersonal, nDeposits, credit) {
-  document.getElementById("statPersonal").textContent  = nPersonal;
-  document.getElementById("statDeposits").textContent  = nDeposits;
-  document.getElementById("statCredit").textContent    = credit.toLocaleString();
-  document.getElementById("personalBadge").textContent = nPersonal;
-  document.getElementById("depositsBadge").textContent = nDeposits;
-  document.getElementById("personalCount").textContent  = nPersonal;
-  document.getElementById("depositsCount").textContent  = nDeposits;
-}
-
-// 결과 테이블 업데이트
-function updateTable(type, data) {
-  const items = Object.values(data);
-  const tbody = document.getElementById(type + "Body");
-  const table = document.getElementById(type + "Table");
-  const empty = document.getElementById(type + "Empty");
-
-  if (!items.length) return;
-  table.classList.remove("hidden");
-  empty.classList.add("hidden");
-
-  tbody.innerHTML = items.map((item, i) => `
-    <tr>
-      <td class="depth-num">${i + 1}</td>
-      <td><span class="addr" title="${item.address}" onclick="copyAddr('${item.address}')">${item.address?.slice(0,12)}…${item.address?.slice(-6)}</span></td>
-      <td>${item.entity_name ? `<span class="badge badge-${type === 'personal' ? 'personal' : 'exchange'}">${item.entity_name}</span>` : '<span style="color:var(--text-dim)">—</span>'}</td>
-      <td><span class="badge badge-chain">${item.chain}</span></td>
-      <td class="depth-num">${item.depth}</td>
-      <td class="depth-num" style="color:var(--accent)">${type === 'personal' ? (item.tx_cnt || '—') : '—'}</td>
-      <td><a href="https://intel.arkm.com/explorer/address/${item.address}" target="_blank" rel="noopener" style="color:var(--blue);font-family:var(--mono);font-size:10px;text-decoration:none;opacity:0.8" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.8">↗ Arkham</a></td>
-    </tr>
-  `).join("");
-}
-
-// Credit 테이블 업데이트
-function updateCreditTable(log) {
-  const tbody = document.getElementById("creditBody");
-  tbody.innerHTML = log.map(r => `
-    <tr>
-      <td>${r.time}</td>
-      <td>${r.endpoint}</td>
-      <td style="color:var(--accent)">${r.credits}</td>
-      <td>${r.total.toLocaleString()}</td>
-    </tr>
-  `).join("");
-}
-
-// 오류 테이블 업데이트
-function updateErrorTable(log) {
-  const tbody = document.getElementById("errBody");
-  tbody.innerHTML = log.map(r => `
-    <tr>
-      <td>${new Date(r.time).toLocaleTimeString("ko-KR")}</td>
-      <td class="mono" style="font-size:10px">${r.addr?.slice(0,14)}…</td>
-      <td>${r.chain || "—"}</td>
-      <td style="color:var(--red)">${r.error}</td>
-    </tr>
-  `).join("");
-}
-
-// 주소 복사
-function copyAddr(addr) {
-  navigator.clipboard.writeText(addr).catch(() => {});
-}
-
-// ── 분석 시작 ────────────────────────────────────────────
-document.getElementById("startBtn").addEventListener("click", async () => {
-  const apiKey    = document.getElementById("apiKey").value.trim();
-  const proxyUrl  = document.getElementById("proxyUrl").value.trim();
-  const startAddr = document.getElementById("startAddr").value.trim();
-  const maxCredit = parseInt(document.getElementById("maxCredit").value) || 3000;
-  const maxDepth  = parseInt(document.getElementById("depth").value) || 2;
-  const yearFilter = document.getElementById("yearFilter").value;
-  const chains    = [...document.querySelectorAll(".chain-check input:checked")].map(cb => cb.value);
-
-  if (!apiKey)                                { return alert("API Key를 입력해주세요."); }
-  if (!startAddr || !startAddr.startsWith("0x")) { return alert("올바른 지갑 주소(0x...)를 입력해주세요."); }
-  if (!chains.length)                         { return alert("체인을 하나 이상 선택해주세요."); }
-
-  // 초기화
-  _running = true;
-  _result  = { personal: {}, deposits: {} };
-  document.getElementById("proxy-error").style.display = "none";
-  document.getElementById("terminal").innerHTML = "";
-  document.getElementById("terminalEmpty")?.remove();
-  document.getElementById("personalBody").innerHTML = "";
-  document.getElementById("depositsBody").innerHTML = "";
-  document.getElementById("creditBody").innerHTML   = "";
-  document.getElementById("errBody").innerHTML      = "";
-  document.getElementById("personalTable").classList.add("hidden");
-  document.getElementById("depositsTable").classList.add("hidden");
-  document.getElementById("personalEmpty").classList.remove("hidden");
-  document.getElementById("depositsEmpty").classList.remove("hidden");
-  updateStats(0, 0, 0);
-  updateCredit(0, maxCredit);
-
-  document.getElementById("startBtn").disabled = true;
-  document.getElementById("stopBtn").classList.remove("hidden");
-  setStatus("active", "분석 중…");
-
-  _client = new SurfClient(apiKey, proxyUrl, maxCredit);
-
-  addLog(`SurfTracer v2.1  |  ${new Date().toLocaleString("ko-KR")}`, "header");
-  addLog(`시작 주소: ${startAddr}`, "header");
-  addLog(`체인: ${chains.join(", ")}  |  Depth: ${maxDepth}  |  Credit 한도: ${maxCredit.toLocaleString()}`, "header");
-
-  try {
-    for await (const event of bfsTrace(startAddr, chains, maxDepth, yearFilter, _client)) {
-      if (!_running) break;
-
-      if (event.log !== undefined) addLog(event.log, event.cls || "");
-
-      if (event.progress) {
-        const { depth, maxDepth: md, nPersonal, nDeposits, credit } = event.progress;
-        updateStats(nPersonal, nDeposits, credit);
-        updateCreditTable(_client.creditLog);
-      }
-
-      if (event.done) {
-        _result.personal  = event.personal  || {};
-        _result.deposits  = event.deposits  || {};
-        updateTable("personal", _result.personal);
-        updateTable("deposits", _result.deposits);
-        updateStats(Object.keys(_result.personal).length, Object.keys(_result.deposits).length, _client.creditUsed);
-        updateCreditTable(_client.creditLog);
-        updateErrorTable(_client.errorLog);
-      }
-    }
-    setStatus("done", `완료  —  개인: ${Object.keys(_result.personal).length}  |  거래소: ${Object.keys(_result.deposits).length}`);
-    addLog(`\n분석 완료  |  Credit: ${_client.creditUsed.toLocaleString()}`, "done");
-  } catch (e) {
-    setStatus("error", `오류: ${e.message}`);
-    addLog(`\n❌ ${e.message}`, "error");
-  } finally {
-    _running = false;
-    document.getElementById("startBtn").disabled = false;
-    document.getElementById("stopBtn").classList.add("hidden");
-  }
-});
-
-// 중단
-document.getElementById("stopBtn").addEventListener("click", () => {
-  _running = false;
-  setStatus("done", "중단됨");
-  addLog("\n⏹ 분석이 중단되었습니다.", "warn");
-});
-
-// ════════════════════════════════════════════════════════
-// 다운로드 함수
-// ════════════════════════════════════════════════════════
-function toCSV(rows, cols) {
-  const header = cols.join(",");
-  const body = rows.map(r => cols.map(c => `"${(r[c] ?? "").toString().replace(/"/g, '""')}"`).join(","));
-  return [header, ...body].join("\n");
-}
-
-function downloadFile(content, filename, type) {
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([content], { type }));
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-function ts() { return new Date().toISOString().slice(0, 19).replace(/:/g, "-"); }
-
-function downloadCSV(type) {
-  const items = Object.values(type === "personal" ? _result.personal : _result.deposits);
-  if (!items.length) return alert("데이터가 없습니다.");
-  const cols = ["address", "entity_name", "entity_type", "chain", "depth"];
-  downloadFile(toCSV(items, cols), `${type}_${ts()}.csv`, "text/csv;charset=utf-8;");
-}
-
-function downloadJSON(type) {
-  const items = Object.values(type === "personal" ? _result.personal : _result.deposits);
-  if (!items.length) return alert("데이터가 없습니다.");
-  downloadFile(JSON.stringify(items, null, 2), `${type}_${ts()}.json`, "application/json");
-}
-
-function downloadLog(type) {
-  if (type === "credit") {
-    const cols = ["time", "endpoint", "credits", "total"];
-    downloadFile(toCSV(_client?.creditLog || [], cols), `credit_log_${ts()}.csv`, "text/csv;charset=utf-8;");
-  } else {
-    downloadFile(JSON.stringify(_client?.errorLog || [], null, 2), `errors_${ts()}.json`, "application/json");
-  }
-}
-
-function downloadFull() {
-  const out = {
-    meta: {
-      timestamp: new Date().toISOString(),
-      credit_used: _client?.creditUsed || 0,
-    },
-    personal_wallets: Object.values(_result.personal),
-    exchange_deposits: Object.values(_result.deposits),
-  };
-  downloadFile(JSON.stringify(out, null, 2), `full_result_${ts()}.json`, "application/json");
-}
-
-function downloadDiagLog() {
-  // 터미널 DOM에서 직접 텍스트 추출
-  const termEl = document.getElementById("terminal");
-  const logLines = termEl ? Array.from(termEl.querySelectorAll(".log-line")).map(el => el.textContent) : [];
-  const header = [
-    "SurfTracer 진단 로그",
-    `생성: ${new Date().toLocaleString("ko-KR")}`,
-    `Credit 사용: ${_client?.creditUsed || 0}`,
-    `개인 지갑: ${Object.keys(_result.personal).length}`,
-    `거래소 주소: ${Object.keys(_result.deposits).length}`,
-    `오류 건수: ${_client?.errorLog?.length || 0}`,
-    "─".repeat(60),
-    ""
-  ].join("\n");
-  downloadFile(header + logLines.join("\n"), `diag_log_${ts()}.txt`, "text/plain");
-}
-
-function downloadFullDiag() {
-  const diag = {
-    meta: {
-      timestamp: new Date().toISOString(),
-      credit_used: _client?.creditUsed || 0,
-      personal_count: Object.keys(_result.personal).length,
-      deposits_count: Object.keys(_result.deposits).length,
-      error_count: _client?.errorLog?.length || 0,
-    },
-    personal_wallets: Object.values(_result.personal),
-    exchange_deposits: Object.values(_result.deposits),
-    credit_log: _client?.creditLog || [],
-    error_log: _client?.errorLog || [],
-    terminal_log: (()=>{
-      const t=document.getElementById("terminal");
-      return t?Array.from(t.querySelectorAll(".log-line")).map(el=>el.textContent):[];
-    })(),
-  };
-  downloadFile(JSON.stringify(diag, null, 2), `full_diag_${ts()}.json`, "application/json");
-}
-
-function downloadAllCSV() {
-  const cols = ["type", "address", "entity_name", "entity_type", "chain", "depth"];
-  const rows = [
-    ...Object.values(_result.personal).map(r  => ({ type: "personal",  ...r })),
-    ...Object.values(_result.deposits).map(r  => ({ type: "deposit",   ...r })),
-  ];
-  if (!rows.length) return alert("데이터가 없습니다.");
-  downloadFile(toCSV(rows, cols), `all_results_${ts()}.csv`, "text/csv;charset=utf-8;");
-}
 </script>
 </body>
 </html>
