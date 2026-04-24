@@ -456,7 +456,10 @@ function filterDate(txs,cutoff){
   return txs.filter(t=>{
     const raw=t.timestamp||t.block_timestamp||t.blockTimestamp;
     if(!raw)return true;
-    try{return new Date(String(raw).slice(0,10))>=cutoff;}catch{return true;}
+    try{
+      const d=typeof raw==='number'?new Date(raw*1000):new Date(String(raw).slice(0,10));
+      return d>=cutoff;
+    }catch{return true;}
   });
 }
 
