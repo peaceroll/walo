@@ -187,6 +187,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
     <div class="tab active" data-tab="terminal">터미널</div>
     <div class="tab" data-tab="deposits">거래소 입금 주소 <span class="tab-badge" id="depCount">0</span></div>
     <div class="tab" data-tab="personal">개인 지갑 <span class="tab-badge" id="perCount">0</span></div>
+    <div class="tab" data-tab="exchwallets">거래소 지갑 <span class="tab-badge" id="ewCount">0</span></div>
     <div class="tab" data-tab="download">다운로드</div>
   </div>
   <div class="tab-content active" id="tab-terminal">
@@ -219,6 +220,19 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       </table>
     </div>
   </div>
+  <div class="tab-content" id="tab-exchwallets">
+    <div class="result-wrap">
+      <div class="result-toolbar">
+        <button class="btn-sm" onclick="downloadCSV('exchwallets')">CSV 저장</button>
+        <button class="btn-sm" onclick="downloadTXT('exchwallets')">TXT 저장</button>
+        <span style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-left:4px">거래소 핫/콜드월렛 · CEX 지갑</span>
+      </div>
+      <table class="result-table">
+        <thead><tr><th>#</th><th>주소</th><th>라벨</th><th>체인</th><th>TX건수</th><th>경유 거래소</th><th>Arkham</th></tr></thead>
+        <tbody id="exchWalletsBody"><tr><td colspan="7" class="empty-state"><div class="icon">🏛️</div>거래소 지갑이 없습니다</td></tr></tbody>
+      </table>
+    </div>
+  </div>
   <div class="tab-content" id="tab-download">
     <div class="dl-wrap">
       <div class="dl-section-label">결과 저장</div>
@@ -226,6 +240,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <button class="btn-sm" style="width:260px" onclick="downloadCSV('all')">📋 전체 CSV (통합)</button>
       <button class="btn-sm" style="width:260px" onclick="downloadTXT('deposits')">📄 거래소 입금주소 TXT</button>
       <button class="btn-sm" style="width:260px" onclick="downloadTXT('personal')">📄 개인 지갑 TXT</button>
+      <button class="btn-sm" style="width:260px" onclick="downloadTXT('exchwallets')">📄 거래소 핫/콜드월렛 TXT</button>
       <div class="dl-section-label">진단 로그</div>
       <button class="btn-sm" style="width:260px" onclick="downloadDiagLog()">📄 터미널 로그 TXT</button>
       <button class="btn-sm" style="width:260px" onclick="downloadFullDiag()">🗂️ 전체 진단 JSON</button>
@@ -239,12 +254,22 @@ const CHAIN_MAP={'base':'base','bsc':'bsc','ethereum':'ethereum','arbitrum_one':
 const EXCLUDE_RE=/rhinofi|relay\.link|megaeth|paxos|yeet\.com|depositor|pre.?deposit|dvf|disperse|peg|concrete|wormhole|stargate|layerzero|axelar|router|aggregator|uniswap|pancake|sushi|1inch|paraswap|dex router|amm|proxy/i;
 const NOT_PERSONAL=new Set(['exchange','cex','cex_deposit','contract','proxy','fund','dex','bridge','router','misc','stablecoin']);
 const CEX_RE=/\b(binance|coinbase|kraken|okx|bybit|gate\.io|gate |kucoin|bitget|htx|mexc|upbit|bithumb|huobi|gemini|bitfinex|bitstamp|korbit|gopax|reku|cryptomus|btc markets|coins\.ph|phemex|wazirx)\b/i;
+const EXCHANGE_WALLET_RE=/hot.?wallet|cold.?wallet|fund|treasury|reserve|omnibus|multisig|warm.?wallet/i;
 
 function isDepositLabel(label){
   if(!label)return false;
   if(!/ Deposit/i.test(label))return false;
   if(EXCLUDE_RE.test(label))return false;
   return true;
+}
+
+function isExchangeWallet(item){
+  if(!item)return false;
+  const et=item.entity_type||'';
+  const en=item.entity_name||'';
+  if((et==='exchange'||et==='cex')&&!/deposit/i.test(en))return true;
+  if(CEX_RE.test(en)&&EXCHANGE_WALLET_RE.test(en))return true;
+  return false;
 }
 
 function isPersonalWallet(item){
@@ -414,6 +439,7 @@ function extractDepositsFromCSV(rows,seedAddr){
 // ── CSV fromLabel → {entity_type, entity_name} ──
 function parseCsvLabel(labelStr){
   if(!labelStr)return{entity_type:'',entity_name:''};
+  if(CEX_RE.test(labelStr)&&EXCHANGE_WALLET_RE.test(labelStr))return{entity_type:'exchange',entity_name:labelStr};
   if(CEX_RE.test(labelStr))return{entity_type:'cex',entity_name:labelStr};
   if(/deposit/i.test(labelStr))return{entity_type:'cex_deposit',entity_name:labelStr};
   if(EXCLUDE_RE.test(labelStr))return{entity_type:'contract',entity_name:labelStr};
@@ -523,7 +549,7 @@ function filterDate(txs,cutoff){
 }
 
 // ── 상태 ──
-let _running=false,_client=null,_deposits={},_personal={};
+let _running=false,_client=null,_deposits={},_personal={},_exchWallets={};
 
 // ── 분석 시작 ──
 async function startAnalysis(phase1Only=false){
@@ -536,7 +562,7 @@ async function startAnalysis(phase1Only=false){
   const yearFilter=document.getElementById('yearFilter').value;
   const proxyUrl=document.getElementById('proxyUrl').value.trim();
   const chains=[...document.querySelectorAll('#chainGrid input:checked')].map(c=>c.value);
-  _running=true;_deposits={};_personal={};
+  _running=true;_deposits={};_personal={};_exchWallets={};
   _client=new SurfClient(apiKey,proxyUrl,maxCredit);
   document.getElementById('proxy-error').style.display='none';
   document.getElementById('startBtn').disabled=true;
@@ -644,6 +670,14 @@ async function startAnalysis(phase1Only=false){
       updateTable('personal');updateProgress();
     }
 
+    // 거래소 핫/콜드월렛 등록
+    function registerExchWallet(fr,item,chain,txCnt,depAddr,depName,depth){
+      _exchWallets[fr]={address:fr,entity_name:item.entity_name||'',entity_type:item.entity_type||'',chain,depth,tx_cnt:txCnt,via_deposit:depAddr,via_exchange:depName};
+      visited.add(fr);
+      log(`    🏛️ [${chain}] ${fr.slice(0,16)}… ${item.entity_name||''} (거래소 지갑)`,'warn');
+      updateTable('exchwallets');updateProgress();
+    }
+
     // Depth 1: Phase 1에서 찾은 모든 입금 주소의 인바운드
     const allDepAddrs=Object.keys(_deposits);
     for(const depAddr of allDepAddrs){
@@ -665,10 +699,10 @@ async function startAnalysis(phase1Only=false){
           for(const fr of cands){
             if(poisoned.has(fr)||visited.has(fr))continue;
             const item=flMap[fr]||{};
-            if(!isPersonalWallet(item))continue;
-            // CSV에서 체인 정보 추출
             const chainFromCSV=allDepositRows.find(r=>r.fromAddress?.toLowerCase()===fr&&r.toAddress?.toLowerCase()===depAddr)?.chain||'unknown';
             const mappedChain=CHAIN_MAP[chainFromCSV]||chainFromCSV;
+            if(isExchangeWallet(item)){registerExchWallet(fr,item,mappedChain,sc[fr],depAddr,depInfo.entity_name,1);added++;continue;}
+            if(!isPersonalWallet(item))continue;
             registerPersonal(fr,item,mappedChain,sc[fr],depAddr,depInfo.entity_name,1);
             added++;
           }
@@ -711,6 +745,7 @@ async function startAnalysis(phase1Only=false){
           for(const fr of cands){
             if(poisoned.has(fr)||visited.has(fr))continue;
             const item=flMap[fr]||{};
+            if(isExchangeWallet(item)){registerExchWallet(fr,item,chain,sc[fr],depAddr,depInfo.entity_name,1);added++;continue;}
             if(!isPersonalWallet(item))continue;
             registerPersonal(fr,item,chain,sc[fr],depAddr,depInfo.entity_name,1);
             added++;
@@ -847,8 +882,10 @@ function clearTerm(){document.getElementById('terminal').innerHTML='';}
 function clearTables(){
   document.getElementById('depositsBody').innerHTML='<tr><td colspan="7" class="empty-state"><div class="icon">🏦</div>거래소 입금 주소가 없습니다</td></tr>';
   document.getElementById('personalBody').innerHTML='<tr><td colspan="7" class="empty-state"><div class="icon">👤</div>개인 지갑이 없습니다</td></tr>';
+  document.getElementById('exchWalletsBody').innerHTML='<tr><td colspan="7" class="empty-state"><div class="icon">🏛️</div>거래소 지갑이 없습니다</td></tr>';
   document.getElementById('depCount').textContent='0';
   document.getElementById('perCount').textContent='0';
+  document.getElementById('ewCount').textContent='0';
 }
 function updateCredit(used,max){
   document.getElementById('creditText').textContent=`${used} / ${max}`;
@@ -885,7 +922,7 @@ function updateTable(type){
         <td><a href="https://intel.arkm.com/explorer/address/${item.address}" target="_blank" rel="noopener" style="color:var(--blue);font-size:10px;text-decoration:none">↗</a></td>
       </tr>
     `).join('');
-  }else{
+  }else if(type==='personal'){
     const items=Object.values(_personal);
     document.getElementById('perCount').textContent=items.length;
     if(!items.length)return;
@@ -897,6 +934,21 @@ function updateTable(type){
         <td><span class="badge badge-chain">${item.chain}</span></td>
         <td class="depth-num">${item.depth}</td>
         <td class="depth-num" style="color:var(--accent)">${item.tx_cnt||'—'}</td>
+        <td><a href="https://intel.arkm.com/explorer/address/${item.address}" target="_blank" rel="noopener" style="color:var(--blue);font-size:10px;text-decoration:none">↗</a></td>
+      </tr>
+    `).join('');
+  }else if(type==='exchwallets'){
+    const items=Object.values(_exchWallets);
+    document.getElementById('ewCount').textContent=items.length;
+    if(!items.length)return;
+    document.getElementById('exchWalletsBody').innerHTML=items.map((item,i)=>`
+      <tr>
+        <td class="depth-num">${i+1}</td>
+        <td><span class="addr" title="${item.address}" onclick="copyAddr('${item.address}')">${item.address.slice(0,12)}…${item.address.slice(-6)}</span></td>
+        <td><span class="badge" style="background:rgba(245,200,66,.12);color:var(--yellow)">${item.entity_name||'?'}</span></td>
+        <td><span class="badge badge-chain">${item.chain}</span></td>
+        <td class="depth-num" style="color:var(--accent)">${item.tx_cnt||'—'}</td>
+        <td style="font-size:10px;color:var(--text-muted)">${item.via_exchange||'—'}</td>
         <td><a href="https://intel.arkm.com/explorer/address/${item.address}" target="_blank" rel="noopener" style="color:var(--blue);font-size:10px;text-decoration:none">↗</a></td>
       </tr>
     `).join('');
@@ -918,22 +970,12 @@ function ts(){return new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);}
 function dlFile(content,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();}
 function downloadTXT(type){
   const ARKHAM='https://intel.arkm.com/explorer/address/';
-  let lines=[];
-  if(type==='deposits'){
-    Object.values(_deposits).forEach(d=>{
-      lines.push(d.address);
-      lines.push(ARKHAM+d.address);
-      lines.push('');
-    });
-    dlFile(lines.join('\n'),`deposits_${ts()}.txt`,'text/plain');
-  }else{
-    Object.values(_personal).forEach(p=>{
-      lines.push(p.address);
-      lines.push(ARKHAM+p.address);
-      lines.push('');
-    });
-    dlFile(lines.join('\n'),`personal_${ts()}.txt`,'text/plain');
-  }
+  let lines=[],items=[];
+  if(type==='deposits') items=Object.values(_deposits);
+  else if(type==='personal') items=Object.values(_personal);
+  else if(type==='exchwallets') items=Object.values(_exchWallets);
+  items.forEach(p=>{lines.push(p.address);lines.push(ARKHAM+p.address);lines.push('');});
+  dlFile(lines.join('\n'),`${type}_${ts()}.txt`,'text/plain');
 }
 function downloadCSV(type){
   if(type==='deposits'){
@@ -953,17 +995,17 @@ function downloadJSON(type){
   dlFile(JSON.stringify(data,null,2),`${type}_${ts()}.json`,'application/json');
 }
 function downloadAll(){
-  dlFile(JSON.stringify({meta:{timestamp:new Date().toISOString(),credit_used:_client?.creditUsed||0},exchange_deposits:Object.values(_deposits),personal_wallets:Object.values(_personal)},null,2),`full_result_${ts()}.json`,'application/json');
+  dlFile(JSON.stringify({meta:{timestamp:new Date().toISOString(),credit_used:_client?.creditUsed||0},exchange_deposits:Object.values(_deposits),personal_wallets:Object.values(_personal),exchange_wallets:Object.values(_exchWallets)},null,2),`full_result_${ts()}.json`,'application/json');
 }
 function downloadDiagLog(){
   const t=document.getElementById('terminal');
   const lines=t?[...t.querySelectorAll('.log-line')].map(el=>el.textContent):[];
-  dlFile(['SurfTracer v3.0 진단 로그',`생성: ${new Date().toLocaleString('ko-KR')}`,`Credit: ${_client?.creditUsed||0}`,`거래소: ${Object.keys(_deposits).length}  개인: ${Object.keys(_personal).length}`,'─'.repeat(60),...lines].join('\n'),`diag_log_${ts()}.txt`,'text/plain');
+  dlFile(['SurfTracer v3.0 진단 로그',`생성: ${new Date().toLocaleString('ko-KR')}`,`Credit: ${_client?.creditUsed||0}`,`거래소: ${Object.keys(_deposits).length}  개인: ${Object.keys(_personal).length}  거래소지갑: ${Object.keys(_exchWallets).length}`,'─'.repeat(60),...lines].join('\n'),`diag_log_${ts()}.txt`,'text/plain');
 }
 function downloadFullDiag(){
   const t=document.getElementById('terminal');
   const lines=t?[...t.querySelectorAll('.log-line')].map(el=>el.textContent):[];
-  dlFile(JSON.stringify({meta:{timestamp:new Date().toISOString(),credit_used:_client?.creditUsed||0,deposits:Object.keys(_deposits).length,personal:Object.keys(_personal).length},wallet_entries:walletEntries.map(e=>({address:e.address,file:e.file?.name||null,csv_rows:e.csvRows.length})),exchange_deposits:Object.values(_deposits),personal_wallets:Object.values(_personal),credit_log:_client?.creditLog||[],error_log:_client?.errorLog||[],terminal_log:lines},null,2),`full_diag_${ts()}.json`,'application/json');
+  dlFile(JSON.stringify({meta:{timestamp:new Date().toISOString(),credit_used:_client?.creditUsed||0,deposits:Object.keys(_deposits).length,personal:Object.keys(_personal).length,exchange_wallets:Object.keys(_exchWallets).length},wallet_entries:walletEntries.map(e=>({address:e.address,file:e.file?.name||null,csv_rows:e.csvRows.length})),exchange_deposits:Object.values(_deposits),personal_wallets:Object.values(_personal),exchange_wallets:Object.values(_exchWallets),credit_log:_client?.creditLog||[],error_log:_client?.errorLog||[],terminal_log:lines},null,2),`full_diag_${ts()}.json`,'application/json');
 }
 
 // ── 초기화 ──
