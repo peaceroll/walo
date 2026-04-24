@@ -196,6 +196,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="result-toolbar">
         <button class="btn-sm" onclick="downloadCSV('deposits')">CSV 저장</button>
         <button class="btn-sm" onclick="downloadJSON('deposits')">JSON 저장</button>
+        <button class="btn-sm" onclick="downloadTXT('deposits')">TXT 저장</button>
         <span style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-left:4px">📂 Arkham CSV 기반 · 🌐 Surf 보완</span>
       </div>
       <table class="result-table">
@@ -209,6 +210,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="result-toolbar">
         <button class="btn-sm" onclick="downloadCSV('personal')">CSV 저장</button>
         <button class="btn-sm" onclick="downloadJSON('personal')">JSON 저장</button>
+        <button class="btn-sm" onclick="downloadTXT('personal')">TXT 저장</button>
       </div>
       <table class="result-table">
         <thead><tr><th>#</th><th>주소</th><th>라벨</th><th>체인</th><th>Depth</th><th>TX건수</th><th>Arkham</th></tr></thead>
@@ -221,6 +223,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="dl-section-label">결과 저장</div>
       <button class="btn-sm" style="width:260px" onclick="downloadAll()">📦 전체 결과 JSON</button>
       <button class="btn-sm" style="width:260px" onclick="downloadCSV('all')">📋 전체 CSV (통합)</button>
+      <button class="btn-sm" style="width:260px" onclick="downloadTXT('deposits')">📄 거래소 입금주소 TXT</button>
+      <button class="btn-sm" style="width:260px" onclick="downloadTXT('personal')">📄 개인 지갑 TXT</button>
       <div class="dl-section-label">진단 로그</div>
       <button class="btn-sm" style="width:260px" onclick="downloadDiagLog()">📄 터미널 로그 TXT</button>
       <button class="btn-sm" style="width:260px" onclick="downloadFullDiag()">🗂️ 전체 진단 JSON</button>
@@ -256,7 +260,7 @@ let walletEntries=[];
 
 function addWalletEntry(){
   const id=Date.now();
-  walletEntries.push({id,address:'',file:null,csvRows:[]});
+  walletEntries.push({id,address:'',file:null,csvRows:[],depositFile:null,depositCsvRows:[]});
   renderWalletList();
 }
 
@@ -284,8 +288,16 @@ function renderWalletList(){
         <input type="file" accept=".zip,.csv" style="position:absolute;inset:0;opacity:0;cursor:pointer;z-index:1"
           onchange="handleFileChange(event,${entry.id})">
         <div class="file-drop-inner">
-          <div style="font-size:10px;color:var(--text-dim)">📂 Arkham CSV ZIP 업로드</div>
+          <div style="font-size:10px;color:var(--text-dim)">📂 시드지갑 Arkham CSV ZIP</div>
           <div class="file-status" id="status-${entry.id}">${entry.file?'✅ '+entry.file.name:''}</div>
+        </div>
+      </div>
+      <div class="file-drop" id="ddrop-${entry.id}" style="margin-top:4px">
+        <input type="file" accept=".zip,.csv" style="position:absolute;inset:0;opacity:0;cursor:pointer;z-index:1"
+          onchange="handleDepositFileChange(event,${entry.id})">
+        <div class="file-drop-inner">
+          <div style="font-size:10px;color:var(--text-dim)">📂 입금주소 인바운드 CSV ZIP <span style="color:var(--text-dim);font-size:9px">(선택)</span></div>
+          <div class="file-status" id="dstatus-${entry.id}">${entry.depositFile?'✅ '+entry.depositFile.name+' ('+entry.depositCsvRows.length+'행)':''}</div>
         </div>
       </div>
     `;
@@ -309,7 +321,21 @@ async function handleFileChange(event,id){
   }
 }
 
-async function parseZipOrCSV(file){
+async function handleDepositFileChange(event,id){
+  const file=event.target.files[0];
+  if(!file)return;
+  const entry=walletEntries.find(e=>e.id===id);
+  if(!entry)return;
+  entry.depositFile=file;
+  const statusEl=document.getElementById('dstatus-'+id);
+  statusEl.textContent='⏳ 파싱 중…';
+  try{
+    entry.depositCsvRows=await parseZipOrCSV(file);
+    statusEl.textContent=`✅ ${file.name} (${entry.depositCsvRows.length}행)`;
+  }catch(e){
+    statusEl.textContent=`❌ ${e.message}`;
+  }
+}
   if(file.name.toLowerCase().endsWith('.zip')){
     const zip=await JSZip.loadAsync(file);
     let allRows=[];
@@ -380,6 +406,35 @@ function extractDepositsFromCSV(rows,seedAddr){
     else d.chains.add(chain); // 미지원 체인 표시용
   }
   return depMap;
+}
+
+// ── CSV fromLabel → {entity_type, entity_name} ──
+function parseCsvLabel(labelStr){
+  if(!labelStr)return{entity_type:'',entity_name:''};
+  if(CEX_RE.test(labelStr))return{entity_type:'cex',entity_name:labelStr};
+  if(/deposit/i.test(labelStr))return{entity_type:'cex_deposit',entity_name:labelStr};
+  if(EXCLUDE_RE.test(labelStr))return{entity_type:'contract',entity_name:labelStr};
+  if(/contract|proxy|fund|bridge|router|dex|staking|vault|pool/i.test(labelStr))return{entity_type:'contract',entity_name:labelStr};
+  return{entity_type:'',entity_name:labelStr};
+}
+
+// ── Arkham 입금주소 CSV → 인바운드 발신자 조회 ──
+function getInboundFromCSV(depAddr,rows,cutoff){
+  const addr=depAddr.toLowerCase();
+  const sc={};const flMap={};
+  for(const r of rows){
+    const to=(r.toAddress||'').toLowerCase();
+    if(to!==addr)continue;
+    if(cutoff){
+      const raw=r.blockTimestamp;
+      if(raw){try{if(new Date(String(raw).slice(0,10))<cutoff)continue;}catch{}}
+    }
+    const fr=(r.fromAddress||'').toLowerCase();
+    if(!fr||fr==='0x0000000000000000000000000000000000000000')continue;
+    sc[fr]=(sc[fr]||0)+1;
+    if(!flMap[fr])flMap[fr]=parseCsvLabel(r.fromLabel||'');
+  }
+  return{sc,flMap};
 }
 
 // ── Surf 클라이언트 ──
@@ -548,22 +603,75 @@ async function startAnalysis(){
     }
     log(`\n📊 Phase 1 완료: 거래소 입금 주소 ${Object.keys(_deposits).length}개`,'done');
 
-    // ── Phase 2: Surf API 역추적 ──
+    // ── Phase 2: 인바운드 역추적 (CSV 우선 → Surf 폴백) ──
     log('');
     log('─'.repeat(44),'header');
-    log('Phase 2: Surf API → 개인지갑 역추적','header');setPhase('Phase 2: Surf 역추적');
+    log('Phase 2: 개인지갑 역추적 (CSV 우선 / Surf 폴백)','header');setPhase('Phase 2: 역추적');
     log('─'.repeat(44),'header');
     const visited=new Set([...Object.keys(_deposits),...seedSet]);
     let currentPersonal=[];
+
+    // 모든 엔트리의 입금주소 CSV 행 통합
+    const allDepositRows=valid.flatMap(e=>e.depositCsvRows||[]);
+    const hasDepositCSV=allDepositRows.length>0;
+    if(hasDepositCSV)log(`📂 입금주소 CSV ${allDepositRows.length}행 로드됨 (Surf 크레딧 절약 모드)`,'deposit');
+
+    // 공통 포이즈닝 필터
+    function applyPoison(cands){
+      const ck=a=>a.slice(2,6)+'|'+a.slice(-6);
+      const cm={};
+      for(const a of cands)(cm[ck(a)]=cm[ck(a)]||[]).push(a);
+      const poisoned=new Set();
+      for(const cl of Object.values(cm))if(cl.length>=2)cl.forEach(a=>poisoned.add(a));
+      return poisoned;
+    }
+
+    // 공통 개인지갑 등록
+    function registerPersonal(fr,item,chain,txCnt,depAddr,depName,depth){
+      _personal[fr]={address:fr,entity_name:item.entity_name||'',entity_type:item.entity_type||'',chain,depth,tx_cnt:txCnt,via_deposit:depAddr,via_exchange:depName};
+      visited.add(fr);currentPersonal.push(fr);
+      log(`    👤 [${chain}] ${fr.slice(0,16)}… (TX ${txCnt}건)`,'personal');
+      updateTable('personal');updateProgress();
+    }
 
     // Depth 1: Phase 1에서 찾은 모든 입금 주소의 인바운드
     const allDepAddrs=Object.keys(_deposits);
     for(const depAddr of allDepAddrs){
       if(!_running)break;
       const depInfo=_deposits[depAddr];
+      log(`\n  [${depInfo.entity_name}] ${depAddr.slice(0,16)}… 인바운드 조회`);
+      setPhase('Phase 2: 역추적',`🔍 ${depInfo.entity_name}`);
+
+      // ── CSV 경로 ──
+      if(hasDepositCSV){
+        const{sc,flMap}=getInboundFromCSV(depAddr,allDepositRows,cutoff);
+        const total=Object.keys(sc).length;
+        if(total>0){
+          const minTx=total>5?2:1;
+          const cands=Object.entries(sc).filter(([,c])=>c>=minTx).map(([a])=>a);
+          const poisoned=applyPoison(cands);
+          if(poisoned.size)log(`    ⚠ 포이즈닝 ${poisoned.size}개 제거`,'warn');
+          let added=0;
+          for(const fr of cands){
+            if(poisoned.has(fr)||visited.has(fr))continue;
+            const item=flMap[fr]||{};
+            if(!isPersonalWallet(item))continue;
+            // CSV에서 체인 정보 추출
+            const chainFromCSV=allDepositRows.find(r=>r.fromAddress?.toLowerCase()===fr&&r.toAddress?.toLowerCase()===depAddr)?.chain||'unknown';
+            const mappedChain=CHAIN_MAP[chainFromCSV]||chainFromCSV;
+            registerPersonal(fr,item,mappedChain,sc[fr],depAddr,depInfo.entity_name,1);
+            added++;
+          }
+          log(`    📂 [CSV] 발신자 ${cands.length}명 → 개인지갑 ${added}명`);
+          continue; // Surf API 스킵
+        }else{
+          log(`    📂 [CSV] 해당 입금주소 데이터 없음 → Surf 조회`,'warn');
+        }
+      }
+
+      // ── Surf API 경로 ──
       const surfChains=(depInfo.chains||[]).filter(c=>chains.includes(c));
-      if(!surfChains.length)continue;
-      log(`\n  [${depInfo.entity_name}] ${depAddr.slice(0,16)}… 인바운드 조회`);setPhase('Phase 2: Surf 역추적',`🔍 ${depInfo.entity_name} 인바운드 [${surfChains.join(',')}]`);
+      if(!surfChains.length){log(`    Surf 지원 체인 없음`);continue;}
       for(const chain of surfChains){
         if(!_running)break;
         try{
@@ -579,32 +687,23 @@ async function startAnalysis(){
           const minTx=total>5?2:1;
           const cands=Object.entries(sc).filter(([,c])=>c>=minTx).map(([a])=>a);
           if(!cands.length){log(`    [${chain}] 발신자 없음`);continue;}
-          // from_label 수집
           const flMap={};
           for(const tx of filtered){
             const fr=(tx.from_address||tx.from||tx.fromAddress||'').toLowerCase();
             const lbl=tx.from_label||tx.fromLabel||{};
             if(fr&&lbl&&!flMap[fr])flMap[fr]={entity_type:lbl.entity_type||'',entity_name:lbl.entity_name||''};
           }
-          // labels/batch 보완 (entity_type 미확인 주소도 재조회)
           const needB=cands.filter(a=>!flMap[a]||!flMap[a].entity_type);
           if(needB.length){try{const lb=await _client.labelsBatch(needB,chain);for(const l of lb){const la=l.address?.toLowerCase();if(la)flMap[la]=l;}}catch(e){if(e.message?.includes('Credit 한도'))throw e;}}
-          // 포이즈닝
-          const ck=a=>a.slice(2,6)+'|'+a.slice(-6);
-          const cm={};
-          for(const a of cands)(cm[ck(a)]=cm[ck(a)]||[]).push(a);
-          const poisoned=new Set();
-          for(const cl of Object.values(cm))if(cl.length>=2)cl.forEach(a=>poisoned.add(a));
+          const poisoned=applyPoison(cands);
           if(poisoned.size)log(`    ⚠ 포이즈닝 ${poisoned.size}개 제거`,'warn');
           let added=0;
           for(const fr of cands){
             if(poisoned.has(fr)||visited.has(fr))continue;
             const item=flMap[fr]||{};
             if(!isPersonalWallet(item))continue;
-            _personal[fr]={address:fr,entity_name:item.entity_name||'',entity_type:item.entity_type||'',chain,depth:1,tx_cnt:sc[fr],via_deposit:depAddr,via_exchange:depInfo.entity_name};
-            visited.add(fr);currentPersonal.push(fr);added++;
-            log(`    👤 [${chain}] ${fr.slice(0,16)}… (TX ${sc[fr]}건)`,'personal');
-            updateTable('personal');updateProgress();
+            registerPersonal(fr,item,chain,sc[fr],depAddr,depInfo.entity_name,1);
+            added++;
           }
           log(`    [${chain}] 발신자 ${cands.length}명 → 개인지갑 ${added}명`);
         }catch(e){
@@ -688,11 +787,12 @@ async function startAnalysis(){
           const minTx=Object.keys(sc).length>5?2:1;
           const cands=Object.entries(sc).filter(([,c])=>c>=minTx).map(([a])=>a);
           if(!cands.length)continue;
-          const needB=cands.filter(a=>true);
           const flMap={};
+          const needB=cands.filter(a=>true);
           if(needB.length){try{const lb=await _client.labelsBatch(needB,chain);for(const l of lb){const la=l.address?.toLowerCase();if(la)flMap[la]=l;}}catch(e){if(e.message?.includes('Credit 한도'))throw e;}}
+          const poisoned=applyPoison(cands);
           for(const fr of cands){
-            if(visited.has(fr))continue;
+            if(poisoned.has(fr)||visited.has(fr))continue;
             const item=flMap[fr]||{};
             if(!isPersonalWallet(item))continue;
             _personal[fr]={address:fr,entity_name:item.entity_name||'',entity_type:item.entity_type||'',chain,depth:d+1,tx_cnt:sc[fr],via_deposit:addr,via_exchange:entity_name};
@@ -805,6 +905,25 @@ document.querySelectorAll('.tab').forEach(tab=>{
 // ── 다운로드 ──
 function ts(){return new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);}
 function dlFile(content,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();}
+function downloadTXT(type){
+  const ARKHAM='https://intel.arkm.com/explorer/address/';
+  let lines=[];
+  if(type==='deposits'){
+    Object.values(_deposits).forEach(d=>{
+      lines.push(d.address);
+      lines.push(ARKHAM+d.address);
+      lines.push('');
+    });
+    dlFile(lines.join('\n'),`deposits_${ts()}.txt`,'text/plain');
+  }else{
+    Object.values(_personal).forEach(p=>{
+      lines.push(p.address);
+      lines.push(ARKHAM+p.address);
+      lines.push('');
+    });
+    dlFile(lines.join('\n'),`personal_${ts()}.txt`,'text/plain');
+  }
+}
 function downloadCSV(type){
   if(type==='deposits'){
     const rows=Object.values(_deposits).map(d=>`${d.address},${d.entity_name},"${(d.chains||[]).join('|')}",${d.tx_cnt||''},${d.source||''}`);
