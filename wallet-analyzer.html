@@ -1057,36 +1057,84 @@ tr:hover td { background: var(--surface2); }
 
 <script>
 // ════════════════════════════════════════════════════════
-// 필터 로직 (Python filters.py 완전 이식)
 // ════════════════════════════════════════════════════════
+// 필터 로직 — 대화록 검증 결과 반영 v3
+// ════════════════════════════════════════════════════════
+
+// CEX 화이트리스트 (baseEntityName 정규화 후 매칭)
 const CEX = new Set([
   "Binance","Coinbase","Kraken","OKX","Bybit","Gate.io",
   "KuCoin","Bitget","HTX","MEXC","Crypto.com","Upbit","Bithumb",
-  "Bithumb","Huobi","Gemini","Bitfinex","Bitstamp","Korbit","Gopax"
+  "Huobi","Gemini","Bitfinex","Bitstamp","Korbit","Gopax",
+  "ChangeNOW","Shuffle","Phemex","WazirX","CoinDCX",
 ]);
 
-// 실제 데이터에서 발견된 비-CEX "Deposit" 라벨 패턴 제외
-const RE_EXCLUDE = /\b(proxy|router|aggregator|1inch|uniswap|pancakeswap|sushiswap|quickswap|paraswap|smart.?contract|dex|liquidity.?pool|swap.?contract|amm|factory|pair.?contract|bridge|wormhole|layerzero|stargate|axelar|hot.?wallet|cold.?wallet|cold.?storage|withdrawal|relay\.link|megaeth|rhinofi|paxos|yeet|concrete|depositor|pre.?deposit|dvf)\b/i;
+// entity_name 정규화: "Bybit Deposit" → "Bybit"
+function baseEntityName(name) {
+  if (!name) return '';
+  return name.replace(/\s+(Deposit|Hot Wallet|Cold Wallet|Withdrawal|Treasury|Wallet).*$/i, '').trim();
+}
+
+// 제외 패턴 (Hot/Cold/DEX/Bridge 등)
+const RE_EXCLUDE = /\b(proxy|router|aggregator|1inch|uniswap|pancakeswap|sushiswap|quickswap|paraswap|smart.?contract|dex|liquidity.?pool|swap.?contract|amm|factory|pair.?contract|bridge|wormhole|layerzero|stargate|axelar|hot.?wallet|cold.?wallet|cold.?storage|withdrawal|relay\.link|megaeth|rhinofi|paxos|yeet|concrete|depositor|pre.?deposit|dvf|disperse|peg)\b/i;
 
 const RE_DEPOSIT = /\b(deposit|입금)\b/i;
 
-const NOT_PERSONAL = new Set(["exchange","contract","proxy","fund","dex","bridge","router"]);
+// token ticker 패턴: "TokenName (TICKER)" = 토큰 컨트랙트 (대화록에서 확인됨)
+// 예: "Binance-Peg BSC-USD (BSC-USD)", "MultichainZ (CHAINZ)"
+const RE_TOKEN_TICKER = /\([A-Z0-9][A-Z0-9\-]{1,9}\)$/;
+
+// 개인지갑 불가 entity_type — cex_deposit 추가 (대화록: 입금주소가 개인지갑으로 오분류 방지)
+const NOT_PERSONAL = new Set([
+  "exchange","cex_deposit","contract","proxy","fund",
+  "dex","bridge","router","misc",
+]);
 
 function labelText(item) {
   return (item.labels || []).map(l => l.label || "").join(" ");
 }
 
 function isExchangeDeposit(item) {
-  if (item.entity_type !== "exchange") return false;
-  if (!CEX.has(item.entity_name))      return false;
-  const txt = labelText(item);
-  if (RE_EXCLUDE.test(txt))           return false;
-  return RE_DEPOSIT.test(txt);
+  const et = item.entity_type;
+  const name = item.entity_name || '';
+  const lbl  = labelText(item);
+
+  // token ticker 패턴 = 토큰 컨트랙트, 절대 거래소 아님
+  if (RE_TOKEN_TICKER.test(name)) return false;
+  // 제외 키워드 (Hot/Cold Wallet 등)
+  if (RE_EXCLUDE.test(lbl)) return false;
+
+  // ① entity_type === "cex_deposit" → Surf가 개인 입금 주소로 명시 (최우선 승인)
+  if (et === "cex_deposit") return true;
+
+  // ② entity_type === "exchange" → hot/cold/treasury는 이미 RE_EXCLUDE에서 걸림
+  //    CEX 화이트리스트 + deposit 키워드 확인
+  if (et === "exchange") {
+    const base = baseEntityName(name);
+    if (!CEX.has(base) && !CEX.has(name)) return false;
+    return RE_DEPOSIT.test(name) || RE_DEPOSIT.test(lbl);
+  }
+
+  // ③ entity_type 없어도 labels 텍스트에 "Deposit" + CEX 이름 있으면 승인
+  //    (대화록: Surf가 entity_type은 비우고 labels만 채우는 케이스 존재)
+  if (!et || et === '') {
+    const allText = name + ' ' + lbl;
+    const hasDeposit = RE_DEPOSIT.test(allText);
+    const hasCex = [...CEX].some(c => allText.toLowerCase().includes(c.toLowerCase()));
+    if (hasDeposit && hasCex && !RE_TOKEN_TICKER.test(name)) return true;
+  }
+
+  return false;
 }
 
 function isPersonalWallet(item) {
   if (NOT_PERSONAL.has(item.entity_type)) return false;
-  if (RE_EXCLUDE.test(labelText(item)))    return false;
+  const name = item.entity_name || '';
+  // token ticker = 토큰 컨트랙트
+  if (RE_TOKEN_TICKER.test(name)) return false;
+  // "misc" entity_type
+  if (item.entity_type === 'misc') return false;
+  if (RE_EXCLUDE.test(labelText(item))) return false;
   return true;
 }
 
@@ -1103,16 +1151,26 @@ function classify(items) {
 // ════════════════════════════════════════════════════════
 // Surf API 클라이언트
 // ════════════════════════════════════════════════════════
-const CHAIN_SQL = {
-  'base':      { table: 'base',      days: 90,  limit: 2000 },
-  'bsc':       { table: 'bsc',       days: 90,  limit: 1000 },
-  'arbitrum':  { table: 'arbitrum',  days: 90,  limit: 2000 },
-  'ethereum':  { table: 'ethereum',  days: 30,  limit: 300  },
-};
-const YEAR_DAYS = { "전체": 365, "최근 1년": 365, "최근 2년": 365, "최근 3년": 365 };
-function sqlDays(y, chain) { return Math.min(YEAR_DAYS[y]||90, (CHAIN_SQL[chain]||{}).days||90); }
-function sqlTable(chain) { return (CHAIN_SQL[chain]||{}).table||chain; }
-function sqlLimit(chain) { return (CHAIN_SQL[chain]||{}).limit||1000; }
+// Surf 실제 지원 체인 (대화록 확인: polygon/optimism 미지원)
+const SUPPORTED_CHAINS_SET = new Set(['base','bsc','arbitrum','ethereum']);
+
+// 연도 필터 → cutoff date
+function getCutoffDate(yearFilter) {
+  const days = { "전체": null, "최근 1년": 365, "최근 2년": 730, "최근 3년": 1095 }[yearFilter];
+  if (!days) return null;
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d;
+}
+
+function filterByDate(txs, cutoff) {
+  if (!cutoff) return txs;
+  return txs.filter(t => {
+    const raw = t.timestamp || t.block_timestamp || t.block_date;
+    if (!raw) return true;
+    try { return new Date(String(raw).slice(0,10)) >= cutoff; } catch { return true; }
+  });
+}
 
 class SurfClient {
   constructor(apiKey, proxyUrl, maxCredit) {
@@ -1200,184 +1258,244 @@ class SurfClient {
     return out;
   }
 
-  async sql(query) {
-    // Onchain SQL — agent.{chain}_transfers 테이블 직접 조회
-    const key = `sql:${query.replace(/\s+/g,' ')}`;
+  // REST /wallet/transfers?include=labels
+  // 대화록 확인: include=labels 사용 시 from_label/to_label 인라인 포함 → 별도 labels/batch 불필요
+  async getTransfers(address, chain, flow, limit = 100) {
+    const key = `tf:${chain}:${address}:${flow}`;
     if (this._cache[key]) return this._cache[key];
-    this._checkCredit(0); // 실제 비용은 응답에서 추적
-    const data = await this._request("POST", "/onchain/sql", {
-      body: JSON.stringify({ sql: query })
-    });
-    this._cache[key] = Array.isArray(data) ? data : [];
-    return this._cache[key];
+    this._checkCredit(0);
+    const params = new URLSearchParams({ address, chain, flow, limit, include: 'labels' });
+    const data = await this._request("GET", `/wallet/transfers?${params}`);
+    const transfers = Array.isArray(data) ? data : (data?.transfers || data?.data || []);
+    this._cache[key] = transfers;
+    return transfers;
   }
 }
 
 // ════════════════════════════════════════════════════════
 // BFS 추적 (async generator)
 // ════════════════════════════════════════════════════════
-// SQL 날짜 필터 조건 생성 (block_date 기준)
-function dateWhere(days) {
-  return days > 0 ? `AND block_date >= today() - ${days}` : '';
-}
+
 
 async function* bfsTrace(startAddr, chains, maxDepth, yearFilter, client) {
+  // ── 대화록 v3 기반 완전 재작성 ──────────────────────────
+  // 핵심 변경:
+  // 1. REST /wallet/transfers?include=labels 사용 (Onchain SQL 제거)
+  // 2. entity_type=cex_deposit 우선 처리
+  // 3. token ticker 필터 / label text fallback
+  // 4. 발견된 개인지갑은 모든 선택 체인에서 재추적 (교차체인)
+  // 5. address poisoning 클러스터 감지
+
   const visited  = new Set([startAddr.toLowerCase()]);
   const deposits = {};
   const personal = {};
   let current    = [startAddr];
+  const cutoff   = getCutoffDate(yearFilter);
+
+  // 지원 체인만 필터
+  const validChains = chains.filter(c => SUPPORTED_CHAINS_SET.has(c));
+  if (!validChains.length) {
+    yield { log: '❌ 선택된 체인 중 Surf 지원 체인이 없습니다 (base/bsc/arbitrum/ethereum만 지원)', cls: 'error' };
+    yield { done: true, personal, deposits };
+    return;
+  }
 
   for (let depth = 0; depth < maxDepth; depth++) {
     if (!current.length) break;
     const next = [];
-    yield { log: `\n${"─".repeat(44)}\nDepth ${depth+1}/${maxDepth}  —  ${current.length}개 지갑 처리\n${"─".repeat(44)}`, cls: "header" };
+    yield { log: `\n${'─'.repeat(44)}\nDepth ${depth+1}/${maxDepth}  —  ${current.length}개 지갑 처리\n${'─'.repeat(44)}`, cls: 'header' };
 
     for (const wallet of current) {
       if (!_running) { yield { done: true, personal, deposits }; return; }
+      const wl = wallet.toLowerCase();
 
-      for (const chain of chains) {
+      // ── Step A: 아웃고잉 → 거래소 입금 주소 탐지 ─────────
+      // 각 체인에서 transfers(flow=out, include=labels) 조회
+      const newDeposits = []; // 이번 루프에서 발견된 입금 주소
+
+      for (const chain of validChains) {
         if (!_running) break;
-
-        // Surf SQL 지원 체인 확인
-        if (!CHAIN_SQL[chain]) {
-          yield { log: `⏭ [${chain}] SQL 미지원 체인 — 건너뜀`, cls: "warn" };
-          continue;
-        }
-
-        const days  = sqlDays(yearFilter, chain);
-        const tbl   = `agent.${sqlTable(chain)}_transfers`;
-        const lim   = sqlLimit(chain);
-        const dw    = dateWhere(days);
-        const wl    = wallet.toLowerCase();
-
-        yield { log: `🔍 [${chain}] ${wallet.slice(0,16)}… (${days}일 기준)` };
+        yield { log: `🔍 [${chain}] ${wallet.slice(0,16)}… 아웃고잉 조회` };
 
         try {
-          // ① SQL JOIN으로 거래소 입금 주소 직접 추출
-          // REST labels/batch는 개인 deposit 주소를 누락하는 경우가 많음
-          // → agent.{chain}_labels 테이블과 JOIN해서 entity_type=exchange 직접 필터
-          const lblTbl = `agent.${sqlTable(chain)}_labels`;
-          const sql1 = `SELECT DISTINCT
-              lower(t.\`to\`) AS dest,
-              l.entity_name
-            FROM ${tbl} AS t
-            JOIN ${lblTbl} AS l ON lower(l.address) = lower(t.\`to\`)
-            WHERE lower(t.tx_from) = '${wl}'
-              AND t.\`to\` != '' AND t.\`to\` != '0x0000000000000000000000000000000000000000'
-              ${dw}
-              AND l.entity_type = 'exchange'
-            LIMIT 200`;
-          const depRows = await client.sql(sql1);
-
-          // Hot/Cold Wallet 등 제외 (entity_name 기준이 아닌 라벨 텍스트로도 필터)
-          const HOT_COLD = /hot.?wallet|cold.?wallet|cold.?storage|withdrawal/i;
-          const validDeps = depRows.filter(r => r.dest && !HOT_COLD.test(r.entity_name||''));
-
-          yield { log: `  → SQL JOIN 거래소 입금 주소: ${validDeps.length}개 발견` };
-
-          // ① 보조: REST labels/batch로 추가 포착 (SQL JOIN 미포착 분 보완)
-          // 목적지 전체도 라벨 조회해서 entity_type=exchange 추가 검색
-          const sql1b = `SELECT DISTINCT lower(\`to\`) AS dest
-            FROM ${tbl}
-            WHERE lower(tx_from) = '${wl}'
-            AND \`to\` != '' AND \`to\` != '0x0000000000000000000000000000000000000000'
-            ${dw}
-            LIMIT ${lim}`;
-          const allDests = await client.sql(sql1b);
-          const toAddrs = allDests.map(r => r.dest).filter(Boolean);
-          if (toAddrs.length) {
-            const labeled = await client.labelsBatch(toAddrs, chain);
-            const cats = classify(labeled);
-            // REST API에서 추가로 발견된 거래소 입금 주소 병합
-            for (const dep of cats.deposits) {
-              if (!validDeps.find(d => d.dest === dep.address?.toLowerCase())) {
-                validDeps.push({ dest: dep.address?.toLowerCase(), entity_name: dep.entity_name });
-              }
-            }
-            yield { log: `  → REST 라벨 보완: ${toAddrs.length}개 조회, 추가 ${cats.deposits.length}개` };
-          }
-
-          if (!validDeps.length) {
-            yield { log: `  → 거래소 입금 주소 없음`, cls: "header" };
+          const txs = await client.getTransfers(wallet, chain, 'out');
+          const filtered = filterByDate(txs, cutoff);
+          if (!filtered.length) {
+            yield { log: `  → TX 없음`, cls: 'header' };
             continue;
           }
 
-          for (const dep of validDeps) {
-            const addr = dep.dest;
-            if (!addr || deposits[addr]) continue;
-            const entityName = dep.entity_name || '?';
-            deposits[addr] = { address: addr, entity_name: entityName, entity_type: 'exchange', chain, depth: depth + 1 };
-            yield { log: `✅ [${chain}] ${entityName}  ${addr.slice(0,16)}…`, cls: "deposit" };
-            updateTable("deposits", deposits);
+          // to_label에서 거래소 입금 주소 직접 추출 (include=labels)
+          const depMap = new Map(); // addr → {entity_name}
+
+          for (const tx of filtered) {
+            const toAddr = (tx.to_address || tx.to || '').toLowerCase();
+            if (!toAddr || toAddr === '0x0000000000000000000000000000000000000000') continue;
+            if (depMap.has(toAddr)) continue;
+
+            // to_label 필드 (include=labels 응답)
+            const lbl = tx.to_label || tx.toLabel || {};
+            const item = {
+              address: toAddr,
+              entity_type: lbl.entity_type || '',
+              entity_name: lbl.entity_name || '',
+              labels: lbl.labels || [],
+            };
+
+            if (isExchangeDeposit(item)) {
+              depMap.set(toAddr, { address: toAddr, entity_name: item.entity_name || '?' });
+            }
           }
 
-          // ③ 각 거래소 입금 주소 → 인바운드 발신자 수집
-          for (const depAddr of Object.keys(deposits).filter(a => deposits[a].chain === chain && deposits[a].depth === depth + 1)) {
-            if (!_running) break;
-            const dl = depAddr.toLowerCase();
+          // 라벨 없는 주소들 labels/batch로 보완
+          const unlabeled = filtered
+            .map(tx => (tx.to_address || tx.to || '').toLowerCase())
+            .filter(a => a && !depMap.has(a) && !visited.has(a));
 
-            // tx_cnt >= 2 조건: 거래소 입금주소에 2건 이상 보낸 발신자만 수집
-            const sql2 = `SELECT lower(tx_from) AS sender, count() AS tx_cnt
-              FROM ${tbl}
-              WHERE lower(\`to\`) = '${dl}'
-              AND tx_from != '' AND tx_from != '0x0000000000000000000000000000000000000000'
-              ${dw}
-              GROUP BY tx_from
-              HAVING tx_cnt >= 2
-              ORDER BY tx_cnt DESC
-              LIMIT 500`;
-            const senderRows = await client.sql(sql2);
-
-            // tx_cnt 맵 구성 (주소 → 누적 tx 건수)
-            const senderTxMap = {};
-            for (const r of senderRows) {
-              if (!r.sender) continue;
-              senderTxMap[r.sender] = (senderTxMap[r.sender] || 0) + parseInt(r.tx_cnt || 1);
-            }
-
-            const fromAddrs = Object.keys(senderTxMap).filter(a => !visited.has(a));
-
-            if (!fromAddrs.length) continue;
-            yield { log: `  → [${dep.entity_name || dep.address.slice(0,10)}] 발신자 ${fromAddrs.length}명 (2건+), 라벨 조회 중…` };
-
-            // ④ 발신자 라벨링 → 개인 지갑 추출
-            const labeled2 = await client.labelsBatch(fromAddrs, chain);
-            const cats2 = classify(labeled2);
-
-            for (const pw of cats2.personal) {
-              const al = pw.address?.toLowerCase();
-              if (al && !visited.has(al)) {
-                const txCnt = senderTxMap[pw.address?.toLowerCase()] || senderTxMap[pw.address] || 1;
-                if (!personal[pw.address]) {
-                  personal[pw.address] = { ...pw, chain, depth: depth + 1, tx_cnt: txCnt };
-                } else {
-                  // 같은 주소가 여러 deposit에서 발견되면 tx_cnt 누적
-                  personal[pw.address].tx_cnt = (personal[pw.address].tx_cnt || 0) + txCnt;
-                }
-                visited.add(al);
-                next.push(pw.address);
-                yield { log: `👤 [${chain}] ${pw.address?.slice(0,16)}… (TX ${txCnt}건)`, cls: "personal" };
-                updateTable("personal", personal);
+          if (unlabeled.length > 0) {
+            const labeled = await client.labelsBatch(unlabeled, chain);
+            for (const lb of labeled) {
+              const la = lb.address?.toLowerCase();
+              if (!la || depMap.has(la)) continue;
+              if (isExchangeDeposit(lb)) {
+                depMap.set(la, { address: la, entity_name: lb.entity_name || '?' });
               }
+            }
+          }
+
+          yield { log: `  → 아웃고잉 ${filtered.length}건, 거래소 입금 주소 ${depMap.size}개 발견` };
+
+          for (const [addr, info] of depMap) {
+            if (!deposits[addr]) {
+              deposits[addr] = { address: addr, entity_name: info.entity_name, entity_type: 'cex_deposit', chain, depth: depth + 1 };
+              newDeposits.push({ addr, chain, entity_name: info.entity_name });
+              yield { log: `✅ [${chain}] ${info.entity_name}  ${addr.slice(0,16)}…`, cls: 'deposit' };
+              updateTable('deposits', deposits);
             }
           }
 
         } catch (e) {
-          if (e.message.includes("Credit 한도")) {
-            yield { log: `⚠️  ${e.message}`, cls: "warn" };
+          if (e.message?.includes('Credit 한도')) {
+            yield { log: `⚠️  ${e.message}`, cls: 'warn' };
             yield { done: true, personal, deposits };
             return;
           }
           client.errorLog.push({ time: new Date().toISOString(), addr: wallet, chain, error: e.message });
           updateErrorTable(client.errorLog);
-          yield { log: `❌ [${chain}] ${e.message}`, cls: "error" };
+          yield { log: `❌ [${chain}] ${e.message}`, cls: 'error' };
+        }
+      }
+
+      // ── Step B: 거래소 입금 주소 → 인바운드 발신자 탐지 ──
+      // 발견된 체인에서만 역추적 (교차체인 낭비 방지)
+      for (const { addr, chain, entity_name } of newDeposits) {
+        if (!_running) break;
+        yield { log: `  → [${entity_name}] 인바운드 조회 [${chain}]` };
+
+        try {
+          const inTxs = await client.getTransfers(addr, chain, 'in');
+          const filteredIn = filterByDate(inTxs, cutoff);
+
+          // 발신자별 tx 건수 집계
+          const senderCount = {};
+          for (const tx of filteredIn) {
+            const fr = (tx.from_address || tx.from || '').toLowerCase();
+            if (!fr || fr === '0x0000000000000000000000000000000000000000' || visited.has(fr)) continue;
+            senderCount[fr] = (senderCount[fr] || 0) + 1;
+          }
+
+          // TX 1건만인 발신자 제거 (단, 소규모 전용 deposit은 예외)
+          const totalSenders = Object.keys(senderCount).length;
+          const MIN_TX = totalSenders > 5 ? 2 : 1; // 발신자 5명 이상이면 2건 이상만
+          
+          const candidates = Object.entries(senderCount)
+            .filter(([, cnt]) => cnt >= MIN_TX)
+            .map(([addr]) => addr);
+
+          if (!candidates.length) continue;
+
+          // 라벨 조회 — from_label (include=labels) 또는 labels/batch
+          // from_label은 이미 inTxs에 있으므로 활용
+          const fromLabelMap = {};
+          for (const tx of filteredIn) {
+            const fr = (tx.from_address || tx.from || '').toLowerCase();
+            if (!fr) continue;
+            const lbl = tx.from_label || tx.fromLabel || {};
+            if (lbl && !fromLabelMap[fr]) {
+              fromLabelMap[fr] = {
+                address: fr,
+                entity_type: lbl.entity_type || '',
+                entity_name: lbl.entity_name || '',
+                labels: lbl.labels || [],
+              };
+            }
+          }
+
+          // labels/batch로 보완 (fromLabel 없는 주소들)
+          const needBatch = candidates.filter(a => !fromLabelMap[a]);
+          if (needBatch.length) {
+            const labeled = await client.labelsBatch(needBatch, chain);
+            for (const lb of labeled) {
+              const la = lb.address?.toLowerCase();
+              if (la) fromLabelMap[la] = lb;
+            }
+          }
+
+          // address poisoning 클러스터 감지
+          // 같은 [2:6] prefix + [-6:] suffix 공유 → 포이즈닝
+          const clusterKey = a => a.slice(2,6) + '|' + a.slice(-6);
+          const clusterMap = {};
+          for (const a of candidates) {
+            const k = clusterKey(a);
+            clusterMap[k] = (clusterMap[k] || []);
+            clusterMap[k].push(a);
+          }
+          const poisoned = new Set();
+          for (const [, cluster] of Object.entries(clusterMap)) {
+            if (cluster.length >= 2) cluster.forEach(a => poisoned.add(a));
+          }
+          if (poisoned.size) {
+            yield { log: `  ⚠ 주소 포이즈닝 ${poisoned.size}개 제거`, cls: 'warn' };
+          }
+
+          let newPersonal = 0;
+          for (const fr of candidates) {
+            if (poisoned.has(fr) || visited.has(fr)) continue;
+            const item = fromLabelMap[fr] || { address: fr, entity_type: '', entity_name: '', labels: [] };
+            if (!isPersonalWallet(item)) continue;
+
+            personal[fr] = {
+              address: fr,
+              entity_name: item.entity_name || '',
+              entity_type: item.entity_type || '',
+              chain,
+              depth: depth + 1,
+              tx_cnt: senderCount[fr] || 1,
+            };
+            visited.add(fr);
+            next.push(fr);
+            newPersonal++;
+            yield { log: `👤 [${chain}] ${fr.slice(0,16)}… (TX ${senderCount[fr]}건)`, cls: 'personal' };
+            updateTable('personal', personal);
+          }
+          yield { log: `  → 발신자 ${candidates.length}명 → 개인지갑 ${newPersonal}명 추가` };
+
+        } catch (e) {
+          if (e.message?.includes('Credit 한도')) {
+            yield { log: `⚠️  ${e.message}`, cls: 'warn' };
+            yield { done: true, personal, deposits };
+            return;
+          }
+          client.errorLog.push({ time: new Date().toISOString(), addr, chain, error: e.message });
+          updateErrorTable(client.errorLog);
+          yield { log: `❌ [${chain}] ${e.message}`, cls: 'error' };
         }
       }
 
       yield { progress: { depth: depth+1, maxDepth, nPersonal: Object.keys(personal).length, nDeposits: Object.keys(deposits).length, credit: client.creditUsed } };
     }
 
-    yield { log: `✅ Depth ${depth+1} 완료  |  개인: ${Object.keys(personal).length}  |  거래소: ${Object.keys(deposits).length}  |  Credit: ${client.creditUsed}`, cls: "done" };
+    yield { log: `✅ Depth ${depth+1} 완료  |  개인: ${Object.keys(personal).length}  |  거래소: ${Object.keys(deposits).length}  |  Credit: ${client.creditUsed}`, cls: 'done' };
     current = next;
   }
 
