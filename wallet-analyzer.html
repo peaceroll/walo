@@ -213,7 +213,10 @@ input[type=range]{width:100%;accent-color:var(--accent)}
         <button class="btn-sm" onclick="downloadCSV('personal')">CSV 저장</button>
         <button class="btn-sm" onclick="downloadJSON('personal')">JSON 저장</button>
         <button class="btn-sm" onclick="downloadTXT('personal')">TXT 저장</button>
+        <button class="btn-sm" id="filterExchBtn" onclick="setPersonalFilter(true)" style="border-color:var(--yellow);color:var(--yellow)">🔗 거래소지갑 연관 필터</button>
+        <button class="btn-sm" id="filterResetBtn" onclick="setPersonalFilter(false)" style="display:none">↺ 전체 보기</button>
       </div>
+      <div id="filterNote" style="display:none;padding:4px 10px 0;font-size:10px;color:var(--yellow);font-family:var(--mono)"></div>
       <table class="result-table">
         <thead><tr><th>#</th><th>주소</th><th>라벨</th><th>체인</th><th>Depth</th><th>TX건수</th><th>Arkham</th></tr></thead>
         <tbody id="personalBody"><tr><td colspan="7" class="empty-state"><div class="icon">👤</div>개인 지갑이 없습니다</td></tr></tbody>
@@ -549,7 +552,23 @@ function filterDate(txs,cutoff){
 }
 
 // ── 상태 ──
-let _running=false,_client=null,_deposits={},_personal={},_exchWallets={};
+let _running=false,_client=null,_deposits={},_personal={},_exchWallets={},_personalFilterMode=false;
+
+function setPersonalFilter(on){
+  _personalFilterMode=on;
+  document.getElementById('filterExchBtn').style.display=on?'none':'';
+  document.getElementById('filterResetBtn').style.display=on?'':'none';
+  const note=document.getElementById('filterNote');
+  if(on){
+    const ewDepAddrs=new Set(Object.values(_exchWallets).map(ew=>ew.via_deposit));
+    const filtered=Object.values(_personal).filter(p=>ewDepAddrs.has(p.via_deposit));
+    note.style.display='block';
+    note.textContent=`🔗 거래소지갑과 같은 입금주소 공유: ${filtered.length}/${Object.keys(_personal).length}명 표시 중`;
+  }else{
+    note.style.display='none';
+  }
+  updateTable('personal');
+}
 
 // ── 분석 시작 ──
 async function startAnalysis(phase1Only=false){
@@ -562,7 +581,13 @@ async function startAnalysis(phase1Only=false){
   const yearFilter=document.getElementById('yearFilter').value;
   const proxyUrl=document.getElementById('proxyUrl').value.trim();
   const chains=[...document.querySelectorAll('#chainGrid input:checked')].map(c=>c.value);
-  _running=true;_deposits={};_personal={};_exchWallets={};
+  _running=true;_deposits={};_personal={};_exchWallets={};_personalFilterMode=false;
+  const filterNote=document.getElementById('filterNote');
+  if(filterNote)filterNote.style.display='none';
+  const filterResetBtn=document.getElementById('filterResetBtn');
+  if(filterResetBtn)filterResetBtn.style.display='none';
+  const filterExchBtn=document.getElementById('filterExchBtn');
+  if(filterExchBtn)filterExchBtn.style.display='';
   _client=new SurfClient(apiKey,proxyUrl,maxCredit);
   document.getElementById('proxy-error').style.display='none';
   document.getElementById('startBtn').disabled=true;
@@ -923,8 +948,12 @@ function updateTable(type){
       </tr>
     `).join('');
   }else if(type==='personal'){
-    const items=Object.values(_personal);
-    document.getElementById('perCount').textContent=items.length;
+    let items=Object.values(_personal);
+    if(_personalFilterMode){
+      const ewDepAddrs=new Set(Object.values(_exchWallets).map(ew=>ew.via_deposit));
+      items=items.filter(p=>ewDepAddrs.has(p.via_deposit));
+    }
+    document.getElementById('perCount').textContent=_personalFilterMode?`${items.length}/${Object.keys(_personal).length}`:items.length;
     if(!items.length)return;
     document.getElementById('personalBody').innerHTML=items.map((item,i)=>`
       <tr>
