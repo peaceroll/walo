@@ -393,7 +393,7 @@ class SurfClient{
   async _req(method,path,opts={},retry=0){
     const url=this.base+path;
     try{
-      const resp=await fetch(url,{method,headers:this.headers,mode:'cors',...opts});
+      const resp=await fetch(url,{method,headers:this.headers,mode:'cors',signal:AbortSignal.timeout(35000),...opts});
       const body=await resp.json().catch(()=>({}));
       if(!resp.ok){
         if(resp.status===402)throw new Error('Credit 한도 도달: Surf API 계정 크레딧 소진 (402)');
@@ -410,8 +410,8 @@ class SurfClient{
       return body?.data??body??[];
     }catch(e){
       if(e.message?.includes('Credit 한도'))throw e;
-      if(e.name==='TypeError'){
-        // Render 콜드스타트 등 일시적 연결 실패: 1회 재시도
+      if(e.name==='TypeError'||e.name==='AbortError'){
+        // 타임아웃 또는 일시적 연결 실패: 1회 재시도
         if(retry<1){await new Promise(r=>setTimeout(r,2000));return this._req(method,path,opts,retry+1);}
         document.getElementById('proxy-error').style.display='block';
         document.getElementById('proxy-error-msg').textContent=this.base.includes('api.asksurf.ai')?'CORS/네트워크 오류. Proxy URL을 입력해보세요.':`프록시 연결 실패 (${this.base.split('/gateway')[0]}). 서버가 실행 중인지 확인하세요.`;
