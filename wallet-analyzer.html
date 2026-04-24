@@ -772,11 +772,21 @@ tr:hover td { background: var(--surface2); }
       <div class="section-label">연결 설정</div>
       <div class="field">
         <label class="field-label">Surf API Key</label>
-        <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off">
+        <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off"
+          oninput="localStorage.setItem('sft_key',this.value)">
       </div>
       <div class="field">
-        <label class="field-label">Proxy 포트 (localhost)</label>
-        <input type="number" id="proxyPort" value="8080" min="1024" max="65535">
+        <label class="field-label" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Proxy URL</span>
+          <span style="color:var(--text-dim);font-size:9px;font-weight:400;letter-spacing:0">비워두면 직접 연결</span>
+        </label>
+        <input type="text" id="proxyUrl" placeholder="http://localhost:8080/surf"
+          oninput="localStorage.setItem('sft_proxy',this.value)"
+          style="font-family:var(--mono);font-size:10px">
+        <div style="margin-top:5px;font-size:10px;color:var(--text-dim);line-height:1.6">
+          Render 배포 시:
+          <code style="font-family:var(--mono);font-size:9px;color:var(--accent-dim)">https://앱명.onrender.com/surf</code>
+        </div>
       </div>
     </div>
 
@@ -901,20 +911,23 @@ tr:hover td { background: var(--surface2); }
 
     <!-- 탭 콘텐츠: 터미널 -->
     <div class="tab-content active" id="tab-log">
-      <div id="proxy-error">
-        ❌ proxy.py에 연결할 수 없습니다.<br>
-        별도 터미널에서 <code style="font-family:var(--mono);background:rgba(255,82,82,0.15);padding:1px 5px;border-radius:3px;">python proxy.py 8080</code> 를 먼저 실행하세요.
+      <div id="proxy-error" style="display:none;margin:0 24px 12px;padding:12px 16px;background:rgba(255,82,82,0.08);border:1px solid rgba(255,82,82,0.3);border-radius:6px;font-size:12px;color:var(--red);line-height:1.7;">
+        <strong>연결 실패</strong><br>
+        <span id="proxy-error-msg">API 호출에 실패했습니다.</span><br>
+        <span style="color:var(--text-muted);font-size:11px;margin-top:4px;display:block">
+          CORS 오류라면 → 연결 방식을 <strong>Proxy</strong>로 바꾸고 <code style="font-family:var(--mono);background:rgba(255,255,255,0.05);padding:1px 5px;border-radius:3px;">python proxy.py 8080</code> 실행
+        </span>
       </div>
       <div class="terminal" id="terminal">
         <div class="empty-state" id="terminalEmpty">
           <div class="empty-icon">⬡</div>
           <div class="empty-title">Surf Wallet Tracer</div>
           <div class="empty-desc">
-            사이드바에서 API Key와 지갑 주소를 입력하고<br>
+            API Key와 지갑 주소를 입력하고<br>
             <strong style="color:var(--text)">분석 시작</strong>을 클릭하세요.<br><br>
             <span style="color:var(--text-dim);font-size:11px;font-family:var(--mono)">
-              ⚠️ proxy.py를 먼저 실행해야 합니다<br>
-              python proxy.py 8080
+              Direct 모드: proxy.py 없이 바로 실행<br>
+              Proxy 모드: CORS 오류 시 proxy.py 사용
             </span>
           </div>
         </div>
@@ -1083,8 +1096,12 @@ const TIME_RANGE = { "전체": null, "최근 1년": "365d", "최근 2년": "max"
 const CUTOFF_DAYS = { "전체": null, "최근 1년": 365, "최근 2년": 730, "최근 3년": 1095 };
 
 class SurfClient {
-  constructor(apiKey, proxyPort, maxCredit) {
-    this.base = `http://localhost:${proxyPort}/surf/gateway/v1`;
+  constructor(apiKey, proxyUrl, maxCredit) {
+    // proxyUrl이 없으면 Surf API 직접 호출 (CORS 허용)
+    // proxyUrl 예시: "http://localhost:8080/surf" 또는 "https://앱명.onrender.com/surf"
+    this.base = proxyUrl
+      ? proxyUrl.replace(/\/+$/, '') + '/gateway/v1'
+      : 'https://api.asksurf.ai/gateway/v1';
     this.headers = { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" };
     this.maxCredit = maxCredit;
     this.creditUsed = 0;
@@ -1096,7 +1113,7 @@ class SurfClient {
   async _request(method, path, opts = {}) {
     const url = this.base + path;
     try {
-      const resp = await fetch(url, { method, headers: this.headers, ...opts });
+      const resp = await fetch(url, { method, headers: this.headers, mode: "cors", ...opts });
       const body = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         const msg = body?.error?.message || `HTTP ${resp.status}`;
@@ -1115,9 +1132,17 @@ class SurfClient {
       }
       return body?.data ?? [];
     } catch (e) {
-      if (e.name === "TypeError" && e.message.includes("fetch")) {
-        document.getElementById("proxy-error").style.display = "block";
-        throw new Error("proxy.py 연결 실패 — localhost:" + (this.base.split(":")[2]?.split("/")[0]) + " 에 연결할 수 없음");
+      // TypeError = 네트워크 실패 (연결 거부 또는 CORS)
+      if (e.name === "TypeError") {
+        const errEl = document.getElementById("proxy-error");
+        const msgEl = document.getElementById("proxy-error-msg");
+        errEl.style.display = "block";
+        if (this.base.includes("api.asksurf.ai")) {
+          msgEl.textContent = "CORS 오류 또는 네트워크 오류입니다. Proxy URL에 proxy.py 주소를 입력해보세요.";
+        } else {
+          msgEl.textContent = `proxy.py가 ${this.base.split('/gateway')[0]} 에서 실행 중인지 확인하세요.`;
+        }
+        throw new Error(e.message);
       }
       throw e;
     }
@@ -1286,6 +1311,14 @@ document.querySelectorAll(".log-tab").forEach(tab => {
   });
 });
 
+// 저장된 설정 복원
+(function() {
+  const key = localStorage.getItem('sft_key');
+  const proxy = localStorage.getItem('sft_proxy');
+  if (key) document.getElementById('apiKey').value = key;
+  if (proxy) document.getElementById('proxyUrl').value = proxy;
+})();
+
 // 체인 체크박스
 document.querySelectorAll(".chain-check").forEach(label => {
   label.addEventListener("click", () => {
@@ -1407,7 +1440,7 @@ function copyAddr(addr) {
 // ── 분석 시작 ────────────────────────────────────────────
 document.getElementById("startBtn").addEventListener("click", async () => {
   const apiKey    = document.getElementById("apiKey").value.trim();
-  const proxyPort = parseInt(document.getElementById("proxyPort").value) || 8080;
+  const proxyUrl  = document.getElementById("proxyUrl").value.trim();
   const startAddr = document.getElementById("startAddr").value.trim();
   const maxCredit = parseInt(document.getElementById("maxCredit").value) || 3000;
   const maxDepth  = parseInt(document.getElementById("depth").value) || 2;
@@ -1439,7 +1472,7 @@ document.getElementById("startBtn").addEventListener("click", async () => {
   document.getElementById("stopBtn").classList.remove("hidden");
   setStatus("active", "분석 중…");
 
-  _client = new SurfClient(apiKey, proxyPort, maxCredit);
+  _client = new SurfClient(apiKey, proxyUrl, maxCredit);
 
   addLog(`SurfTracer v2.1  |  ${new Date().toLocaleString("ko-KR")}`, "header");
   addLog(`시작 주소: ${startAddr}`, "header");
