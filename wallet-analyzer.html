@@ -853,6 +853,25 @@ tr:hover td { background: var(--surface2); }
       </div>
     </div>
 
+    <!-- 수동 오버라이드 -->
+    <div class="sidebar-section">
+      <div class="section-label">수동 거래소 주소 오버라이드</div>
+      <div class="field">
+        <label class="field-label" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Surf 미탐지 주소 직접 입력</span>
+          <span style="color:var(--text-dim);font-size:9px">한 줄에 하나</span>
+        </label>
+        <textarea id="overrideList"
+          placeholder="0x주소 거래소이름&#10;예: 0x13cfb7... Binance&#10;예: 0x96dd5e... Upbit"
+          oninput="localStorage.setItem('sft_override',this.value)"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:10px;padding:7px 9px;outline:none;resize:vertical;min-height:72px;line-height:1.6"></textarea>
+        <div style="font-size:9px;color:var(--text-dim);margin-top:4px;line-height:1.5;font-family:var(--mono)">
+          Surf API가 탐지 못한 주소를 직접 지정<br>
+          분석 시작 시 자동으로 거래소 목록에 추가됨
+        </div>
+      </div>
+    </div>
+
     <!-- 액션 -->
     <div class="sidebar-actions">
       <button class="btn btn-primary" id="startBtn">
@@ -1067,6 +1086,9 @@ const CEX = new Set([
   "KuCoin","Bitget","HTX","MEXC","Crypto.com","Upbit","Bithumb",
   "Huobi","Gemini","Bitfinex","Bitstamp","Korbit","Gopax",
   "ChangeNOW","Shuffle","Phemex","WazirX","CoinDCX",
+  "Coinbase","MEXC","Binance.US","Kraken","Bittrex","Poloniex",
+  "Bithumb","Upbit","Korbit","Gopax","Huobi","OKX","Bybit",
+  "Gate","Gate.io",   // Gate Deposit → baseEntityName → "Gate"
 ]);
 
 // entity_name 정규화: "Bybit Deposit" → "Bybit"
@@ -1111,7 +1133,11 @@ function isExchangeDeposit(item) {
   //    CEX 화이트리스트 + deposit 키워드 확인
   if (et === "exchange") {
     const base = baseEntityName(name);
-    if (!CEX.has(base) && !CEX.has(name)) return false;
+    // 완전 매칭 우선, 없으면 부분 포함 매칭 (예: "Gate.io" ⊃ "Gate")
+    const cexMatch = CEX.has(base) || CEX.has(name) ||
+      [...CEX].some(c => base.toLowerCase().includes(c.toLowerCase()) ||
+                         c.toLowerCase().includes(base.toLowerCase()));
+    if (!cexMatch) return false;
     return RE_DEPOSIT.test(name) || RE_DEPOSIT.test(lbl);
   }
 
@@ -1187,12 +1213,18 @@ class SurfClient {
     this._cache     = {};
   }
 
-  async _request(method, path, opts = {}) {
+  async _request(method, path, opts = {}, _retry = 0) {
     const url = this.base + path;
     try {
       const resp = await fetch(url, { method, headers: this.headers, mode: "cors", ...opts });
       const body = await resp.json().catch(() => ({}));
       if (!resp.ok) {
+        // 502/503/429: 최대 2회 재시도 (지수 백오프)
+        if ([502, 503, 429].includes(resp.status) && _retry < 2) {
+          const wait = (1 + _retry) * 1500;
+          await new Promise(r => setTimeout(r, wait));
+          return this._request(method, path, opts, _retry + 1);
+        }
         const msg = body?.error?.message || `HTTP ${resp.status}`;
         throw new Error(msg);
       }
@@ -1300,6 +1332,21 @@ async function* bfsTrace(startAddr, chains, maxDepth, yearFilter, client) {
     return;
   }
 
+  // 수동 오버라이드 적용
+  const overrides = parseOverrides();
+  if (overrides.size > 0) {
+    yield { log: `📌 수동 오버라이드 ${overrides.size}개 거래소 주소 적용됨`, cls: 'deposit' };
+    for (const [addr, name] of overrides) {
+      deposits[addr] = { address: addr, entity_name: name, entity_type: 'cex_deposit', chain: 'override', depth: 0 };
+      // Depth 0 오버라이드 주소는 모든 체인에서 인바운드 조회
+      for (const chain of validChains) {
+        // newDeposits에 추가해서 Depth 1 인바운드 조회 포함시킴
+      }
+      updateTable('deposits', deposits);
+      yield { log: `  ✅ [수동] ${name}  ${addr.slice(0,16)}…` };
+    }
+  }
+
   for (let depth = 0; depth < maxDepth; depth++) {
     if (!current.length) break;
     const next = [];
@@ -1365,11 +1412,26 @@ async function* bfsTrace(startAddr, chains, maxDepth, yearFilter, client) {
 
           yield { log: `  → 아웃고잉 ${filtered.length}건, 거래소 입금 주소 ${depMap.size}개 발견` };
 
+          // entity_name 없는 주소 labels/batch로 채우기 ('?' → 실제 이름)
+          const needName = [...depMap.entries()].filter(([,v]) => !v.entity_name || v.entity_name === '?').map(([k]) => k);
+          if (needName.length > 0) {
+            try {
+              const filled = await client.labelsBatch(needName, chain);
+              for (const lb of filled) {
+                const la = lb.address?.toLowerCase();
+                if (la && depMap.has(la) && lb.entity_name) {
+                  depMap.get(la).entity_name = lb.entity_name;
+                }
+              }
+            } catch(_) {}
+          }
+
           for (const [addr, info] of depMap) {
             if (!deposits[addr]) {
-              deposits[addr] = { address: addr, entity_name: info.entity_name, entity_type: 'cex_deposit', chain, depth: depth + 1 };
-              newDeposits.push({ addr, chain, entity_name: info.entity_name });
-              yield { log: `✅ [${chain}] ${info.entity_name}  ${addr.slice(0,16)}…`, cls: 'deposit' };
+              const ename = info.entity_name && info.entity_name !== '?' ? info.entity_name : '알 수 없는 거래소';
+              deposits[addr] = { address: addr, entity_name: ename, entity_type: 'cex_deposit', chain, depth: depth + 1 };
+              newDeposits.push({ addr, chain, entity_name: ename });
+              yield { log: `✅ [${chain}] ${ename}  ${addr.slice(0,16)}…`, cls: 'deposit' };
               updateTable('deposits', deposits);
             }
           }
@@ -1495,6 +1557,12 @@ async function* bfsTrace(startAddr, chains, maxDepth, yearFilter, client) {
       yield { progress: { depth: depth+1, maxDepth, nPersonal: Object.keys(personal).length, nDeposits: Object.keys(deposits).length, credit: client.creditUsed } };
     }
 
+    // Surf 커버리지 공백 안내
+    if (depth === maxDepth - 1 && Object.keys(deposits).length < 5) {
+      yield { log: `\n💡 거래소 입금 주소가 적게 발견된 경우:`, cls: 'warn' };
+      yield { log: `   Surf API가 일부 TX를 반환하지 않을 수 있습니다.`, cls: 'warn' };
+      yield { log: `   Arkham에서 확인 후 수동 오버라이드에 주소를 추가하세요.`, cls: 'warn' };
+    }
     yield { log: `✅ Depth ${depth+1} 완료  |  개인: ${Object.keys(personal).length}  |  거래소: ${Object.keys(deposits).length}  |  Credit: ${client.creditUsed}`, cls: 'done' };
     current = next;
   }
@@ -1533,9 +1601,26 @@ document.querySelectorAll(".log-tab").forEach(tab => {
 (function() {
   const key = localStorage.getItem('sft_key');
   const proxy = localStorage.getItem('sft_proxy');
+  const override = localStorage.getItem('sft_override');
   if (key) document.getElementById('apiKey').value = key;
   if (proxy) document.getElementById('proxyUrl').value = proxy;
+  if (override) document.getElementById('overrideList').value = override;
 })();
+
+// 오버라이드 파싱 함수: "0x주소 거래소이름" → Map(addr → name)
+function parseOverrides() {
+  const raw = document.getElementById('overrideList')?.value || '';
+  const map = new Map();
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const parts = trimmed.split(/[\s,]+/);
+    const addr = parts[0]?.toLowerCase();
+    const name = parts.slice(1).join(' ') || '수동 지정';
+    if (addr?.startsWith('0x')) map.set(addr, name);
+  }
+  return map;
+}
 
 // 체인 체크박스
 document.querySelectorAll(".chain-check").forEach(label => {
