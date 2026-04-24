@@ -396,6 +396,7 @@ class SurfClient{
       const resp=await fetch(url,{method,headers:this.headers,mode:'cors',...opts});
       const body=await resp.json().catch(()=>({}));
       if(!resp.ok){
+        if(resp.status===402)throw new Error('Credit 한도 도달: Surf API 계정 크레딧 소진 (402)');
         if([502,503,429].includes(resp.status)&&retry<2){await new Promise(r=>setTimeout(r,(1+retry)*1500));return this._req(method,path,opts,retry+1);}
         throw new Error(`HTTP ${resp.status}`);
       }
@@ -497,9 +498,12 @@ async function startAnalysis(){
     let pingOk=false;
     for(let attempt=0;attempt<7;attempt++){
       try{
-        const r=await fetch(pingUrl,{headers:{'x-api-key':apiKey,'Content-Type':'application/json'},mode:'cors',signal:AbortSignal.timeout(6000)});
-        if(r.ok||r.status===400||r.status===401||r.status===422){pingOk=true;break;}
-      }catch(e){}
+        // 어떤 HTTP 응답이든 = 프록시 서버가 살아있음 (4xx/5xx 포함)
+        await fetch(pingUrl,{headers:{'x-api-key':apiKey,'Content-Type':'application/json'},mode:'cors',signal:AbortSignal.timeout(6000)});
+        pingOk=true;break;
+      }catch(e){
+        // TypeError = 서버 미응답 (슬립/다운/CORS). fetch 자체 실패만 재시도
+      }
       if(attempt===0)log('  ⏳ Render 서버 웜업 중… (최대 35초)','warn');
       setPhase('프록시 웜업',`재시도 ${attempt+1}/7…`);
       await new Promise(r=>setTimeout(r,5000));
