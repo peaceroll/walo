@@ -505,7 +505,7 @@ async function startAnalysis(){
           _deposits[addr].chains=[...merged];
           _deposits[addr].tx_cnt+=info.tx_cnt;
         }
-        log(`  ✅ ${info.entity_name}  ${addr.slice(0,16)}… [[...info.chains].join(',')]  (${info.tx_cnt}건)`,'deposit');
+        log(`  ✅ ${info.entity_name}  ${addr.slice(0,16)}… [${[...info.chains].join(',')}]  (${info.tx_cnt}건)`,'deposit');
       }
       updateTable('deposits');updateProgress();
       seedSet.add(seed);
