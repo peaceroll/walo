@@ -800,31 +800,30 @@ tr:hover td { background: var(--surface2); }
       <div class="field">
         <label class="field-label">분석 체인</label>
         <div class="chain-grid" id="chainGrid">
-          <label class="chain-check active" data-chain="ethereum">
-            <input type="checkbox" value="ethereum" checked>
-            <span class="chain-dot"></span>
-            <span class="chain-name">ethereum</span>
-          </label>
-          <label class="chain-check" data-chain="bsc">
-            <input type="checkbox" value="bsc">
-            <span class="chain-dot"></span>
-            <span class="chain-name">bsc</span>
-          </label>
-          <label class="chain-check" data-chain="base">
-            <input type="checkbox" value="base">
+          <label class="chain-check active" data-chain="base">
+            <input type="checkbox" value="base" checked>
             <span class="chain-dot"></span>
             <span class="chain-name">base</span>
           </label>
-          <label class="chain-check" data-chain="polygon">
-            <input type="checkbox" value="polygon">
+          <label class="chain-check active" data-chain="bsc">
+            <input type="checkbox" value="bsc" checked>
             <span class="chain-dot"></span>
-            <span class="chain-name">polygon</span>
+            <span class="chain-name">bsc</span>
           </label>
-          <label class="chain-check" data-chain="optimism">
-            <input type="checkbox" value="optimism">
+          <label class="chain-check active" data-chain="arbitrum">
+            <input type="checkbox" value="arbitrum" checked>
             <span class="chain-dot"></span>
-            <span class="chain-name">optimism</span>
+            <span class="chain-name">arbitrum</span>
           </label>
+          <label class="chain-check" data-chain="ethereum">
+            <input type="checkbox" value="ethereum">
+            <span class="chain-dot"></span>
+            <span class="chain-name">ethereum⚠</span>
+          </label>
+        </div>
+        <div style="margin-top:5px;font-size:9px;color:var(--text-dim);font-family:var(--mono);line-height:1.5">
+          base/bsc/arbitrum: 90일 기준<br>
+          ethereum⚠: 30일 제한 (타임아웃 방지)
         </div>
       </div>
     </div>
@@ -955,9 +954,11 @@ tr:hover td { background: var(--surface2); }
               <tr>
                 <th>#</th>
                 <th>주소</th>
-                <th>거래소명</th>
+                <th>라벨</th>
                 <th>체인</th>
                 <th>Depth</th>
+                <th>TX건수</th>
+                <th>Arkham</th>
               </tr>
             </thead>
             <tbody id="personalBody"></tbody>
@@ -990,6 +991,7 @@ tr:hover td { background: var(--surface2); }
                 <th>거래소</th>
                 <th>체인</th>
                 <th>Depth</th>
+                <th>Arkham</th>
               </tr>
             </thead>
             <tbody id="depositsBody"></tbody>
@@ -1035,10 +1037,17 @@ tr:hover td { background: var(--surface2); }
 
         <!-- 전체 저장 -->
         <div class="log-sub-content" id="ltab-full">
-          <div style="padding: 32px 24px; display:flex; flex-direction:column; gap:12px;">
-            <div style="font-family:var(--mono);font-size:11px;color:var(--text-muted);margin-bottom:8px;">전체 분석 결과를 하나의 파일로 저장합니다.</div>
-            <button class="btn-sm" style="width:200px" onclick="downloadFull()">📦 전체 결과 JSON 저장</button>
-            <button class="btn-sm" style="width:200px" onclick="downloadAllCSV()">📋 전체 결과 CSV (통합)</button>
+          <div style="padding: 24px; display:flex; flex-direction:column; gap:9px;">
+            <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">결과 저장</div>
+            <button class="btn-sm" style="width:260px" onclick="downloadFull()">📦 전체 결과 JSON</button>
+            <button class="btn-sm" style="width:260px" onclick="downloadAllCSV()">📋 전체 결과 CSV (통합)</button>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-top:10px;margin-bottom:2px">🔍 진단 로그 저장</div>
+            <button class="btn-sm" style="width:260px" onclick="downloadDiagLog()">📄 터미널 로그 TXT</button>
+            <button class="btn-sm" style="width:260px" onclick="downloadFullDiag()">🗂️ 전체 진단 JSON (결과+로그+오류)</button>
+            <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:4px;line-height:1.7">
+              전체 진단 = 결과 + Credit 로그 + 오류 로그 + 터미널 로그<br>
+              문제 발생 시 이 파일을 첨부해 제보하세요.
+            </div>
           </div>
         </div>
       </div>
@@ -1048,14 +1057,18 @@ tr:hover td { background: var(--surface2); }
 
 <script>
 // ════════════════════════════════════════════════════════
-// 필터 로직 (DEBUG + 개선 버전)
+// 필터 로직 (Python filters.py 완전 이식)
 // ════════════════════════════════════════════════════════
 const CEX = new Set([
   "Binance","Coinbase","Kraken","OKX","Bybit","Gate.io",
-  "KuCoin","Bitget","HTX","MEXC","Crypto.com","Upbit","Bithumb"
+  "KuCoin","Bitget","HTX","MEXC","Crypto.com","Upbit","Bithumb",
+  "Bithumb","Huobi","Gemini","Bitfinex","Bitstamp","Korbit","Gopax"
 ]);
 
-const RE_EXCLUDE = /\b(proxy|router|aggregator|1inch|uniswap|pancakeswap|sushiswap|quickswap|paraswap|smart.?contract|dex|liquidity.?pool|swap.?contract|amm|factory|pair.?contract|bridge|wormhole|layerzero|stargate|axelar|withdrawal)\b/i;
+// 실제 데이터에서 발견된 비-CEX "Deposit" 라벨 패턴 제외
+const RE_EXCLUDE = /\b(proxy|router|aggregator|1inch|uniswap|pancakeswap|sushiswap|quickswap|paraswap|smart.?contract|dex|liquidity.?pool|swap.?contract|amm|factory|pair.?contract|bridge|wormhole|layerzero|stargate|axelar|hot.?wallet|cold.?wallet|cold.?storage|withdrawal|relay\.link|megaeth|rhinofi|paxos|yeet|concrete|depositor|pre.?deposit|dvf)\b/i;
+
+const RE_DEPOSIT = /\b(deposit|입금)\b/i;
 
 const NOT_PERSONAL = new Set(["exchange","contract","proxy","fund","dex","bridge","router"]);
 
@@ -1065,15 +1078,15 @@ function labelText(item) {
 
 function isExchangeDeposit(item) {
   if (item.entity_type !== "exchange") return false;
-  if (!CEX.has(item.entity_name)) return false;
+  if (!CEX.has(item.entity_name))      return false;
   const txt = labelText(item);
-  if (RE_EXCLUDE.test(txt)) return false;
-  return true;                    // ← CEX면 무조건 입금 주소로 인정
+  if (RE_EXCLUDE.test(txt))           return false;
+  return RE_DEPOSIT.test(txt);
 }
 
 function isPersonalWallet(item) {
   if (NOT_PERSONAL.has(item.entity_type)) return false;
-  if (RE_EXCLUDE.test(labelText(item))) return false;
+  if (RE_EXCLUDE.test(labelText(item)))    return false;
   return true;
 }
 
@@ -1086,13 +1099,20 @@ function classify(items) {
   }
   return { deposits, personal, rejected };
 }
+
 // ════════════════════════════════════════════════════════
-// 나머지 코드는 그대로 두세요 (아래부터 SurfClient 클래스까지)
-// ════════════════════════════════════════════════════════// ────────────────────────────────────────────────────────
 // Surf API 클라이언트
 // ════════════════════════════════════════════════════════
-const TIME_RANGE = { "전체": null, "최근 1년": "365d", "최근 2년": "max", "최근 3년": "max" };
-const CUTOFF_DAYS = { "전체": null, "최근 1년": 365, "최근 2년": 730, "최근 3년": 1095 };
+const CHAIN_SQL = {
+  'base':      { table: 'base',      days: 90,  limit: 2000 },
+  'bsc':       { table: 'bsc',       days: 30,  limit: 500  },
+  'arbitrum':  { table: 'arbitrum',  days: 90,  limit: 2000 },
+  'ethereum':  { table: 'ethereum',  days: 30,  limit: 300  },
+};
+const YEAR_DAYS = { "전체": 365, "최근 1년": 365, "최근 2년": 365, "최근 3년": 365 };
+function sqlDays(y, chain) { return Math.min(YEAR_DAYS[y]||90, (CHAIN_SQL[chain]||{}).days||90); }
+function sqlTable(chain) { return (CHAIN_SQL[chain]||{}).table||chain; }
+function sqlLimit(chain) { return (CHAIN_SQL[chain]||{}).limit||1000; }
 
 class SurfClient {
   constructor(apiKey, proxyUrl, maxCredit) {
@@ -1170,36 +1190,26 @@ class SurfClient {
     return out;
   }
 
-  async transfers(address, chain, flow, timeRange) {
-    const key = `tx:${chain}:${address}:${flow}:${timeRange}`;
+  async sql(query) {
+    // Onchain SQL — agent.{chain}_transfers 테이블 직접 조회
+    // REST /wallet/transfers 대신 사용 (필드명 호환, 더 빠름)
+    const key = `sql:${query.replace(/\s+/g,' ')}`;
     if (this._cache[key]) return this._cache[key];
-    this._checkCredit(50);
-    const params = new URLSearchParams({ address, chain, flow, limit: 100 });
-    if (timeRange) params.set("time_range", timeRange);
-    const data = await this._request("GET", `/wallet/transfers?${params}`);
-    this._cache[key] = data;
-    return data;
+    this._checkCredit(30);
+    const data = await this._request("POST", "/onchain/sql", {
+      body: JSON.stringify({ sql: query })
+    });
+    this._cache[key] = Array.isArray(data) ? data : [];
+    return this._cache[key];
   }
 }
 
 // ════════════════════════════════════════════════════════
 // BFS 추적 (async generator)
 // ════════════════════════════════════════════════════════
-function getCutoff(yearFilter) {
-  const days = CUTOFF_DAYS[yearFilter];
-  if (!days) return null;
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d;
-}
-
-function filterByDate(txs, cutoff) {
-  if (!cutoff) return txs;
-  return txs.filter(t => {
-    const raw = t.block_date || t.timestamp || t.block_timestamp;
-    if (!raw) return true;
-    try { return new Date(String(raw).slice(0, 10)) >= cutoff; } catch { return true; }
-  });
+// SQL 날짜 필터 조건 생성 (block_date 기준)
+function dateWhere(days) {
+  return days > 0 ? `AND block_date >= today() - ${days}` : '';
 }
 
 async function* bfsTrace(startAddr, chains, maxDepth, yearFilter, client) {
@@ -1207,8 +1217,6 @@ async function* bfsTrace(startAddr, chains, maxDepth, yearFilter, client) {
   const deposits = {};
   const personal = {};
   let current    = [startAddr];
-  const cutoff   = getCutoff(yearFilter);
-  const timeRange = TIME_RANGE[yearFilter];
 
   for (let depth = 0; depth < maxDepth; depth++) {
     if (!current.length) break;
@@ -1220,48 +1228,102 @@ async function* bfsTrace(startAddr, chains, maxDepth, yearFilter, client) {
 
       for (const chain of chains) {
         if (!_running) break;
-        yield { log: `🔍 [${chain}] ${wallet.slice(0, 16)}…` };
+
+        // Surf SQL 지원 체인 확인
+        if (!CHAIN_SQL[chain]) {
+          yield { log: `⏭ [${chain}] SQL 미지원 체인 — 건너뜀`, cls: "warn" };
+          continue;
+        }
+
+        const days  = sqlDays(yearFilter, chain);
+        const tbl   = `agent.${sqlTable(chain)}_transfers`;
+        const lim   = sqlLimit(chain);
+        const dw    = dateWhere(days);
+        const wl    = wallet.toLowerCase();
+
+        yield { log: `🔍 [${chain}] ${wallet.slice(0,16)}… (${days}일 기준)` };
 
         try {
-          // ① 아웃고잉 트랜스퍼
-          const outTxs = filterByDate(await client.transfers(wallet, chain, "out", timeRange), cutoff);
-          const toAddrs = [...new Set(outTxs.map(t => t.to_address).filter(Boolean))];
-          if (!toAddrs.length) continue;
+          // ① Onchain SQL로 아웃고잉 목적지 수집
+          const sql1 = `SELECT DISTINCT lower(\`to\`) AS dest
+            FROM ${tbl}
+            WHERE lower(tx_from) = '${wl}'
+            AND \`to\` != '' AND \`to\` != '0x0000000000000000000000000000000000000000'
+            ${dw}
+            LIMIT ${lim}`;
+          const dests = await client.sql(sql1);
+          const toAddrs = dests.map(r => r.dest).filter(Boolean);
 
-                    // ② to_address 라벨링 → 거래소 입금 주소
-          const labeled = await client.labelsBatch(toAddrs, chain);
-          
-          // 🔥 디버그 로그 추가
-          yield { log: `[DEBUG ${chain}] ${toAddrs.length}개 주소 → ${labeled.length}개 라벨 수신`, cls: "header" };
-          if (labeled.length > 0) {
-            labeled.forEach(item => {
-              const txt = labelText(item);
-              yield { log: `   → ${item.entity_type || '?'} | ${item.entity_name || '?'} | ${txt} | ${item.address?.slice(0,12)}...`, cls: "" };
-            });
+          if (!toAddrs.length) {
+            yield { log: `  → 아웃고잉 TX 없음`, cls: "header" };
+            continue;
           }
-          
+          yield { log: `  → 목적지 ${toAddrs.length}개 발견, 라벨 조회 중…` };
+
+          // ② 목적지 라벨링 → 거래소 입금 주소 추출
+          const labeled = await client.labelsBatch(toAddrs, chain);
           const cats = classify(labeled);
-          // ③ 각 거래소 입금 주소 → 인커밍 → 개인 지갑
+          yield { log: `  → 거래소 입금: ${cats.deposits.length}개 / 라벨 응답: ${labeled.length}개` };
+
+          for (const dep of cats.deposits) {
+            if (!deposits[dep.address]) {
+              deposits[dep.address] = { ...dep, chain, depth: depth + 1 };
+              yield { log: `✅ [${chain}] ${dep.entity_name || '?'}  ${dep.address?.slice(0,16)}…`, cls: "deposit" };
+              updateTable("deposits", deposits);
+            }
+          }
+
+          // ③ 각 거래소 입금 주소 → 인바운드 발신자 수집
           for (const dep of cats.deposits) {
             if (!_running) break;
-            const inTxs = filterByDate(await client.transfers(dep.address, chain, "in", timeRange), cutoff);
-            const fromAddrs = [...new Set(inTxs.map(t => t.from_address).filter(a => a && !visited.has(a.toLowerCase())))];
-            if (!fromAddrs.length) continue;
+            const dl  = dep.address.toLowerCase();
 
+            // tx_cnt >= 2 조건: 거래소 입금주소에 2건 이상 보낸 발신자만 수집
+            const sql2 = `SELECT lower(tx_from) AS sender, count() AS tx_cnt
+              FROM ${tbl}
+              WHERE lower(\`to\`) = '${dl}'
+              AND tx_from != '' AND tx_from != '0x0000000000000000000000000000000000000000'
+              ${dw}
+              GROUP BY tx_from
+              HAVING tx_cnt >= 2
+              ORDER BY tx_cnt DESC
+              LIMIT 500`;
+            const senderRows = await client.sql(sql2);
+
+            // tx_cnt 맵 구성 (주소 → 누적 tx 건수)
+            const senderTxMap = {};
+            for (const r of senderRows) {
+              if (!r.sender) continue;
+              senderTxMap[r.sender] = (senderTxMap[r.sender] || 0) + parseInt(r.tx_cnt || 1);
+            }
+
+            const fromAddrs = Object.keys(senderTxMap).filter(a => !visited.has(a));
+
+            if (!fromAddrs.length) continue;
+            yield { log: `  → [${dep.entity_name || dep.address.slice(0,10)}] 발신자 ${fromAddrs.length}명 (2건+), 라벨 조회 중…` };
+
+            // ④ 발신자 라벨링 → 개인 지갑 추출
             const labeled2 = await client.labelsBatch(fromAddrs, chain);
             const cats2 = classify(labeled2);
 
             for (const pw of cats2.personal) {
               const al = pw.address?.toLowerCase();
-              if (al && !visited.has(al) && !personal[pw.address]) {
-                personal[pw.address] = { ...pw, chain, depth: depth + 1 };
+              if (al && !visited.has(al)) {
+                const txCnt = senderTxMap[pw.address?.toLowerCase()] || senderTxMap[pw.address] || 1;
+                if (!personal[pw.address]) {
+                  personal[pw.address] = { ...pw, chain, depth: depth + 1, tx_cnt: txCnt };
+                } else {
+                  // 같은 주소가 여러 deposit에서 발견되면 tx_cnt 누적
+                  personal[pw.address].tx_cnt = (personal[pw.address].tx_cnt || 0) + txCnt;
+                }
                 visited.add(al);
                 next.push(pw.address);
-                yield { log: `👤 [${chain}] ${pw.address?.slice(0,16)}…`, cls: "personal", item: { type: "personal", ...personal[pw.address] } };
+                yield { log: `👤 [${chain}] ${pw.address?.slice(0,16)}… (TX ${txCnt}건)`, cls: "personal" };
                 updateTable("personal", personal);
               }
             }
           }
+
         } catch (e) {
           if (e.message.includes("Credit 한도")) {
             yield { log: `⚠️  ${e.message}`, cls: "warn" };
@@ -1402,6 +1464,8 @@ function updateTable(type, data) {
       <td>${item.entity_name ? `<span class="badge badge-${type === 'personal' ? 'personal' : 'exchange'}">${item.entity_name}</span>` : '<span style="color:var(--text-dim)">—</span>'}</td>
       <td><span class="badge badge-chain">${item.chain}</span></td>
       <td class="depth-num">${item.depth}</td>
+      <td class="depth-num" style="color:var(--accent)">${type === 'personal' ? (item.tx_cnt || '—') : '—'}</td>
+      <td><a href="https://intel.arkm.com/explorer/address/${item.address}" target="_blank" rel="noopener" style="color:var(--blue);font-family:var(--mono);font-size:10px;text-decoration:none;opacity:0.8" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.8">↗ Arkham</a></td>
     </tr>
   `).join("");
 }
@@ -1570,6 +1634,44 @@ function downloadFull() {
     exchange_deposits: Object.values(_result.deposits),
   };
   downloadFile(JSON.stringify(out, null, 2), `full_result_${ts()}.json`, "application/json");
+}
+
+function downloadDiagLog() {
+  // 터미널 DOM에서 직접 텍스트 추출
+  const termEl = document.getElementById("terminal");
+  const logLines = termEl ? Array.from(termEl.querySelectorAll(".log-line")).map(el => el.textContent) : [];
+  const header = [
+    "SurfTracer 진단 로그",
+    `생성: ${new Date().toLocaleString("ko-KR")}`,
+    `Credit 사용: ${_client?.creditUsed || 0}`,
+    `개인 지갑: ${Object.keys(_result.personal).length}`,
+    `거래소 주소: ${Object.keys(_result.deposits).length}`,
+    `오류 건수: ${_client?.errorLog?.length || 0}`,
+    "─".repeat(60),
+    ""
+  ].join("\n");
+  downloadFile(header + logLines.join("\n"), `diag_log_${ts()}.txt`, "text/plain");
+}
+
+function downloadFullDiag() {
+  const diag = {
+    meta: {
+      timestamp: new Date().toISOString(),
+      credit_used: _client?.creditUsed || 0,
+      personal_count: Object.keys(_result.personal).length,
+      deposits_count: Object.keys(_result.deposits).length,
+      error_count: _client?.errorLog?.length || 0,
+    },
+    personal_wallets: Object.values(_result.personal),
+    exchange_deposits: Object.values(_result.deposits),
+    credit_log: _client?.creditLog || [],
+    error_log: _client?.errorLog || [],
+    terminal_log: (()=>{
+      const t=document.getElementById("terminal");
+      return t?Array.from(t.querySelectorAll(".log-line")).map(el=>el.textContent):[];
+    })(),
+  };
+  downloadFile(JSON.stringify(diag, null, 2), `full_diag_${ts()}.json`, "application/json");
 }
 
 function downloadAllCSV() {
