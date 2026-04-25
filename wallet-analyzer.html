@@ -231,21 +231,12 @@ input[type=range]{width:100%;accent-color:var(--accent)}
         <button class="btn-sm" onclick="downloadCSV('personal')">CSV 저장</button>
         <button class="btn-sm" onclick="downloadJSON('personal')">JSON 저장</button>
         <button class="btn-sm" onclick="downloadTXT('personal')">TXT 저장</button>
-        <button class="btn-sm" id="filterExchBtn" onclick="toggleExchFilter()" style="border-color:var(--yellow);color:var(--yellow)">🏦 거래소 필터</button>
-        <button class="btn-sm" id="filterResetBtn" onclick="setPersonalFilter(false)" style="display:none">↺ 전체 보기</button>
+        <button class="btn-sm" id="filterResetBtn" onclick="setPersonalFilter(false)" style="display:none;border-color:var(--text-dim);color:var(--text-dim)">↺ 전체 보기</button>
         <button class="btn-sm" id="sortModeBtn" onclick="toggleSortMode()" title="정렬 방식 전환">🕐 최근사용순</button>
         <button class="btn-sm" onclick="resetHidden('personal')" style="border-color:var(--text-dim);color:var(--text-dim)">☑ 체크박스 리셋</button>
       </div>
-      <div id="filterNote" style="display:none;padding:4px 10px 0;font-size:10px;color:var(--yellow);font-family:var(--mono)"></div>
-      <div id="exchFilterPanel" style="display:none;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border)">
-        <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px">경유 거래소 선택 (복수 선택 가능):</div>
-        <div id="exchFilterOptions" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
-        <div style="display:flex;gap:6px">
-          <button class="btn-sm" onclick="applyExchFilter()" style="border-color:var(--accent);color:var(--accent)">✅ 적용</button>
-          <button class="btn-sm" onclick="selectAllExchFilter(true)">전체선택</button>
-          <button class="btn-sm" onclick="selectAllExchFilter(false)">전체해제</button>
-        </div>
-      </div>
+      <div id="exchToggleBar" style="display:none;padding:4px 10px 6px;gap:6px;flex-wrap:wrap;align-items:center"></div>
+      <div id="filterNote" style="display:none;padding:2px 10px 4px;font-size:10px;color:var(--yellow);font-family:var(--mono)"></div>
       <table class="result-table">
         <thead><tr><th style="width:28px"></th><th>#</th><th>주소</th><th>라벨</th><th>체인</th><th title="역추적 단계&#10;Depth 1: 거래소 입금 주소에 직접 송금한 지갑&#10;Depth 2: Depth 1 지갑에 송금한 지갑&#10;숫자가 클수록 시드 지갑과 간접적 연결" style="cursor:help;border-bottom:1px dashed var(--text-dim)">Depth ❓</th><th>TX건수</th><th>Arkham</th></tr></thead>
         <tbody id="personalBody"><tr><td colspan="8" class="empty-state"><div class="icon">👤</div>개인 지갑이 없습니다</td></tr></tbody>
@@ -666,69 +657,53 @@ function toggleHide(type,addr){
   }
 }
 
-let _exchFilterActive=false;
-let _exchFilterSelected=new Set(); // via_exchange 값들
+let _activeExchFilters=new Set(); // 활성 거래소 필터 (비어있으면 전체)
 
-function toggleExchFilter(){
-  const panel=document.getElementById('exchFilterPanel');
-  const isOpen=panel.style.display!=='none';
-  if(isOpen){panel.style.display='none';return;}
-
-  // 거래소 목록 빌드 (via_exchange 기준)
-  const exchMap={};
+function buildExchToggleBar(){
+  // 개인지갑의 via_exchange 기준 거래소 목록 생성
+  const exchCount={};
   for(const p of Object.values(_personal)){
-    const ex=p.via_exchange||'알 수 없음';
-    if(!exchMap[ex])exchMap[ex]={name:ex,count:0,deposit:p.via_deposit};
-    exchMap[ex].count++;
+    const ex=p.via_exchange||'기타';
+    exchCount[ex]=(exchCount[ex]||0)+1;
   }
+  const bar=document.getElementById('exchToggleBar');
+  if(!Object.keys(exchCount).length){bar.style.display='none';return;}
 
-  const opts=document.getElementById('exchFilterOptions');
-  opts.innerHTML='';
-  Object.values(exchMap).sort((a,b)=>b.count-a.count).forEach(ex=>{
-    const checked=_exchFilterSelected.size===0||_exchFilterSelected.has(ex.name);
-    const lbl=document.createElement('label');
-    lbl.style.cssText='display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px;font-family:var(--mono);background:var(--surface3);border-radius:4px;padding:3px 8px;border:1px solid var(--border2)';
-    lbl.innerHTML=`<input type="checkbox" class="exch-filter-cb" value="${ex.name}" ${checked?'checked':''} style="accent-color:var(--yellow)"> ${ex.name} <span style="color:var(--text-dim)">(${ex.count}명)</span>`;
-    opts.appendChild(lbl);
+  bar.innerHTML='<span style="font-size:10px;color:var(--text-dim);white-space:nowrap">거래소 필터:</span>';
+  Object.entries(exchCount).sort((a,b)=>b[1]-a[1]).forEach(([ex,cnt])=>{
+    const btn=document.createElement('button');
+    btn.className='btn-sm';
+    btn.textContent=`${ex} (${cnt})`;
+    btn.dataset.ex=ex;
+    btn.style.cssText='border-color:var(--border2);color:var(--text-dim)';
+    btn.onclick=()=>toggleExchFilter(ex,btn);
+    bar.appendChild(btn);
   });
-
-  panel.style.display='block';
+  bar.style.display='flex';
 }
 
-function selectAllExchFilter(all){
-  document.querySelectorAll('.exch-filter-cb').forEach(cb=>cb.checked=all);
-}
-
-function applyExchFilter(){
-  const checked=[...document.querySelectorAll('.exch-filter-cb:checked')].map(cb=>cb.value);
-  const total=[...document.querySelectorAll('.exch-filter-cb')].length;
-  _exchFilterSelected=new Set(checked);
-
-  // 전체 선택이면 필터 해제
-  if(checked.length===0||checked.length===total){
-    _exchFilterActive=false;_exchFilterSelected=new Set();
-    document.getElementById('filterNote').style.display='none';
-    document.getElementById('filterResetBtn').style.display='none';
-    document.getElementById('filterExchBtn').style.display='';
+function toggleExchFilter(ex,btn){
+  if(_activeExchFilters.has(ex)){
+    _activeExchFilters.delete(ex);
+    btn.style.cssText='border-color:var(--border2);color:var(--text-dim)';
   }else{
-    _exchFilterActive=true;
-    const note=document.getElementById('filterNote');
-    note.style.display='block';
-    note.textContent=`🏦 필터: ${checked.join(', ')}`;
-    document.getElementById('filterResetBtn').style.display='';
-    document.getElementById('filterExchBtn').style.display='none';
+    _activeExchFilters.add(ex);
+    btn.style.cssText='border-color:var(--yellow);color:var(--yellow);background:rgba(245,200,66,.08)';
   }
-  document.getElementById('exchFilterPanel').style.display='none';
+  const filterResetBtn=document.getElementById('filterResetBtn');
+  filterResetBtn.style.display=_activeExchFilters.size>0?'':'none';
   updateTable('personal');
 }
 
 function setPersonalFilter(on){
   if(!on){
-    _exchFilterActive=false;_exchFilterSelected=new Set();
-    document.getElementById('filterExchBtn').style.display='';
+    _activeExchFilters=new Set();
     document.getElementById('filterResetBtn').style.display='none';
     document.getElementById('filterNote').style.display='none';
-    document.getElementById('exchFilterPanel').style.display='none';
+    // 모든 토글 버튼 비활성화
+    document.querySelectorAll('#exchToggleBar button').forEach(btn=>{
+      btn.style.cssText='border-color:var(--border2);color:var(--text-dim)';
+    });
     updateTable('personal');
   }
 }
@@ -755,7 +730,9 @@ async function startAnalysis(phase1Only=false){
   const useApi=document.getElementById('useApiToggle')?.checked!==false;
   _running=true;_deposits={};_personal={};_exchWallets={};_personalFilterMode=false;
   _hiddenPersonal=new Set();_hiddenExchWallets=new Set();_sortMode='recent';
-  _exchFilterActive=false;_exchFilterSelected=new Set();
+  _activeExchFilters=new Set();
+  document.getElementById('exchToggleBar').style.display='none';
+  document.getElementById('exchToggleBar').innerHTML='';
   const sortBtn=document.getElementById('sortModeBtn');
   if(sortBtn)sortBtn.textContent='🕐 최근사용순';
   const filterNote=document.getElementById('filterNote');
@@ -1119,6 +1096,7 @@ async function startAnalysis(phase1Only=false){
       currentPersonal=nextPersonal;
     }
     log(`\n분석 완료  |  Credit: ${_client.creditUsed.toLocaleString()}`,'done');
+    buildExchToggleBar();
   }catch(e){
     if(!e.message?.includes('Credit 한도'))log(`\n❌ 오류: ${e.message}`,'error');
   }finally{
@@ -1194,14 +1172,17 @@ function updateTable(type){
     let items=Object.values(_personal);
     // 정렬: 최근사용순 or TX건수순
     items.sort((a,b)=>_sortMode==='recent'?(b.last_tx||0)-(a.last_tx||0)||b.tx_cnt-a.tx_cnt:b.tx_cnt-a.tx_cnt||(b.last_tx||0)-(a.last_tx||0));
-    if(_personalFilterMode||_exchFilterActive){
-      if(_exchFilterActive&&_exchFilterSelected.size>0){
-        items=items.filter(p=>_exchFilterSelected.has(p.via_exchange||'알 수 없음'));
-      }
+    if(_personalFilterMode){
+      const ewDepAddrs=new Set(Object.values(_exchWallets).map(ew=>ew.via_deposit));
+      items=items.filter(p=>ewDepAddrs.has(p.via_deposit));
+    }
+    if(_activeExchFilters.size>0){
+      items=items.filter(p=>_activeExchFilters.has(p.via_exchange||'기타'));
     }
     const total=Object.keys(_personal).length;
     const hiddenCnt=_hiddenPersonal.size;
-    document.getElementById('perCount').textContent=_exchFilterActive?`${items.length}/${total}`:total+(hiddenCnt?` (-${hiddenCnt})`:'');
+    const isFiltered=_personalFilterMode||_activeExchFilters.size>0;
+    document.getElementById('perCount').textContent=isFiltered?`${items.length}/${total}`:total+(hiddenCnt?` (-${hiddenCnt})`:'' );
     if(!items.length){document.getElementById('personalBody').innerHTML='<tr><td colspan="8" class="empty-state"><div class="icon">👤</div>개인 지갑이 없습니다</td></tr>';return;}
     document.getElementById('personalBody').innerHTML=items.map((item,i)=>{
       const hidden=_hiddenPersonal.has(item.address);
