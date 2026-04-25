@@ -365,6 +365,24 @@ async function handleFileChange(event,id){
   try{
     entry.csvRows=await parseZipOrCSV(file);
     statusEl.textContent=`✅ ${file.name} (${entry.csvRows.length}행)`;
+
+    // 시드 주소 자동 감지: fromAddress 빈도 최다 주소
+    if(!entry.address.trim()&&entry.csvRows.length>0){
+      const freq={};
+      for(const r of entry.csvRows){
+        const fr=(r.fromAddress||'').toLowerCase();
+        if(fr&&fr.startsWith('0x'))freq[fr]=(freq[fr]||0)+1;
+      }
+      const detected=Object.entries(freq).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
+      if(detected){
+        entry.address=detected;
+        // 원본 케이스로 복원 (첫 행에서)
+        const orig=entry.csvRows.find(r=>r.fromAddress?.toLowerCase()===detected)?.fromAddress||detected;
+        entry.address=orig.toLowerCase();
+        renderWalletList();
+        statusEl.textContent=`✅ ${file.name} (${entry.csvRows.length}행) · 주소 자동감지`;
+      }
+    }
   }catch(e){
     statusEl.textContent=`❌ ${e.message}`;
   }
@@ -650,8 +668,16 @@ function setPersonalFilter(on){
 async function startAnalysis(phase1Only=false){
   const apiKey=document.getElementById('apiKey').value.trim();
   if(!apiKey){alert('Surf API Key를 입력하세요.');return;}
-  const valid=walletEntries.filter(e=>e.address.trim()&&e.csvRows.length>0);
-  if(!valid.length){alert('지갑 주소와 Arkham CSV ZIP 파일을 하나 이상 등록하세요.');return;}
+  const valid=walletEntries.filter(e=>e.csvRows.length>0);
+  if(!valid.length){alert('Arkham CSV ZIP 파일을 하나 이상 등록하세요.');return;}
+  // 주소 미입력 시 CSV에서 자동감지된 주소 사용
+  for(const e of valid){
+    if(!e.address.trim()&&e.csvRows.length>0){
+      const freq={};
+      for(const r of e.csvRows){const fr=(r.fromAddress||'').toLowerCase();if(fr?.startsWith('0x'))freq[fr]=(freq[fr]||0)+1;}
+      e.address=Object.entries(freq).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
+    }
+  }
   const maxCredit=parseInt(document.getElementById('maxCredit').value)||100;
   const maxDepth=parseInt(document.getElementById('depth').value)||2;
   const yearFilter=document.getElementById('yearFilter').value;
