@@ -757,6 +757,17 @@ async function startAnalysis(phase1Only=false){
     const hasDepositCSV=allDepositRows.length>0;
     if(hasDepositCSV)log(`📂 입금주소 CSV ${allDepositRows.length}행 로드됨 (Surf 크레딧 절약 모드)`,'deposit');
 
+    // 개인지갑별 최신 TX 타임스탬프 사전 계산 (전체 입금주소 CSV 기준)
+    const lastTxMap={};
+    for(const r of allDepositRows){
+      const fr=(r.fromAddress||'').toLowerCase();
+      if(!fr)continue;
+      const raw=r.blockTimestamp||r.block_timestamp||'';
+      if(!raw)continue;
+      const t=new Date(raw).getTime();
+      if(t&&t>(lastTxMap[fr]||0))lastTxMap[fr]=t;
+    }
+
     // 공통 포이즈닝 필터
     function applyPoison(cands){
       const ck=a=>a.slice(2,6)+'|'+a.slice(-6);
@@ -815,7 +826,7 @@ async function startAnalysis(phase1Only=false){
             const frRows=allDepositRows.filter(r=>r.fromAddress?.toLowerCase()===fr&&r.toAddress?.toLowerCase()===depAddr);
             const chainFromCSV=frRows[0]?.chain||'unknown';
             const mappedChain=CHAIN_MAP[chainFromCSV]||chainFromCSV;
-            const lastTx=frRows.reduce((mx,r)=>{const t=r.blockTimestamp?new Date(r.blockTimestamp).getTime()||0:0;return t>mx?t:mx;},0);
+            const lastTx=lastTxMap[fr]||0;
             if(isExchangeWallet(item)){registerExchWallet(fr,item,mappedChain,sc[fr],depAddr,depInfo.entity_name,1);added++;continue;}
             if(!isPersonalWallet(item))continue;
             registerPersonal(fr,item,mappedChain,sc[fr],depAddr,depInfo.entity_name,1,lastTx);
@@ -863,7 +874,7 @@ async function startAnalysis(phase1Only=false){
             let item=flMap[fr]||{};
             const dbEntry=_labelDB[fr];if(dbEntry)item={...item,...dbEntry};
             const frTxs=filtered.filter(tx=>(tx.from_address||tx.from||'').toLowerCase()===fr);
-            const lastTx=frTxs.reduce((mx,tx)=>{const t=tx.timestamp?tx.timestamp*1000:0;return t>mx?t:mx;},0);
+            const lastTx=lastTxMap[fr]||frTxs.reduce((mx,tx)=>{const t=tx.timestamp?tx.timestamp*1000:0;return t>mx?t:mx;},0);
             if(isExchangeWallet(item)){registerExchWallet(fr,item,chain,sc[fr],depAddr,depInfo.entity_name,1);added++;continue;}
             if(!isPersonalWallet(item))continue;
             registerPersonal(fr,item,chain,sc[fr],depAddr,depInfo.entity_name,1,lastTx);
