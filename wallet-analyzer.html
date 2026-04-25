@@ -232,10 +232,12 @@ input[type=range]{width:100%;accent-color:var(--accent)}
         <button class="btn-sm" onclick="downloadTXT('personal')">TXT 저장</button>
         <button class="btn-sm" id="filterExchBtn" onclick="setPersonalFilter(true)" style="border-color:var(--yellow);color:var(--yellow)">🔗 거래소지갑 연관 필터</button>
         <button class="btn-sm" id="filterResetBtn" onclick="setPersonalFilter(false)" style="display:none">↺ 전체 보기</button>
+        <button class="btn-sm" id="sortModeBtn" onclick="toggleSortMode()" title="정렬 방식 전환">🕐 최근사용순</button>
+        <button class="btn-sm" onclick="resetHidden('personal')" style="border-color:var(--text-dim);color:var(--text-dim)">☑ 체크박스 리셋</button>
       </div>
       <div id="filterNote" style="display:none;padding:4px 10px 0;font-size:10px;color:var(--yellow);font-family:var(--mono)"></div>
       <table class="result-table">
-        <thead><tr><th style="width:28px"></th><th>#</th><th>주소</th><th>라벨</th><th>체인</th><th>Depth</th><th>TX건수</th><th>Arkham</th></tr></thead>
+        <thead><tr><th style="width:28px"></th><th>#</th><th>주소</th><th>라벨</th><th>체인</th><th title="역추적 단계&#10;Depth 1: 거래소 입금 주소에 직접 송금한 지갑&#10;Depth 2: Depth 1 지갑에 송금한 지갑&#10;숫자가 클수록 시드 지갑과 간접적 연결" style="cursor:help;border-bottom:1px dashed var(--text-dim)">Depth ❓</th><th>TX건수</th><th>Arkham</th></tr></thead>
         <tbody id="personalBody"><tr><td colspan="8" class="empty-state"><div class="icon">👤</div>개인 지갑이 없습니다</td></tr></tbody>
       </table>
     </div>
@@ -245,6 +247,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="result-toolbar">
         <button class="btn-sm" onclick="downloadCSV('exchwallets')">CSV 저장</button>
         <button class="btn-sm" onclick="downloadTXT('exchwallets')">TXT 저장</button>
+        <button class="btn-sm" onclick="resetHidden('exchwallets')" style="border-color:var(--text-dim);color:var(--text-dim)">☑ 체크박스 리셋</button>
         <span style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-left:4px">거래소 핫/콜드월렛 · CEX 지갑</span>
       </div>
       <table class="result-table">
@@ -571,7 +574,20 @@ function filterDate(txs,cutoff){
 // ── 상태 ──
 let _running=false,_client=null,_deposits={},_personal={},_exchWallets={},_personalFilterMode=false;
 let _hiddenPersonal=new Set(),_hiddenExchWallets=new Set();
-let _labelDB={};  // address(lower) → {entity_name, entity_type}
+let _labelDB={};
+let _sortMode='recent'; // 'recent' | 'txcnt'
+
+function resetHidden(type){
+  if(type==='personal'){_hiddenPersonal=new Set();updateTable('personal');}
+  else{_hiddenExchWallets=new Set();updateTable('exchwallets');}
+}
+
+function toggleSortMode(){
+  _sortMode=_sortMode==='recent'?'txcnt':'recent';
+  const btn=document.getElementById('sortModeBtn');
+  if(btn)btn.textContent=_sortMode==='recent'?'🕐 최근사용순':'🔢 TX건수순';
+  updateTable('personal');
+}  // address(lower) → {entity_name, entity_type}
 
 function loadLabelDB(event){
   const file=event.target.files[0];if(!file)return;
@@ -643,7 +659,9 @@ async function startAnalysis(phase1Only=false){
   const chains=[...document.querySelectorAll('#chainGrid input:checked')].map(c=>c.value);
   const useApi=document.getElementById('useApiToggle')?.checked!==false;
   _running=true;_deposits={};_personal={};_exchWallets={};_personalFilterMode=false;
-  _hiddenPersonal=new Set();_hiddenExchWallets=new Set();
+  _hiddenPersonal=new Set();_hiddenExchWallets=new Set();_sortMode='recent';
+  const sortBtn=document.getElementById('sortModeBtn');
+  if(sortBtn)sortBtn.textContent='🕐 최근사용순';
   const filterNote=document.getElementById('filterNote');
   if(filterNote)filterNote.style.display='none';
   const filterResetBtn=document.getElementById('filterResetBtn');
@@ -1025,8 +1043,8 @@ function updateTable(type){
     `).join('');
   }else if(type==='personal'){
     let items=Object.values(_personal);
-    // 최근 사용순 정렬 (last_tx 내림차순, 없으면 tx_cnt)
-    items.sort((a,b)=>(b.last_tx||0)-(a.last_tx||0)||b.tx_cnt-a.tx_cnt);
+    // 정렬: 최근사용순 or TX건수순
+    items.sort((a,b)=>_sortMode==='recent'?(b.last_tx||0)-(a.last_tx||0)||b.tx_cnt-a.tx_cnt:b.tx_cnt-a.tx_cnt||(b.last_tx||0)-(a.last_tx||0));
     if(_personalFilterMode){
       const ewDepAddrs=new Set(Object.values(_exchWallets).map(ew=>ew.via_deposit));
       items=items.filter(p=>ewDepAddrs.has(p.via_deposit));
@@ -1085,10 +1103,11 @@ function ts(){return new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);}
 function dlFile(content,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();}
 function downloadTXT(type){
   const ARKHAM='https://intel.arkm.com/explorer/address/';
-  let lines=[],items=[];
+  let items=[];
   if(type==='deposits') items=Object.values(_deposits);
-  else if(type==='personal') items=Object.values(_personal);
-  else if(type==='exchwallets') items=Object.values(_exchWallets);
+  else if(type==='personal') items=Object.values(_personal).filter(p=>!_hiddenPersonal.has(p.address));
+  else if(type==='exchwallets') items=Object.values(_exchWallets).filter(w=>!_hiddenExchWallets.has(w.address));
+  const lines=[];
   items.forEach(p=>{lines.push(p.address);lines.push(ARKHAM+p.address);lines.push('');});
   dlFile(lines.join('\n'),`${type}_${ts()}.txt`,'text/plain');
 }
@@ -1097,20 +1116,31 @@ function downloadCSV(type){
     const rows=Object.values(_deposits).map(d=>`${d.address},${d.entity_name},"${(d.chains||[]).join('|')}",${d.tx_cnt||''},${d.source||''}`);
     dlFile(['address,entity_name,chains,tx_cnt,source',...rows].join('\n'),`deposits_${ts()}.csv`,'text/csv');
   }else if(type==='personal'){
-    const rows=Object.values(_personal).map(p=>`${p.address},${p.entity_name||''},${p.entity_type||''},${p.chain},${p.depth},${p.tx_cnt||''},${p.via_exchange||''}`);
+    const items=Object.values(_personal).filter(p=>!_hiddenPersonal.has(p.address));
+    const rows=items.map(p=>`${p.address},${p.entity_name||''},${p.entity_type||''},${p.chain},${p.depth},${p.tx_cnt||''},${p.via_exchange||''}`);
     dlFile(['address,entity_name,entity_type,chain,depth,tx_cnt,via_exchange',...rows].join('\n'),`personal_${ts()}.csv`,'text/csv');
+  }else if(type==='exchwallets'){
+    const items=Object.values(_exchWallets).filter(w=>!_hiddenExchWallets.has(w.address));
+    const rows=items.map(w=>`${w.address},${w.entity_name||''},${w.entity_type||''},${w.chain},${w.tx_cnt||''},${w.via_exchange||''}`);
+    dlFile(['address,entity_name,entity_type,chain,tx_cnt,via_exchange',...rows].join('\n'),`exchwallets_${ts()}.csv`,'text/csv');
   }else{
     const dRows=Object.values(_deposits).map(d=>`${d.address},${d.entity_name},"${(d.chains||[]).join('|')}",${d.tx_cnt||''},${d.source||''}`);
-    const pRows=Object.values(_personal).map(p=>`${p.address},${p.entity_name||''},${p.entity_type||''},${p.chain},${p.depth},${p.tx_cnt||''},${p.via_exchange||''}`);
-    dlFile(['# 거래소 입금 주소','address,entity_name,chains,tx_cnt,source',...dRows,'','# 개인 지갑','address,entity_name,entity_type,chain,depth,tx_cnt,via_exchange',...pRows].join('\n'),`all_${ts()}.csv`,'text/csv');
+    const pRows=Object.values(_personal).filter(p=>!_hiddenPersonal.has(p.address)).map(p=>`${p.address},${p.entity_name||''},${p.entity_type||''},${p.chain},${p.depth},${p.tx_cnt||''},${p.via_exchange||''}`);
+    const eRows=Object.values(_exchWallets).filter(w=>!_hiddenExchWallets.has(w.address)).map(w=>`${w.address},${w.entity_name||''},${w.entity_type||''},${w.chain},${w.tx_cnt||''},${w.via_exchange||''}`);
+    dlFile(['# 거래소 입금 주소','address,entity_name,chains,tx_cnt,source',...dRows,'','# 개인 지갑','address,entity_name,entity_type,chain,depth,tx_cnt,via_exchange',...pRows,'','# 거래소 지갑','address,entity_name,entity_type,chain,tx_cnt,via_exchange',...eRows].join('\n'),`all_${ts()}.csv`,'text/csv');
   }
 }
 function downloadJSON(type){
-  const data=type==='deposits'?Object.values(_deposits):Object.values(_personal);
+  let data;
+  if(type==='deposits') data=Object.values(_deposits);
+  else if(type==='personal') data=Object.values(_personal).filter(p=>!_hiddenPersonal.has(p.address));
+  else data=Object.values(_exchWallets).filter(w=>!_hiddenExchWallets.has(w.address));
   dlFile(JSON.stringify(data,null,2),`${type}_${ts()}.json`,'application/json');
 }
 function downloadAll(){
-  dlFile(JSON.stringify({meta:{timestamp:new Date().toISOString(),credit_used:_client?.creditUsed||0},exchange_deposits:Object.values(_deposits),personal_wallets:Object.values(_personal),exchange_wallets:Object.values(_exchWallets)},null,2),`full_result_${ts()}.json`,'application/json');
+  const personal=Object.values(_personal).filter(p=>!_hiddenPersonal.has(p.address));
+  const exchWallets=Object.values(_exchWallets).filter(w=>!_hiddenExchWallets.has(w.address));
+  dlFile(JSON.stringify({meta:{timestamp:new Date().toISOString(),credit_used:_client?.creditUsed||0},exchange_deposits:Object.values(_deposits),personal_wallets:personal,exchange_wallets:exchWallets},null,2),`full_result_${ts()}.json`,'application/json');
 }
 function downloadDiagLog(){
   const t=document.getElementById('terminal');
