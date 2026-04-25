@@ -291,8 +291,8 @@ function isNullAddr(a){return!a||a===CHAIN_NULL_ADDR;}
 // Returns: 'personal' | 'exch_wallet' | 'cex_deposit' | 'skip'
 // ═══════════════════════════════════════════════════════
 const PAT={
-  EXCLUDE:/rhinofi|relay\.link|megaeth|paxos|yeet\.com|pre.?deposit|dvf|disperse|peg|concrete|wormhole|stargate|layerzero|axelar|router|aggregator|uniswap|pancake|sushi|1inch|paraswap|dex.?router|amm|proxy/i,
-  CEX:/\b(binance|coinbase|kraken|okx|bybit|gate\.io|gate |kucoin|bitget|htx|mexc|upbit|bithumb|huobi|gemini|bitfinex|bitstamp|korbit|gopax|reku|cryptomus|btc.?markets|coins\.ph|phemex|wazirx)\b/i,
+  EXCLUDE:/rhinofi|relay\.link|megaeth|paxos|yeet\.com|depositor|pre.?deposit|dvf|disperse|peg|concrete|wormhole|stargate|layerzero|axelar|router|aggregator|uniswap|pancake|sushi|1inch|paraswap|dex.?router|amm|proxy/i,
+  CEX:/\b(binance|coinbase|kraken|okx|bybit|gate\.io|gate|kucoin|bitget|htx|mexc|upbit|bithumb|huobi|gemini|bitfinex|bitstamp|korbit|gopax|reku|cryptomus|btc.?markets|coins\.ph|phemex|wazirx)\b/i,
   EXCH_WALLET:/hot.?wallet|cold.?wallet|fund|treasury|reserve|omnibus|multisig|warm.?wallet/i,
   CONTRACT:/contract|proxy|fund|bridge|router|dex|staking|vault|pool/i,
   NON_PERSONAL:new Set(['exchange','cex','cex_deposit','contract','proxy','fund','dex','bridge','router','misc','stablecoin'])
