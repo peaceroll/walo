@@ -231,12 +231,12 @@ input[type=range]{width:100%;accent-color:var(--accent)}
         <button class="btn-sm" onclick="downloadCSV('personal')">CSV 저장</button>
         <button class="btn-sm" onclick="downloadJSON('personal')">JSON 저장</button>
         <button class="btn-sm" onclick="downloadTXT('personal')">TXT 저장</button>
-        <button class="btn-sm" id="filterResetBtn" onclick="setPersonalFilter(false)" style="display:none;border-color:var(--text-dim);color:var(--text-dim)">↺ 전체 보기</button>
+        <button class="btn-sm" id="filterResetBtn" onclick="resetExchFilter()" style="display:none;border-color:var(--accent-dim);color:var(--accent)">↺ 전체 보기</button>
         <button class="btn-sm" id="sortModeBtn" onclick="toggleSortMode()" title="정렬 방식 전환">🕐 최근사용순</button>
         <button class="btn-sm" onclick="resetHidden('personal')" style="border-color:var(--text-dim);color:var(--text-dim)">☑ 체크박스 리셋</button>
       </div>
-      <div id="exchToggleBar" style="display:none;padding:4px 10px 6px;gap:6px;flex-wrap:wrap;align-items:center"></div>
-      <div id="filterNote" style="display:none;padding:2px 10px 4px;font-size:10px;color:var(--yellow);font-family:var(--mono)"></div>
+      <div id="exchToggleBar" style="display:none;padding:4px 10px 6px;gap:6px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--border)"></div>
+      <div id="filterNote" style="display:none;padding:2px 10px 4px;font-size:10px;color:var(--accent);font-family:var(--mono)"></div>
       <table class="result-table">
         <thead><tr><th style="width:28px"></th><th>#</th><th>주소</th><th>라벨</th><th>체인</th><th title="역추적 단계&#10;Depth 1: 거래소 입금 주소에 직접 송금한 지갑&#10;Depth 2: Depth 1 지갑에 송금한 지갑&#10;숫자가 클수록 시드 지갑과 간접적 연결" style="cursor:help;border-bottom:1px dashed var(--text-dim)">Depth ❓</th><th>TX건수</th><th>Arkham</th></tr></thead>
         <tbody id="personalBody"><tr><td colspan="8" class="empty-state"><div class="icon">👤</div>개인 지갑이 없습니다</td></tr></tbody>
@@ -657,55 +657,79 @@ function toggleHide(type,addr){
   }
 }
 
-let _activeExchFilters=new Set(); // 활성 거래소 필터 (비어있으면 전체)
+let _activeExchFilters=new Set();
 
 function buildExchToggleBar(){
-  // 개인지갑의 via_exchange 기준 거래소 목록 생성
+  const bar=document.getElementById('exchToggleBar');
   const exchCount={};
   for(const p of Object.values(_personal)){
     const ex=p.via_exchange||'기타';
     exchCount[ex]=(exchCount[ex]||0)+1;
   }
-  const bar=document.getElementById('exchToggleBar');
   if(!Object.keys(exchCount).length){bar.style.display='none';return;}
-
-  bar.innerHTML='<span style="font-size:10px;color:var(--text-dim);white-space:nowrap">거래소 필터:</span>';
+  bar.innerHTML='<span style="font-size:10px;color:var(--text-dim);white-space:nowrap;align-self:center">거래소 필터:</span>';
   Object.entries(exchCount).sort((a,b)=>b[1]-a[1]).forEach(([ex,cnt])=>{
     const btn=document.createElement('button');
-    btn.className='btn-sm';
-    btn.textContent=`${ex} (${cnt})`;
-    btn.dataset.ex=ex;
-    btn.style.cssText='border-color:var(--border2);color:var(--text-dim)';
+    btn.className='btn-sm';btn.textContent=`${ex} (${cnt})`;btn.dataset.ex=ex;
     btn.onclick=()=>toggleExchFilter(ex,btn);
     bar.appendChild(btn);
   });
+  // 제거 버튼 (필터 선택 후 나머지 숨김)
+  const removeBtn=document.createElement('button');
+  removeBtn.id='removeNonFilterBtn';
+  removeBtn.className='btn-sm';
+  removeBtn.textContent='🗑 필터 외 제거';
+  removeBtn.style.cssText='display:none;border-color:var(--red);color:var(--red)';
+  removeBtn.onclick=removeNonFiltered;
+  bar.appendChild(removeBtn);
   bar.style.display='flex';
 }
 
 function toggleExchFilter(ex,btn){
   if(_activeExchFilters.has(ex)){
     _activeExchFilters.delete(ex);
-    btn.style.cssText='border-color:var(--border2);color:var(--text-dim)';
+    btn.style.borderColor='';btn.style.color='';btn.style.background='';
   }else{
     _activeExchFilters.add(ex);
-    btn.style.cssText='border-color:var(--yellow);color:var(--yellow);background:rgba(245,200,66,.08)';
+    btn.style.borderColor='var(--yellow)';btn.style.color='var(--yellow)';btn.style.background='rgba(245,200,66,.08)';
   }
-  const filterResetBtn=document.getElementById('filterResetBtn');
-  filterResetBtn.style.display=_activeExchFilters.size>0?'':'none';
+  const hasFilter=_activeExchFilters.size>0;
+  document.getElementById('filterResetBtn').style.display=hasFilter?'':'none';
+  const removeBtn=document.getElementById('removeNonFilterBtn');
+  if(removeBtn)removeBtn.style.display=hasFilter?'':'none';
+  const note=document.getElementById('filterNote');
+  if(hasFilter){
+    note.style.display='block';
+    note.textContent=`필터 적용 중: ${[..._activeExchFilters].join(', ')}`;
+  }else{note.style.display='none';}
+  updateTable('personal');
+}
+
+function removeNonFiltered(){
+  if(_activeExchFilters.size===0)return;
+  // 필터에 없는 항목을 hiddenPersonal에 추가 (체크박스 해제)
+  for(const p of Object.values(_personal)){
+    const ex=p.via_exchange||'기타';
+    if(!_activeExchFilters.has(ex))_hiddenPersonal.add(p.address);
+  }
+  // 필터 해제 후 전체 표시 (이제 체크박스로 관리)
+  resetExchFilter();
+}
+
+function resetExchFilter(){
+  _activeExchFilters=new Set();
+  document.getElementById('filterResetBtn').style.display='none';
+  document.getElementById('filterNote').style.display='none';
+  const removeBtn=document.getElementById('removeNonFilterBtn');
+  if(removeBtn)removeBtn.style.display='none';
+  document.querySelectorAll('#exchToggleBar button[data-ex]').forEach(btn=>{
+    btn.style.borderColor='';btn.style.color='';btn.style.background='';
+  });
   updateTable('personal');
 }
 
 function setPersonalFilter(on){
-  if(!on){
-    _activeExchFilters=new Set();
-    document.getElementById('filterResetBtn').style.display='none';
-    document.getElementById('filterNote').style.display='none';
-    // 모든 토글 버튼 비활성화
-    document.querySelectorAll('#exchToggleBar button').forEach(btn=>{
-      btn.style.cssText='border-color:var(--border2);color:var(--text-dim)';
-    });
-    updateTable('personal');
-  }
+  if(!on)resetExchFilter();
 }
 
 // ── 분석 시작 ──
@@ -731,8 +755,9 @@ async function startAnalysis(phase1Only=false){
   _running=true;_deposits={};_personal={};_exchWallets={};_personalFilterMode=false;
   _hiddenPersonal=new Set();_hiddenExchWallets=new Set();_sortMode='recent';
   _activeExchFilters=new Set();
-  document.getElementById('exchToggleBar').style.display='none';
-  document.getElementById('exchToggleBar').innerHTML='';
+  const bar=document.getElementById('exchToggleBar');if(bar){bar.style.display='none';bar.innerHTML='';}
+  document.getElementById('filterNote').style.display='none';
+  document.getElementById('filterResetBtn').style.display='none';
   const sortBtn=document.getElementById('sortModeBtn');
   if(sortBtn)sortBtn.textContent='🕐 최근사용순';
   const filterNote=document.getElementById('filterNote');
@@ -814,6 +839,7 @@ async function startAnalysis(phase1Only=false){
     if(phase1Only){
       log('\n📂 Phase 1 전용 모드 — Surf API 역추적 생략','header');
       log(`분석 완료  |  Credit: ${_client.creditUsed.toLocaleString()}`,'done');
+      buildExchToggleBar();
       return;
     }
 
@@ -1096,9 +1122,9 @@ async function startAnalysis(phase1Only=false){
       currentPersonal=nextPersonal;
     }
     log(`\n분석 완료  |  Credit: ${_client.creditUsed.toLocaleString()}`,'done');
-    buildExchToggleBar();
   }catch(e){
     if(!e.message?.includes('Credit 한도'))log(`\n❌ 오류: ${e.message}`,'error');
+    else log(`\n⚠ ${e.message}`,'warn');
   }finally{
     _running=false;
     document.getElementById('startBtn').disabled=false;
@@ -1108,6 +1134,7 @@ async function startAnalysis(phase1Only=false){
     document.getElementById('spinner').style.borderTopColor='var(--accent-dim)';
     setPhase('완료','');
     updateProgress();
+    buildExchToggleBar();
   }
 }
 
