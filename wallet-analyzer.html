@@ -757,15 +757,20 @@ async function startAnalysis(phase1Only=false){
     const hasDepositCSV=allDepositRows.length>0;
     if(hasDepositCSV)log(`📂 입금주소 CSV ${allDepositRows.length}행 로드됨 (Surf 크레딧 절약 모드)`,'deposit');
 
-    // 개인지갑별 최신 TX 타임스탬프 사전 계산 (전체 입금주소 CSV 기준)
+    // 개인지갑별 최신 TX 타임스탬프 사전 계산
+    // 씨드 CSV(시드지갑 전체 내역) + 입금주소 CSV 양쪽, fromAddress·toAddress 모두 스캔
     const lastTxMap={};
-    for(const r of allDepositRows){
+    const allSeedRows=valid.flatMap(e=>e.csvRows||[]);
+    const allScanRows=[...allSeedRows,...allDepositRows];
+    for(const r of allScanRows){
       const fr=(r.fromAddress||'').toLowerCase();
-      if(!fr)continue;
+      const to=(r.toAddress||'').toLowerCase();
       const raw=r.blockTimestamp||r.block_timestamp||'';
       if(!raw)continue;
       const t=new Date(raw).getTime();
-      if(t&&t>(lastTxMap[fr]||0))lastTxMap[fr]=t;
+      if(!t)continue;
+      if(fr&&t>(lastTxMap[fr]||0))lastTxMap[fr]=t;
+      if(to&&t>(lastTxMap[to]||0))lastTxMap[to]=t;
     }
 
     // 공통 포이즈닝 필터
@@ -891,6 +896,41 @@ async function startAnalysis(phase1Only=false){
       }
     }
     log(`\n✅ Depth 1 완료  |  개인: ${Object.keys(_personal).length}  |  Credit: ${_client.creditUsed}`,'done');
+
+    // ── Phase 2.5: 개인지갑 실제 최신 TX 조회 (Surf API) ──
+    if(useApi&&Object.keys(_personal).length>0){
+      log('');
+      log('─'.repeat(44),'header');
+      log('Phase 2.5: 개인지갑 최신 TX 조회 (실제 사용일)','header');setPhase('Phase 2.5: 최신 TX');
+      log('─'.repeat(44),'header');
+      const personalList=Object.values(_personal);
+      log(`  ${personalList.length}개 지갑 조회 (각 1 credit)`);
+      for(const p of personalList){
+        if(!_running)break;
+        if(!chains.includes(p.chain))continue;
+        try{
+          // limit=5로 최근 TX만 가져와 최신 타임스탬프 추출
+          const url=`/wallet/transfers?address=${p.address}&chain=${p.chain}&flow=out&limit=5&include=labels`;
+          const data=await _client._req('GET',url);
+          const txs=Array.isArray(data)?data:(data?.transfers||data?.data||[]);
+          if(txs.length){
+            const latest=txs.reduce((mx,tx)=>{
+              const t=tx.timestamp?tx.timestamp*1000:0;
+              return t>mx?t:mx;
+            },0);
+            if(latest>0&&latest>(_personal[p.address]?.last_tx||0)){
+              _personal[p.address].last_tx=latest;
+              log(`  ✅ ${p.address.slice(0,16)}… → ${new Date(latest).toLocaleDateString('ko-KR',{year:'2-digit',month:'numeric',day:'numeric'})}`);
+            }
+          }
+        }catch(e){
+          if(e.message?.includes('Credit 한도'))throw e;
+          // 조회 실패는 무시 (기존 lastTx 유지)
+        }
+      }
+      updateTable('personal');
+      log(`\n✅ Phase 2.5 완료  |  Credit: ${_client.creditUsed}`,'done');
+    }
 
     // Depth 2+: 개인지갑의 아웃고잉에서 추가 입금 주소 탐색 → 인바운드
     for(let d=1;d<maxDepth;d++){
