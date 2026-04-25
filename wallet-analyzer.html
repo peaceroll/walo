@@ -146,6 +146,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
         <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px"><input type="checkbox" value="bsc" checked> bsc</label>
         <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px"><input type="checkbox" value="arbitrum" checked> arbitrum</label>
         <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px"><input type="checkbox" value="ethereum" checked> ethereum</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px"><input type="checkbox" value="solana" checked> solana</label>
       </div>
     </div>
     <div class="field">
@@ -273,7 +274,15 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 
 <script>
 // ── 상수 ──
-const CHAIN_MAP={'base':'base','bsc':'bsc','ethereum':'ethereum','arbitrum_one':'arbitrum','arbitrum':'arbitrum','optimism':null,'polygon':null,'avalanche':null,'avalanche_c':null};
+const CHAIN_NULL_ADDR='0x0000000000000000000000000000000000000000';
+const CHAIN_MAP={'base':'base','bsc':'bsc','ethereum':'ethereum','arbitrum_one':'arbitrum','arbitrum':'arbitrum','solana':'solana','optimism':null,'polygon':null,'avalanche':null,'avalanche_c':null};
+// EVM (0x + 40 hex) 또는 Solana (base58, 32-44자) 주소 검증
+function isValidAddr(addr){
+  if(!addr)return false;
+  if(addr.startsWith('0x'))return addr.length===42;
+  return addr.length>=32&&addr.length<=44&&!/[0OIl]/.test(addr); // base58 기본 검증
+}
+function isNullAddr(addr){return!addr||addr===CHAIN_NULL_ADDR;}
 const EXCLUDE_RE=/rhinofi|relay\.link|megaeth|paxos|yeet\.com|depositor|pre.?deposit|dvf|disperse|peg|concrete|wormhole|stargate|layerzero|axelar|router|aggregator|uniswap|pancake|sushi|1inch|paraswap|dex router|amm|proxy/i;
 const NOT_PERSONAL=new Set(['exchange','cex','cex_deposit','contract','proxy','fund','dex','bridge','router','misc','stablecoin']);
 const CEX_RE=/\b(binance|coinbase|kraken|okx|bybit|gate\.io|gate |kucoin|bitget|htx|mexc|upbit|bithumb|huobi|gemini|bitfinex|bitstamp|korbit|gopax|reku|cryptomus|btc markets|coins\.ph|phemex|wazirx)\b/i;
@@ -371,7 +380,7 @@ async function handleFileChange(event,id){
       const freq={};
       for(const r of entry.csvRows){
         const fr=(r.fromAddress||'').toLowerCase();
-        if(fr&&fr.startsWith('0x'))freq[fr]=(freq[fr]||0)+1;
+        if(fr&&isValidAddr(fr))freq[fr]=(freq[fr]||0)+1;
       }
       const detected=Object.entries(freq).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
       if(detected){
@@ -465,7 +474,7 @@ function extractDepositsFromCSV(rows,seedAddr){
     const lbl=r.toLabel||'';
     const chain=r.chain||'';
     if(!isDepositLabel(lbl))continue;
-    if(!to||to==='0x0000000000000000000000000000000000000000')continue;
+    if(isNullAddr(to))continue;
     const entityName=lbl.replace(/\s*\([^)]+\)\s*$/,'').trim();
     if(!depMap.has(to))depMap.set(to,{address:to,entity_name:entityName,chains:new Set(),tx_cnt:0,source:'arkham_csv'});
     const d=depMap.get(to);
@@ -500,7 +509,7 @@ function getInboundFromCSV(depAddr,rows,cutoff){
       if(raw){try{if(new Date(String(raw).slice(0,10))<cutoff)continue;}catch{}}
     }
     const fr=(r.fromAddress||'').toLowerCase();
-    if(!fr||fr==='0x0000000000000000000000000000000000000000')continue;
+    if(isNullAddr(fr))continue;
     sc[fr]=(sc[fr]||0)+1;
     if(!flMap[fr])flMap[fr]=parseCsvLabel(r.fromLabel||'');
   }
@@ -555,7 +564,7 @@ class SurfClient{
     this._cache[key]=txs;return txs;
   }
   async labelsBatch(addresses,chain){
-    const unique=[...new Set(addresses.filter(a=>a?.startsWith('0x')))];
+    const unique=[...new Set(addresses.filter(a=>isValidAddr(a)))];
     if(!unique.length)return[];
     const out=[];
     for(let i=0;i<unique.length;i+=20){
@@ -674,7 +683,7 @@ async function startAnalysis(phase1Only=false){
   for(const e of valid){
     if(!e.address.trim()&&e.csvRows.length>0){
       const freq={};
-      for(const r of e.csvRows){const fr=(r.fromAddress||'').toLowerCase();if(fr?.startsWith('0x'))freq[fr]=(freq[fr]||0)+1;}
+      for(const r of e.csvRows){const fr=(r.fromAddress||'').toLowerCase();if(isValidAddr(fr))freq[fr]=(freq[fr]||0)+1;}
       e.address=Object.entries(freq).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
     }
   }
@@ -882,7 +891,7 @@ async function startAnalysis(phase1Only=false){
           const sc={};
           for(const tx of filtered){
             const fr=(tx.from_address||tx.from||tx.fromAddress||'').toLowerCase();
-            if(!fr||fr==='0x0000000000000000000000000000000000000000'||visited.has(fr))continue;
+            if(isNullAddr(fr)||visited.has(fr))continue;
             sc[fr]=(sc[fr]||0)+1;
           }
           const total=Object.keys(sc).length;
@@ -1024,7 +1033,7 @@ async function startAnalysis(phase1Only=false){
           const sc={};
           for(const tx of filtered){
             const fr=(tx.from_address||tx.from||tx.fromAddress||'').toLowerCase();
-            if(!fr||fr==='0x0000000000000000000000000000000000000000'||visited.has(fr))continue;
+            if(isNullAddr(fr)||visited.has(fr))continue;
             sc[fr]=(sc[fr]||0)+1;
           }
           const minTx=Object.keys(sc).length>5?2:1;
