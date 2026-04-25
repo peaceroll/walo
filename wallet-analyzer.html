@@ -874,7 +874,9 @@ async function startAnalysis(phase1Only=false){
             let item=flMap[fr]||{};
             const dbEntry=_labelDB[fr];if(dbEntry)item={...item,...dbEntry};
             const frTxs=filtered.filter(tx=>(tx.from_address||tx.from||'').toLowerCase()===fr);
-            const lastTx=lastTxMap[fr]||frTxs.reduce((mx,tx)=>{const t=tx.timestamp?tx.timestamp*1000:0;return t>mx?t:mx;},0);
+            // Surf 타임스탬프 우선 (실시간), CSV는 폴백
+            const surfLastTx=frTxs.reduce((mx,tx)=>{const t=tx.timestamp?tx.timestamp*1000:0;return t>mx?t:mx;},0);
+            const lastTx=surfLastTx||(lastTxMap[fr]||0);
             if(isExchangeWallet(item)){registerExchWallet(fr,item,chain,sc[fr],depAddr,depInfo.entity_name,1);added++;continue;}
             if(!isPersonalWallet(item))continue;
             registerPersonal(fr,item,chain,sc[fr],depAddr,depInfo.entity_name,1,lastTx);
